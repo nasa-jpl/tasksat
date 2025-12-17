@@ -10,3 +10,5 @@ TODO
 7. Scalability still remains to be tested.
 8. Greg said that maybe one exactly wants to know what MEXEC does.
 9. In the Python API one can "program" generation of tasknets, as we do with the Python API for Z3.
+10. Compared PyTasknet API with Python API to Z3
+11. Tranlator from PyTasknetworks to TaskVet
