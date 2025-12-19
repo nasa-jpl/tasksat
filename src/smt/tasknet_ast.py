@@ -136,8 +136,9 @@ class TaskDef:
     startrng: IntRange
     endrng: IntRange
     dur: int
-    start: int  
-    after: List[str]              
+    start: int
+    after: List[str]
+    containedin: List[str]
     pre: List[TlCon]
     inv: List[TlCon]
     post: List[TlCon]

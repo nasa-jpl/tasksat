@@ -25,6 +25,7 @@ reserved = {
     "duration":    "DURATION",
     "start":       "START_KW",
     "after":       "AFTER",
+    "containedin": "CONTAINEDIN",
     # task-local constraints + impacts
     "constraints": "CONSTRAINTS",
     "impacts":     "IMPACTS",
@@ -476,6 +477,7 @@ def p_task_def(p):
     dur = 0
     start = 0
     after: List[str] = []
+    containedin: List[str] = []
     pre: List[TlCon] = []
     inv: List[TlCon] = []
     post: List[TlCon] = []
@@ -496,6 +498,8 @@ def p_task_def(p):
             start = value
         elif kind == "after":
             after = value
+        elif kind == "containedin":
+            containedin = value
         elif kind == "constraints":
             pre_c, inv_c, post_c = value
             pre.extend(pre_c)
@@ -521,6 +525,7 @@ def p_task_def(p):
         dur=dur,
         start=start,
         after=after,
+        containedin=containedin,
         pre=pre,
         inv=inv,
         post=post,
@@ -571,6 +576,11 @@ def p_task_body_item_start_opt(p):
 def p_task_body_item_after(p):
     "task_body_item : task_after"
     p[0] = ("after", p[1])
+
+
+def p_task_body_item_containedin(p):
+    "task_body_item : task_containedin"
+    p[0] = ("containedin", p[1])
 
 
 def p_task_body_item_constraints_block(p):
@@ -640,6 +650,11 @@ def p_task_start_opt_empty(p):
 
 def p_task_after(p):
     "task_after : AFTER name_list SEMI"
+    p[0] = p[2]
+
+
+def p_task_containedin(p):
+    "task_containedin : CONTAINEDIN name_list SEMI"
     p[0] = p[2]
 
 

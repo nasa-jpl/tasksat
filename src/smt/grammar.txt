@@ -92,6 +92,7 @@ task_body_item :
  | task_duration
  | task_start_opt
  | task_after
+ | task_containedin
  | constraints_block
  | pre_block
  | inv_block
@@ -119,6 +120,9 @@ task_start_opt :
 
 task_after :
    AFTER name_list SEMI
+
+task_containedin :
+   CONTAINEDIN name_list SEMI
 
 name_list :
    empty

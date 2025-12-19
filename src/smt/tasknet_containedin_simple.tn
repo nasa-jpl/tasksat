@@ -1,0 +1,26 @@
+tasknet SimpleContainedIn {
+  end = 200;
+
+  timelines {
+    dummy : state(off, on) = off;
+  }
+
+  task parent_task {
+    id 1;
+    priority 1;
+    duration 100;
+
+    impacts {
+    }
+  }
+
+  task child_task {
+    id 2;
+    priority 1;
+    duration 40;
+    containedin parent_task;
+
+    impacts {
+    }
+  }
+}

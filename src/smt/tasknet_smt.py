@@ -129,6 +129,17 @@ class TaskNetSMT:
                 else:
                     self.solver.add(self.end_vars[bid] <= s)
 
+            # containedin dependencies
+            for pid in t.containedin:
+                if pid not in self.start_vars or pid not in self.end_vars:
+                    # ill-formed TaskNet — forbid
+                    self.solver.add(False)
+                else:
+                    # parent task must be active during this task's execution
+                    # parent_start <= this_start AND this_end <= parent_end
+                    self.solver.add(self.start_vars[pid] <= s)
+                    self.solver.add(e <= self.end_vars[pid])
+
         # --- All task boundaries are pairwise distinct ---
         for i in range(len(tasks)):
             ti = tasks[i]

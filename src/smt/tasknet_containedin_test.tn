@@ -1,0 +1,65 @@
+tasknet ContainedInTest {
+  end = 200;
+
+  timelines {
+    power  : state(off, on) = off;
+    sensor : state(off, on) = off;
+  }
+
+  task power_session {
+    id 1;
+    priority 1;
+    duration 100;
+    start 20;
+
+    pre {
+      power = off;
+    }
+
+    inv {
+      power = on;
+    }
+
+    post {
+      power = off;
+    }
+
+    impacts {
+      pre {
+        power = on;
+      }
+      post {
+        power = off;
+      }
+    }
+  }
+
+  task sensor_reading {
+    id 2;
+    priority 1;
+    duration 40;
+    start 50;
+    containedin power_session;
+
+    pre {
+      sensor = off;
+    }
+
+    inv {
+      sensor = on;
+    }
+
+    post {
+      sensor = off;
+    }
+
+    impacts {
+      pre {
+        sensor = on;
+      }
+      post {
+        sensor = off;
+      }
+    }
+  }
+}
