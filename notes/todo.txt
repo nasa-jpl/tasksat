@@ -1,17 +1,33 @@
 
 TODO
 
+1. Various extensions: priorities, start time preferences, contains-constraints,
+2. Task definitions versus instances (optional tasks versus mandatory tasks)
+3. Scalability still remains to be tested.
+4. Compared to PyTasknet
+5. We need to try out a real tasknet 
+
+MID TERM
+
+1. Tranlator from PyTasknetworks to TaskVet
+
+LONGER TERM
+
 1. Tiago launched the thought that one should start with PDDL 3 - if we want to go down the road of an external DSL
 2. Are we entering the planning and scheduling community - requires literature study, can we compete?
-3. Various extensions: priorities, start time preferences, contains-constraints,
-4. Task definitions versus instances (optional tasks versus mandatory tasks)
-5. Tiago said that most V&V efforts focus on the execution. where tasks can be re-arranged,
-6. We need to try out a real tasknet (I don't have access to gitlab)
-7. Scalability still remains to be tested.
-8. Greg said that maybe one exactly wants to know what MEXEC does.
-9. In the Python API one can "program" generation of tasknets, as we do with the Python API for Z3.
-10. Compared PyTasknet API with Python API to Z3
-11. Tranlator from PyTasknetworks to TaskVet
+3. Tiago said that most V&V efforts focus on the execution. where tasks can be re-arranged,
+4. Greg said that maybe one exactly wants to know what MEXEC does.
+5. In the Python API one can "program" generation of tasknets, as we do with the Python API for Z3.
+6. Compared PyTasknet API with Python API to Z3
+
+
+
+
+
+
+
+
+
 
 ---
 
