@@ -1,7 +1,9 @@
 
 TODO
 
-1. Various extensions: priorities, start time preferences, contains-constraints,
+1. Various extensions: 
+   - priorities
+   - start time preferences
 2. Task definitions versus instances (optional tasks versus mandatory tasks)
 3. Scalability still remains to be tested.
 4. Compared to PyTasknet
