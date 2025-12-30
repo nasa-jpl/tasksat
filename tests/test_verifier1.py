@@ -87,3 +87,13 @@ class TestVerifier:
             "UNSAT",
             "No valid schedule found"
         )
+
+    def test_tasknet9_instances_no_body(self):
+        """Testing instances without bodies"""
+        verify_out('tasknet9_instances.tn')(
+            "T1            : start =   79, end =   99",
+            "T2            : start =   26, end =   46",
+            "T3            : [OPTIONAL - NOT INCLUDED]",
+            "No temporal properties attached to this TaskNet."
+        )
+        

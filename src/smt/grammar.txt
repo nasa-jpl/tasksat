@@ -72,14 +72,10 @@ init_bool_opt :
 initial_block :
    INITIAL LBRACE tlcon_list RBRACE
 
-task_list :
-   empty
- | task_list task_def
- | task_def
-
 task_def :
    TASKDEF NAME LBRACE task_body_items RBRACE
  | optional_opt TASK NAME extends_opt LBRACE task_body_items RBRACE
+ | optional_opt TASK NAME extends_opt SEMI
 
 optional_opt :
    empty
@@ -90,7 +86,8 @@ extends_opt :
  | COLON NAME
 
 task_body_items :
-   task_body_item
+   empty
+ | task_body_item
  | task_body_items task_body_item
 
 task_body_item :

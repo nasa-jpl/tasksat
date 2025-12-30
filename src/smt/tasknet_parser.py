@@ -452,32 +452,25 @@ def p_initial_block(p):
 
 # ------------ tasks ------------
 
-def p_task_list_empty(p):
-    "task_list : empty"
-    p[0] = []
-
-
-def p_task_list_nonempty(p):
-    "task_list : task_list task_def"
-    p[0] = p[1] + [p[2]]
-
-
-def p_task_list_single(p):
-    "task_list : task_def"
-    p[0] = [p[1]]
-
-
 def p_task_def_taskdef(p):
     "task_def : TASKDEF NAME LBRACE task_body_items RBRACE"
     p[0] = _build_task(p[2], p[4], kind=TaskKind.DEFINITION, definition=None)
 
-def p_task_def_task(p):
+def p_task_def_task_with_body(p):
     "task_def : optional_opt TASK NAME extends_opt LBRACE task_body_items RBRACE"
     is_optional = p[1]  # True if OPTIONAL was present
     name = p[3]
     extends = p[4]  # None or definition name
     items = p[6]
+    kind = TaskKind.OPTIONAL if is_optional else TaskKind.INSTANCE
+    p[0] = _build_task(name, items, kind=kind, definition=extends)
 
+def p_task_def_task_no_body(p):
+    "task_def : optional_opt TASK NAME extends_opt SEMI"
+    is_optional = p[1]  # True if OPTIONAL was present
+    name = p[3]
+    extends = p[4]  # None or definition name
+    items = []
     kind = TaskKind.OPTIONAL if is_optional else TaskKind.INSTANCE
     p[0] = _build_task(name, items, kind=kind, definition=extends)
 
@@ -588,6 +581,11 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
         post=post,
         impacts=impacts,
     )
+
+
+def p_task_body_items_empty(p):
+    "task_body_items : empty"
+    p[0] = []
 
 
 def p_task_body_items_single(p):

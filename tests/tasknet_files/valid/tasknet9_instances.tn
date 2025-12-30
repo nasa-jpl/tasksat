@@ -1,0 +1,21 @@
+tasknet TestEmptyBody {
+  end = 100;
+
+  timelines {
+    power : state(on, off) = off;
+  }
+
+  # Task definition with body
+  taskdef BaseTask {
+    duration 20;
+  }
+
+  # Task with extends and no body - using semicolon
+  task T1 : BaseTask;
+
+  # Task with extends and empty body - using {}
+  task T2 : BaseTask {}
+
+  # Standalone task with no body - using semicolon
+  optional task T3;
+}
