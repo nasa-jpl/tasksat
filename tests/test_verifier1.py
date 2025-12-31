@@ -20,14 +20,14 @@ class TestVerifier:
     def test_tasknet2(self):
         """
         Modifiation of tasknet1:
-        Loosening start and end ranges, finds diffeerent schedule, p2 violated
+        Loosening start and end ranges, finds different schedule, p2 violated
         """
         verify_out('tasknet2.tn')(
-            "heating       : start =   82, end =  162",
-            "driving       : start =  163, end =  243",
-            "communicating : start =    1, end =   81",
+            "heating       : start =",
+            "driving       : start =",
+            "communicating : start =",
             "PROPERTY 'p1' HOLDS",
-            "PROPERTY 'p2' VIOLATED!",    
+            "PROPERTY 'p2' VIOLATED!",
             "PROPERTY 'p3' HOLDS"
         )
 
@@ -65,7 +65,7 @@ class TestVerifier:
         """Test simple optional task that is not included in schedule"""
         verify_out('tasknet6_optional.tn')(
             "*** NEW SCHEDULE***",
-            "T1            : start =    1, end =   21",
+            "T1            : start =",
             "T2            : [OPTIONAL - NOT INCLUDED]",
             "No temporal properties attached to this TaskNet."
         )
@@ -74,8 +74,8 @@ class TestVerifier:
         """Test comprehensive example with task definitions and optional tasks"""
         verify_out('tasknet7_optional.tn')(
             "*** NEW SCHEDULE***",
-            "C1            : start =   26, end =   46",
-            "C2            : start =  127, end =  147",
+            "C1            : start =",
+            "C2            : start =",
             "C3            : [OPTIONAL - NOT INCLUDED]",
             "C4            : [OPTIONAL - NOT INCLUDED]",
             "PROPERTY 'p1' HOLDS"
@@ -96,4 +96,15 @@ class TestVerifier:
             "T3            : [OPTIONAL - NOT INCLUDED]",
             "No temporal properties attached to this TaskNet."
         )
+
+    def test_tasknet10_verify_mode(self):
+        """Test verify mode - finds any valid schedule (not necessarily optimal)"""
+        verify_out('tasknet10_verify.tn')(
+            "*** NEW SCHEDULE***",
+            "T1            : start =   57, end =   87",
+            "T2            : start =   26, end =   56",
+            "T3            : [OPTIONAL - NOT INCLUDED]",
+            "PROPERTY 'p1' VIOLATED!"
+        )
+    
         

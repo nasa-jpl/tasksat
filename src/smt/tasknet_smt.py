@@ -17,7 +17,7 @@ class TaskNetSMT:
     Solver for TaskNet using Z3 SMT.
     """
 
-    def __init__(self, tn: TaskNet):
+    def __init__(self, tn: TaskNet, use_optimization: bool = True):
         self.tn = self.normalize_tasknet(tn)
         self.tn = self.resolve_task_definitions(self.tn)
 
@@ -31,11 +31,13 @@ class TaskNetSMT:
         for t in self.optional_tasks:
             self.optional_included[t.id] = Bool(f"included_{t.id}")
 
-        # Use Optimize if we have optional tasks, otherwise use Solver
-        if self.optional_tasks:
+        # Use Optimize if we have optional tasks and optimization is enabled, otherwise use Solver
+        if self.optional_tasks and use_optimization:
             self.solver = Optimize()
         else:
             self.solver = Solver()
+            # Enable unsat core tracking for Solver (not available for Optimize)
+            self.solver.set(unsat_core=True)
 
         # === Schedule variables ===
         self.start_vars: Dict[str, object] = {}
@@ -439,15 +441,19 @@ class TaskNetSMT:
                     v = how.v
                     if when == "pre":
                         # instant change at start time: applied at boundary zi
-                        terms.append(If(zi == s, v, 0.0))
+                        term = If(zi == s, v, 0.0)
                     elif when == "maint":
                         # +v at start, -v at end (as in previous discrete encoding)
-                        terms.append(
-                            If(zi == s, v,
-                               If(zi == e, -v, 0.0))
-                        )
+                        term = If(zi == s, v, If(zi == e, -v, 0.0))
                     elif when == "post":
-                        terms.append(If(zi == e, v, 0.0))
+                        term = If(zi == e, v, 0.0)
+                    else:
+                        continue
+
+                    # Guard with optional_included for optional tasks
+                    if t.kind == TaskKind.OPTIONAL:
+                        term = If(self.optional_included[t.id], term, 0.0)
+                    terms.append(term)
 
                 # RATE: r * dt while task active over the entire zone
                 elif isinstance(how, ImpactRate):
@@ -464,11 +470,18 @@ class TaskNetSMT:
                     active_post  = (zi >= e)                 # t ≥ end
 
                     if when == "pre":
-                        terms.append(If(active_pre, r * dt, 0.0))
+                        term = If(active_pre, r * dt, 0.0)
                     elif when == "maint":
-                        terms.append(If(active_maint, r * dt, 0.0))
+                        term = If(active_maint, r * dt, 0.0)
                     elif when == "post":
-                        terms.append(If(active_post, r * dt, 0.0))
+                        term = If(active_post, r * dt, 0.0)
+                    else:
+                        continue
+
+                    # Guard with optional_included for optional tasks
+                    if t.kind == TaskKind.OPTIONAL:
+                        term = If(self.optional_included[t.id], term, 0.0)
+                    terms.append(term)
                 # Assign to numeric timelines is not used in example; forbid
                 elif isinstance(how, ImpactAssign):
                     # If this occurs, treat as ill-typed
@@ -515,9 +528,16 @@ class TaskNetSMT:
                             # We apply assignments at the boundary *after* checking pre,
                             # i.e. they affect the transition to zone i+1.
                             if imp.when == "pre":
-                                expr = If(zi == s, idx, expr)
+                                if t.kind == TaskKind.OPTIONAL:
+                                    # For optional tasks: only apply if task is included
+                                    expr = If(And(self.optional_included[t.id], zi == s), idx, expr)
+                                else:
+                                    expr = If(zi == s, idx, expr)
                             elif imp.when == "post":
-                                expr = If(zi == e, idx, expr)
+                                if t.kind == TaskKind.OPTIONAL:
+                                    expr = If(And(self.optional_included[t.id], zi == e), idx, expr)
+                                else:
+                                    expr = If(zi == e, idx, expr)
                             else:
                                 # maint+assign disallowed
                                 self.solver.add(False)
@@ -715,28 +735,48 @@ class TaskNetSMT:
 
                 zj = z[j]
 
-                # PRE at start
-                self.solver.add(Or(zj != s, pre_formula))
+                # Guard constraints for optional tasks
+                if t.kind == TaskKind.OPTIONAL:
+                    # Only enforce constraints if task is included
+                    # PRE at start: either not included, or zone != start, or pre holds
+                    self.solver.add(Or(Not(self.optional_included[t.id]), zj != s, pre_formula))
 
-                # POST at end
-                self.solver.add(Or(zj != e, post_formula))
+                    # POST at end: either not included, or zone != end, or post holds
+                    self.solver.add(Or(Not(self.optional_included[t.id]), zj != e, post_formula))
 
-                # INV whenever active (inclusive bounds)
-                self.solver.add(
-                    Or(
-                        zj < s,
-                        zj > e,
-                        inv_formula
+                    # INV whenever active: either not included, or zone outside [start, end], or inv holds
+                    self.solver.add(
+                        Or(
+                            Not(self.optional_included[t.id]),
+                            zj < s,
+                            zj > e,
+                            inv_formula
+                        )
                     )
-                )
+                else:
+                    # Required task - always enforce constraints
+                    # PRE at start
+                    self.solver.add(Or(zj != s, pre_formula))
+
+                    # POST at end
+                    self.solver.add(Or(zj != e, post_formula))
+
+                    # INV whenever active (inclusive bounds)
+                    self.solver.add(
+                        Or(
+                            zj < s,
+                            zj > e,
+                            inv_formula
+                        )
+                    )
 
     # ------------------------------
     # Solving + pretty-printing
     # ------------------------------
 
     def solve(self):
-        # Add optimization objective if we have optional tasks
-        if self.optional_tasks:
+        # Add optimization objective if we have optional tasks and using Optimize
+        if self.optional_tasks and isinstance(self.solver, Optimize):
             # Minimize the number of included optional tasks
             # Convert Bool to Int (1 if True, 0 if False) for sum
             objective = Sum([If(self.optional_included[t.id], 1, 0) for t in self.optional_tasks])
@@ -745,6 +785,14 @@ class TaskNetSMT:
         res = self.solver.check()
         if res != sat:
             print("TaskNet constraints (schedule + zone trace):", res)
+
+            # If using Solver (not Optimize), retrieve and display unsat core
+            if isinstance(self.solver, Solver):
+                core = self.solver.unsat_core()
+                print(f"\nUNSAT CORE ({len(core)} constraints):")
+                for i, constraint in enumerate(core, 1):
+                    print(f"  {i}. {constraint}")
+
             return None
         return self.solver.model()
 
@@ -838,8 +886,8 @@ class TaskNetSMT:
 class TaskNetTL(TaskNetSMT):
     """Temporal logic interpretation"""
 
-    def __init__(self, tn: TaskNet, error_trace: bool = True):
-        super().__init__(tn)
+    def __init__(self, tn: TaskNet, error_trace: bool = True, use_optimization: bool = True):
+        super().__init__(tn, use_optimization=use_optimization)
         self._encode_temporal_constraints()
         self.error_trace = error_trace
 
@@ -988,6 +1036,8 @@ class TaskNetTL(TaskNetSMT):
         if not getattr(self.tn, "properties", None):
             print("\nNo temporal properties attached to this TaskNet.")
             return
+        else:
+            print(f"Checking {len(self.tn.properties)} temporal properties:")
 
         # 1) REALIZABILITY CHECK (non-vacuousness)
         base = TaskNetTL(self.tn, error_trace=self.error_trace)  # fresh encoding

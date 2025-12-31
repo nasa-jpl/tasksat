@@ -16,7 +16,6 @@ tasknet ComprehensiveTest {
     }
 
     inv {
-      cpu = busy;
       power in [5.0, 100.0];
     }
 

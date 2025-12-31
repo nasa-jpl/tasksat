@@ -1,0 +1,24 @@
+tasknet StateBug {
+  end = 100;
+
+  timelines {
+    power : state(on, off) = off;
+  }
+
+  task T1 {
+    duration 20;
+  }
+
+  optional task T2 {
+    duration 10;
+    impacts {
+      pre {
+        power = on;
+      }
+    }
+  }
+
+  properties {
+    prop p1: always (power = off);
+  }
+}

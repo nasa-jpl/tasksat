@@ -1,0 +1,25 @@
+tasknet VerifyModeTest {
+  end = 200;
+
+  timelines {
+    power : state(on, off) = off;
+  }
+
+  taskdef BaseTask {
+    duration 30;
+  }
+
+  task T1 : BaseTask;
+  task T2 : BaseTask;
+  optional task T3 {
+    impacts {
+      pre {
+        power = on;
+      }
+    }
+  }
+
+  properties {
+    prop p1: always (power = off);
+  }
+}
