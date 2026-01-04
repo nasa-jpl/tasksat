@@ -775,12 +775,49 @@ class TaskNetSMT:
     # ------------------------------
 
     def solve(self):
-        # Add optimization objective if we have optional tasks and using Optimize
-        if self.optional_tasks and isinstance(self.solver, Optimize):
-            # Minimize the number of included optional tasks
-            # Convert Bool to Int (1 if True, 0 if False) for sum
-            objective = Sum([If(self.optional_included[t.id], 1, 0) for t in self.optional_tasks])
-            self.solver.minimize(objective)
+        # Add optimization objectives if using Optimize
+        if isinstance(self.solver, Optimize):
+            # 1. Primary objective: minimize the number of included optional tasks
+            if self.optional_tasks:
+                objective_optional = Sum([If(self.optional_included[t.id], 1, 0) for t in self.optional_tasks])
+                self.solver.minimize(objective_optional)
+
+            # 2. Secondary objective: minimize priority-weighted cost
+            # Lower priority values = higher importance = lower cost
+            # Cost = sum of (priority * inclusion_factor) for all tasks
+            priority_terms = []
+            for t in self.all_scheduled_tasks:
+                if t.priority is not None:
+                    if t.kind == TaskKind.OPTIONAL:
+                        # For optional tasks, only count if included
+                        priority_terms.append(If(self.optional_included[t.id], t.priority, 0))
+                    else:
+                        # For required tasks, always count
+                        priority_terms.append(t.priority)
+
+            if priority_terms:
+                objective_priority = Sum(priority_terms)
+                self.solver.minimize(objective_priority)
+
+            # 3. Tertiary objective: minimize deviation from preferred start times
+            # Cost = sum of |actual_start - preferred_start| for tasks with preferred starts
+            deviation_terms = []
+            for t in self.all_scheduled_tasks:
+                if t.start is not None:
+                    s = self.start_vars[t.id]
+                    # Absolute difference: max(s - start, start - s)
+                    diff = If(s >= t.start, s - t.start, t.start - s)
+
+                    if t.kind == TaskKind.OPTIONAL:
+                        # For optional tasks, only count deviation if included
+                        deviation_terms.append(If(self.optional_included[t.id], diff, 0))
+                    else:
+                        # For required tasks, always count deviation
+                        deviation_terms.append(diff)
+
+            if deviation_terms:
+                objective_deviation = Sum(deviation_terms)
+                self.solver.minimize(objective_deviation)
 
         res = self.solver.check()
         if res != sat:

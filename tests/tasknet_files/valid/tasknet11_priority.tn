@@ -1,0 +1,67 @@
+tasknet VerifyModeTest {
+  end = 200;
+
+  timelines {
+    power : state(on, off) = off;
+  }
+
+  taskdef BaseTask {
+    duration 10;
+  }
+
+  task T1 : BaseTask {
+    start 15;
+  }
+
+  optional task T2 : BaseTask {
+    priority 20;
+    start_range [30, 40];
+    start 35;
+    impacts {
+      pre {
+        power = on;
+      }
+    }
+  }
+
+ optional task T3 : BaseTask {
+    priority 20;
+    start_range [50, 60];
+    start 55;
+    impacts {
+      pre {
+        power = on;
+      }
+    }
+  }
+
+   optional task T4 : BaseTask {
+    priority 1;
+    start_range [70, 80];
+    start 75;
+    impacts {
+      pre {
+        power = on;
+      }
+    }
+  }
+
+  optional task T5 : BaseTask {
+    priority 20;
+    start_range [90, 100];
+    start 95;
+    impacts {
+      pre {
+        power = on;
+      }
+    }
+  }
+
+  constraints {
+    prop c1: eventually power = on;
+  }
+
+  properties {
+    prop p1: always ((power = off) -> (eventually power = on));
+  }
+}

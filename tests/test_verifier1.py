@@ -125,5 +125,14 @@ class TestVerifier:
             "T3            : start =    1, end =    4"
         )
 
-   
-        
+    def test_tasknet11_priority(self):
+        """Test with priorities and preferred start times"""
+        verify_out('tasknet11_priority.tn')(
+            "*** NEW SCHEDULE***",
+            "T1            : start =   15, end =   25",
+            "T2            : [OPTIONAL - NOT INCLUDED]",
+            "T3            : [OPTIONAL - NOT INCLUDED]",
+            "T4            : start =   75, end =   85",
+            "T5            : [OPTIONAL - NOT INCLUDED]",
+            "PROPERTY 'p1' HOLDS"
+        )
