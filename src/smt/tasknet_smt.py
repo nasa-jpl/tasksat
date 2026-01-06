@@ -488,10 +488,10 @@ class TaskNetSMT:
                     if t.kind == TaskKind.OPTIONAL:
                         term = If(self.optional_included[t.id], term, 0.0)
                     terms.append(term)
-                # Assign to numeric timelines is not used in example; forbid
+                # Assign to numeric timelines: skip here, handled in _encode_zone_transitions
                 elif isinstance(how, ImpactAssign):
-                    # If this occurs, treat as ill-typed
-                    self.solver.add(False)
+                    # Skip - assignments are applied separately in zone transitions
+                    continue
 
         if not terms:
             return 0.0
@@ -598,7 +598,47 @@ class TaskNetSMT:
                     else:
                         clamped = raw
 
-                    self.solver.add(vars_z[i + 1] == clamped)
+                    # Start with delta-based value
+                    expr = clamped
+                    zi = self.zones[i]
+
+                    # Apply assignments (they override the delta-based value)
+                    for t in self.all_scheduled_tasks:
+                        s = self.start_vars[t.id]
+                        e = self.end_vars[t.id]
+                        if t.impacts is None:
+                            continue
+                        for imp in t.impacts:
+                            if imp.id != tl.id:
+                                continue
+                            if not isinstance(imp.how, ImpactAssign):
+                                continue
+                            v = imp.how.v
+                            # Type check: must be numeric (IntVal or RealVal)
+                            if isinstance(v, IntVal):
+                                val = v.v
+                            elif isinstance(v, RealVal):
+                                val = v.v
+                            else:
+                                # Wrong type for numeric timeline
+                                self.solver.add(False)
+                                continue
+
+                            if imp.when == "pre":
+                                if t.kind == TaskKind.OPTIONAL:
+                                    expr = If(And(self.optional_included[t.id], zi == s), val, expr)
+                                else:
+                                    expr = If(zi == s, val, expr)
+                            elif imp.when == "post":
+                                if t.kind == TaskKind.OPTIONAL:
+                                    expr = If(And(self.optional_included[t.id], zi == e), val, expr)
+                                else:
+                                    expr = If(zi == e, val, expr)
+                            else:
+                                # maint+assign disallowed for numeric timelines
+                                self.solver.add(False)
+
+                    self.solver.add(vars_z[i + 1] == expr)
 
     def _encode_timeline_ranges(self):
         """

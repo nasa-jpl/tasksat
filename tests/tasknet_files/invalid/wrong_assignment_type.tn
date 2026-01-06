@@ -1,0 +1,30 @@
+tasknet WrongAssignmentType {
+  end = 100;
+
+  timelines {
+    status : state(off, on) = off;
+    flag : atomic = false;
+    battery : cumulative [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+  }
+
+  task T1 {
+    id 1;
+    impacts {
+      pre { status = 42; }
+    }
+  }
+
+  task T2 {
+    id 2;
+    impacts {
+      pre { flag = "yes"; }
+    }
+  }
+
+  task T3 {
+    id 3;
+    impacts {
+      pre { battery = true; }
+    }
+  }
+}

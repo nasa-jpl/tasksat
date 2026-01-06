@@ -1,0 +1,14 @@
+tasknet CumulativeRateImpact {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+  }
+
+  task T1 {
+    id 1;
+    impacts {
+      maint { battery +~ -0.5; }
+    }
+  }
+}

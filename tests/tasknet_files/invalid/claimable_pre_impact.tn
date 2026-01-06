@@ -1,0 +1,14 @@
+tasknet ClaimablePreImpact {
+  end = 100;
+
+  timelines {
+    resource : claimable [0.0, 10.0] = 5.0;
+  }
+
+  task T1 {
+    id 1;
+    impacts {
+      pre { resource += 2.0; }
+    }
+  }
+}

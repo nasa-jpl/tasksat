@@ -1,0 +1,21 @@
+tasknet DuplicateTaskIds {
+  end = 100;
+
+  timelines {
+    status : state(idle, busy) = idle;
+  }
+
+  task T1 {
+    id 1;
+    impacts {
+      pre { status = busy; }
+    }
+  }
+
+  task T1 {
+    id 2;
+    impacts {
+      pre { status = idle; }
+    }
+  }
+}

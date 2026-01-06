@@ -9,9 +9,9 @@ class TestVerifier:
         """Finds a valid schedule, properties hold"""
         verify_out('tasknet1.tn')(
             "*** NEW SCHEDULE***",
-            "heating       : start =    4, end =   96",
+            "heating       : start =   11, end =   80",
             "driving       : start =  100, end =  180",
-            "communicating : start =  216, end =  280",
+            "communicating : start =  220, end =  280",
             "PROPERTY 'p1' HOLDS",
             "PROPERTY 'p2' HOLDS",
             "PROPERTY 'p3' HOLDS",
@@ -23,9 +23,9 @@ class TestVerifier:
         Loosening start and end ranges, finds different schedule, p2 violated
         """
         verify_out('tasknet2.tn')(
-            "heating       : start =   22, end =   75",
-            "driving       : start =   76, end =  126",
-            "communicating : start =  127, end =  276",
+            "heating       : start =    1, end =   29",
+            "driving       : start =   30, end =   80",
+            "communicating : start =   81, end =  231",
             "PROPERTY 'p1' VIOLATED!",
             "PROPERTY 'p2' VIOLATED!",
             "PROPERTY 'p3' HOLDS"
@@ -37,9 +37,9 @@ class TestVerifier:
         Adds property as a constraint. Now all properties hold again.
         """
         verify_out('tasknet3.tn')(
-            "heating       : start =    3, end =  154",
-            "driving       : start =  155, end =  205",
-            "communicating : start =  206, end =  207",
+            "heating       : start =    1, end =   12",
+            "driving       : start =   13, end =   63",
+            "communicating : start =   64, end =   65",
             "PROPERTY 'p1' VIOLATED!",
             "PROPERTY 'p2' HOLDS",
             "PROPERTY 'p3' HOLDS"
@@ -134,5 +134,14 @@ class TestVerifier:
             "T3            : [OPTIONAL - NOT INCLUDED]",
             "T4            : start =   75, end =   85",
             "T5            : [OPTIONAL - NOT INCLUDED]",
+            "PROPERTY 'p1' HOLDS"
+        )
+
+    def test_tasknet12_assign_numeric(self):
+        """Test with priorities and preferred start times"""
+        verify_out('tasknet12_assign_numeric.tn')(
+            "*** NEW SCHEDULE***",
+            "heating       : start =    1, end =    2",
+            "driving       : start =    3, end =    4",
             "PROPERTY 'p1' HOLDS"
         )

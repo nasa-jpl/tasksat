@@ -3,10 +3,16 @@ import argparse
 from pprint import pprint
 from tasknet_parser import parse_tasknet_file
 from tasknet_smt import TaskNetSMT, TaskNetTL
+from tasknet_wellformedness import check_wellformedness
 
 def main(path: str, mode: str = 'optimize'):
     print('\n\n\n\n\n\n\n*** NEW SCHEDULE***\n')
     tn = parse_tasknet_file(path)
+
+    # Check well-formedness before solving
+    if not check_wellformedness(tn):
+        return  # Errors already printed by checker
+
     use_optimization = (mode == 'optimize')
     enc = TaskNetTL(tn, error_trace=True, use_optimization=use_optimization)
     m = enc.solve()

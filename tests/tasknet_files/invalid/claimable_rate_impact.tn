@@ -1,0 +1,14 @@
+tasknet ClaimableRateImpact {
+  end = 100;
+
+  timelines {
+    resource : claimable [0.0, 10.0] = 5.0;
+  }
+
+  task T1 {
+    id 1;
+    impacts {
+      maint { resource +~ -1.0; }
+    }
+  }
+}

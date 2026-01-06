@@ -126,11 +126,11 @@ tasknet HeatDriveCommunicate {
       }
       maint {
         battery +~ -0.2;
+        memory  += -100.0;
       }
       post {
         communicating = off;
         radio         = false;
-        memory        += -100.0;
       }
     }
   }

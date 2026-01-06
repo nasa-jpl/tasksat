@@ -1,0 +1,67 @@
+tasknet HeatDriveCommunicate {
+  end = 300;
+
+  timelines {
+    heating       : state(off, on) = off;
+    driving       : state(off, on) = off;
+    communicating : state(off, on) = off;
+    battery       : rate [0.0, 100.0] bounds [0.0, 100.0] = 0.0;
+  }
+
+  task heating {
+    id 1;
+
+    pre {
+      driving       = off;
+    }
+
+    inv {
+      driving       = off;
+    }
+
+    impacts {
+      pre {
+        heating = on;
+      }
+      post {
+        heating = off;
+        battery = 60.0;
+      }
+    }
+  }
+
+  task driving {
+    id 2;
+
+    pre {
+      heating = off;
+      battery in [50.0, 100.0];
+    }
+
+    inv {
+      heating = off;
+      battery       in [10.0, 100.0];
+    }
+
+    impacts {
+      pre {
+        driving = on;
+      }
+      maint {
+        battery +~ -0.2;
+      }
+      post {
+        driving = off;
+      }
+    }
+  }
+
+  #constraints {
+  #  prop c1: eventually driving = on;
+  #}
+  
+
+  properties {
+    prop p1: always (driving = on -> once heating = on);
+  }
+}
