@@ -1,0 +1,526 @@
+# STRESS TEST 5: Sequential Task Chain
+#
+# Performance Result: TIMEOUT - exceeded 2 hours without completing
+# - 30 tasks (21 required, 9 optional)
+# - 7 timelines
+# - 1 temporal property
+# - 300 time horizon
+#
+# The solver did not complete within reasonable time limits (>2 hours).
+# This demonstrates non-linear scaling - while stress1 (20 tasks) completed
+# in 21 minutes, adding 10 more tasks with sequential dependencies caused
+# exponential blowup in search space.
+#
+# Design: Tasks naturally ordered by battery charging requirements
+# - N=30 tasks (T1, T2, ..., T30)
+# - Temporal constraint: eventually T30 must be active
+# - Battery starts at 0
+# - Task Ti requires battery >= (i-1)*K where K=5
+# - Each task charges battery at rate +1.0 during execution
+# - Duration range: [1, K+1] = [1, 6] time units
+# - Some tasks are optional (every 3rd task)
+#
+# Expected behavior:
+# - Tasks naturally schedule in sequence T1 → T2 → ... → T30
+# - Each task charges enough battery for the next task's precondition
+# - Optional tasks may be skipped if they don't help reach T30
+#
+# This tests:
+# - Constraint propagation through resource dependencies
+# - Optimization with mixed required/optional tasks
+# - Long sequential chains
+
+tasknet SequentialChain {
+  end = 300;
+
+  timelines {
+    battery : rate [0.0, 200.0] bounds [0.0, 200.0] = 0.0;
+  }
+
+  # Required tasks with increasing battery requirements
+
+  task T1 {
+    id 1;
+    duration_range [1, 6];
+    pre {
+      battery in [0.0, 200.0];  # Can start immediately
+    }
+    inv {
+      battery in [0.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;  # Charge at +1.0/time
+      }
+    }
+  }
+
+  task T2 {
+    id 2;
+    duration_range [1, 6];
+    pre {
+      battery in [5.0, 200.0];  # Needs 1*K = 5
+    }
+    inv {
+      battery in [5.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  optional task T3 {
+    id 3;
+    duration_range [1, 6];
+    pre {
+      battery in [10.0, 200.0];  # Needs 2*K = 10
+    }
+    inv {
+      battery in [10.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T4 {
+    id 4;
+    duration_range [1, 6];
+    pre {
+      battery in [15.0, 200.0];  # Needs 3*K = 15
+    }
+    inv {
+      battery in [15.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T5 {
+    id 5;
+    duration_range [1, 6];
+    pre {
+      battery in [20.0, 200.0];  # Needs 4*K = 20
+    }
+    inv {
+      battery in [20.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  optional task T6 {
+    id 6;
+    duration_range [1, 6];
+    pre {
+      battery in [25.0, 200.0];  # Needs 5*K = 25
+    }
+    inv {
+      battery in [25.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T7 {
+    id 7;
+    duration_range [1, 6];
+    pre {
+      battery in [30.0, 200.0];
+    }
+    inv {
+      battery in [30.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T8 {
+    id 8;
+    duration_range [1, 6];
+    pre {
+      battery in [35.0, 200.0];
+    }
+    inv {
+      battery in [35.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  optional task T9 {
+    id 9;
+    duration_range [1, 6];
+    pre {
+      battery in [40.0, 200.0];
+    }
+    inv {
+      battery in [40.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T10 {
+    id 10;
+    duration_range [1, 6];
+    pre {
+      battery in [45.0, 200.0];
+    }
+    inv {
+      battery in [45.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T11 {
+    id 11;
+    duration_range [1, 6];
+    pre {
+      battery in [50.0, 200.0];
+    }
+    inv {
+      battery in [50.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  optional task T12 {
+    id 12;
+    duration_range [1, 6];
+    pre {
+      battery in [55.0, 200.0];
+    }
+    inv {
+      battery in [55.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T13 {
+    id 13;
+    duration_range [1, 6];
+    pre {
+      battery in [60.0, 200.0];
+    }
+    inv {
+      battery in [60.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T14 {
+    id 14;
+    duration_range [1, 6];
+    pre {
+      battery in [65.0, 200.0];
+    }
+    inv {
+      battery in [65.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  optional task T15 {
+    id 15;
+    duration_range [1, 6];
+    pre {
+      battery in [70.0, 200.0];
+    }
+    inv {
+      battery in [70.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T16 {
+    id 16;
+    duration_range [1, 6];
+    pre {
+      battery in [75.0, 200.0];
+    }
+    inv {
+      battery in [75.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T17 {
+    id 17;
+    duration_range [1, 6];
+    pre {
+      battery in [80.0, 200.0];
+    }
+    inv {
+      battery in [80.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  optional task T18 {
+    id 18;
+    duration_range [1, 6];
+    pre {
+      battery in [85.0, 200.0];
+    }
+    inv {
+      battery in [85.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T19 {
+    id 19;
+    duration_range [1, 6];
+    pre {
+      battery in [90.0, 200.0];
+    }
+    inv {
+      battery in [90.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T20 {
+    id 20;
+    duration_range [1, 6];
+    pre {
+      battery in [95.0, 200.0];
+    }
+    inv {
+      battery in [95.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  optional task T21 {
+    id 21;
+    duration_range [1, 6];
+    pre {
+      battery in [100.0, 200.0];
+    }
+    inv {
+      battery in [100.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T22 {
+    id 22;
+    duration_range [1, 6];
+    pre {
+      battery in [105.0, 200.0];
+    }
+    inv {
+      battery in [105.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T23 {
+    id 23;
+    duration_range [1, 6];
+    pre {
+      battery in [110.0, 200.0];
+    }
+    inv {
+      battery in [110.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  optional task T24 {
+    id 24;
+    duration_range [1, 6];
+    pre {
+      battery in [115.0, 200.0];
+    }
+    inv {
+      battery in [115.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T25 {
+    id 25;
+    duration_range [1, 6];
+    pre {
+      battery in [120.0, 200.0];
+    }
+    inv {
+      battery in [120.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T26 {
+    id 26;
+    duration_range [1, 6];
+    pre {
+      battery in [125.0, 200.0];
+    }
+    inv {
+      battery in [125.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  optional task T27 {
+    id 27;
+    duration_range [1, 6];
+    pre {
+      battery in [130.0, 200.0];
+    }
+    inv {
+      battery in [130.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T28 {
+    id 28;
+    duration_range [1, 6];
+    pre {
+      battery in [135.0, 200.0];
+    }
+    inv {
+      battery in [135.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T29 {
+    id 29;
+    duration_range [1, 6];
+    pre {
+      battery in [140.0, 200.0];
+    }
+    inv {
+      battery in [140.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task T30 {
+    id 30;
+    duration_range [1, 6];
+    pre {
+      battery in [145.0, 200.0];
+    }
+    inv {
+      battery in [145.0, 200.0];
+    }
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  # Temporal constraint: T30 must eventually execute
+  constraints {
+    prop force_t30: eventually active(T30);
+  }
+}

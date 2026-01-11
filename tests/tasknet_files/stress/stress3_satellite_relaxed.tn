@@ -1,0 +1,370 @@
+# STRESS TEST 3: Satellite Constellation (Relaxed Constraints)
+#
+# Performance Result: UNSAT (unsatisfiable) - completed in 0.53 seconds
+# - 12 tasks (3 satellites × 4 task types)
+# - 30 timelines
+# - 8 temporal properties
+# - 2000 time horizon
+#
+# Still unsatisfiable even with relaxed constraints. The problem likely requires
+# further simplification or optional tasks to find a valid schedule.
+#
+# Key changes from stress2:
+# - Reduced number of imaging tasks per satellite (1 each instead of 2)
+# - Relaxed battery constraints (lower minimums)
+# - Longer charging periods
+# - Removed some thermal constraints
+# - Made ground station visibility less restrictive
+# - Reduced priority target requirements
+
+tasknet SatelliteConstellationRelaxed {
+  end = 2000;
+
+  timelines {
+    # Power systems (3 satellites) - relaxed initial levels
+    sat1_battery  : rate [0.0, 100.0] bounds [0.0, 100.0] = 90.0;
+    sat2_battery  : rate [0.0, 100.0] bounds [0.0, 100.0] = 90.0;
+    sat3_battery  : rate [0.0, 100.0] bounds [0.0, 100.0] = 90.0;
+
+    # Solar panel states
+    sat1_solar    : state(stowed, deployed, tracking) = deployed;
+    sat2_solar    : state(stowed, deployed, tracking) = deployed;
+    sat3_solar    : state(stowed, deployed, tracking) = deployed;
+
+    # Compute resources
+    sat1_cpu      : claim [0.0, 100.0] = 0.0;
+    sat2_cpu      : claim [0.0, 100.0] = 0.0;
+    sat3_cpu      : claim [0.0, 100.0] = 0.0;
+
+    sat1_memory   : claim [0.0, 32.0] = 0.0;
+    sat2_memory   : claim [0.0, 32.0] = 0.0;
+    sat3_memory   : claim [0.0, 32.0] = 0.0;
+
+    # Data storage
+    sat1_storage  : cumul [0.0, 1000.0] bounds [0.0, 1000.0] = 1000.0;
+    sat2_storage  : cumul [0.0, 1000.0] bounds [0.0, 1000.0] = 1000.0;
+    sat3_storage  : cumul [0.0, 1000.0] bounds [0.0, 1000.0] = 1000.0;
+
+    # Thermal - relaxed bounds
+    sat1_temp     : rate [-50.0, 100.0] bounds [-50.0, 90.0] = 20.0;
+    sat2_temp     : rate [-50.0, 100.0] bounds [-50.0, 90.0] = 20.0;
+    sat3_temp     : rate [-50.0, 100.0] bounds [-50.0, 90.0] = 20.0;
+
+    # Attitude control
+    sat1_attitude : state(0, 1, 2, 3, 4) = 0;
+    sat2_attitude : state(0, 1, 2, 3, 4) = 0;
+    sat3_attitude : state(0, 1, 2, 3, 4) = 0;
+
+    # Instruments
+    sat1_camera   : state(off, imaging, downloading) = off;
+    sat2_camera   : state(off, imaging, downloading) = off;
+    sat3_camera   : state(off, imaging, downloading) = off;
+
+    # Communication - made non-exclusive to relax constraints
+    sat1_downlinking : atomic = false;
+    sat2_downlinking : atomic = false;
+    sat3_downlinking : atomic = false;
+
+    # Ground station visibility - separate per satellite (no conflicts)
+    sat1_gs_visible   : atomic = false;
+    sat2_gs_visible   : atomic = false;
+    sat3_gs_visible   : atomic = false;
+
+    # Mission data
+    science_data  : cumul [0.0, 5000.0] bounds [0.0, 5000.0] = 0.0;
+    priority_targets: cumul [0.0, 50.0] bounds [0.0, 50.0] = 50.0;
+  }
+
+  # ==== SATELLITE 1 TASKS ====
+
+  task sat1_solar_charge {
+    id 101;
+    duration 200;  # Longer charging period
+    pre {
+      sat1_solar = deployed;
+      sat1_battery in [0.0, 85.0];  # Relaxed upper bound
+    }
+    impacts {
+      pre { sat1_solar = tracking; }
+      maint { sat1_battery +~ 0.35; }  # Slightly faster charging
+      post { sat1_solar = deployed; }
+    }
+  }
+
+  task sat1_imaging_target_a {
+    id 102;
+    duration 45;
+    pre {
+      sat1_camera = off;
+      sat1_attitude = 0;
+      sat1_battery in [30.0, 100.0];  # Relaxed minimum
+      sat1_storage in [50.0, 1000.0];
+      priority_targets in [1.0, 50.0];
+    }
+    inv {
+      sat1_battery in [20.0, 100.0];  # Relaxed minimum
+    }
+    impacts {
+      pre {
+        sat1_camera = imaging;
+        sat1_attitude = 1;
+      }
+      maint {
+        sat1_cpu += 50.0;
+        sat1_memory += 8.0;
+        sat1_battery +~ -0.5;  # Less drain
+        sat1_temp +~ 0.3;  # Less heating
+      }
+      post {
+        sat1_camera = off;
+        sat1_attitude = 0;
+        sat1_storage += -40.0;
+        science_data += 40.0;
+        priority_targets += -1.0;
+      }
+    }
+  }
+
+  task sat1_downlink {
+    id 104;
+    duration 80;
+    pre {
+      sat1_gs_visible = true;
+      sat1_storage in [0.0, 950.0];
+      sat1_battery in [35.0, 100.0];  # Relaxed
+    }
+    inv {
+      sat1_battery in [25.0, 100.0];  # Relaxed
+      sat1_downlinking = true;
+    }
+    impacts {
+      pre {
+        sat1_camera = downloading;
+        sat1_attitude = 3;
+        sat1_downlinking = true;
+      }
+      maint {
+        sat1_cpu += 40.0;
+        sat1_memory += 4.0;
+        sat1_battery +~ -0.4;
+        sat1_temp +~ 0.25;
+        sat1_storage += 100.0;
+      }
+      post {
+        sat1_camera = off;
+        sat1_attitude = 0;
+        sat1_downlinking = false;
+      }
+    }
+  }
+
+  # ==== SATELLITE 2 TASKS ====
+
+  task sat2_solar_charge {
+    id 201;
+    duration 200;
+    pre {
+      sat2_solar = deployed;
+      sat2_battery in [0.0, 85.0];
+    }
+    impacts {
+      pre { sat2_solar = tracking; }
+      maint { sat2_battery +~ 0.35; }
+      post { sat2_solar = deployed; }
+    }
+  }
+
+  task sat2_imaging_target_c {
+    id 202;
+    duration 50;
+    pre {
+      sat2_camera = off;
+      sat2_attitude = 0;
+      sat2_battery in [32.0, 100.0];
+      sat2_storage in [55.0, 1000.0];
+      priority_targets in [1.0, 50.0];
+    }
+    inv {
+      sat2_battery in [22.0, 100.0];
+    }
+    impacts {
+      pre {
+        sat2_camera = imaging;
+        sat2_attitude = 1;
+      }
+      maint {
+        sat2_cpu += 52.0;
+        sat2_memory += 8.5;
+        sat2_battery +~ -0.52;
+        sat2_temp +~ 0.32;
+      }
+      post {
+        sat2_camera = off;
+        sat2_attitude = 0;
+        sat2_storage += -45.0;
+        science_data += 45.0;
+        priority_targets += -1.0;
+      }
+    }
+  }
+
+  task sat2_downlink {
+    id 204;
+    duration 85;
+    pre {
+      sat2_gs_visible = true;
+      sat2_storage in [0.0, 950.0];
+      sat2_battery in [36.0, 100.0];
+    }
+    inv {
+      sat2_battery in [26.0, 100.0];
+      sat2_downlinking = true;
+    }
+    impacts {
+      pre {
+        sat2_camera = downloading;
+        sat2_attitude = 3;
+        sat2_downlinking = true;
+      }
+      maint {
+        sat2_cpu += 42.0;
+        sat2_memory += 4.5;
+        sat2_battery +~ -0.42;
+        sat2_temp +~ 0.27;
+        sat2_storage += 105.0;
+      }
+      post {
+        sat2_camera = off;
+        sat2_attitude = 0;
+        sat2_downlinking = false;
+      }
+    }
+  }
+
+  # ==== SATELLITE 3 TASKS ====
+
+  task sat3_solar_charge {
+    id 301;
+    duration 200;
+    pre {
+      sat3_solar = deployed;
+      sat3_battery in [0.0, 85.0];
+    }
+    impacts {
+      pre { sat3_solar = tracking; }
+      maint { sat3_battery +~ 0.35; }
+      post { sat3_solar = deployed; }
+    }
+  }
+
+  task sat3_imaging_target_e {
+    id 302;
+    duration 42;
+    pre {
+      sat3_camera = off;
+      sat3_attitude = 0;
+      sat3_battery in [29.0, 100.0];
+      sat3_storage in [48.0, 1000.0];
+      priority_targets in [1.0, 50.0];
+    }
+    inv {
+      sat3_battery in [19.0, 100.0];
+    }
+    impacts {
+      pre {
+        sat3_camera = imaging;
+        sat3_attitude = 1;
+      }
+      maint {
+        sat3_cpu += 49.0;
+        sat3_memory += 7.8;
+        sat3_battery +~ -0.48;
+        sat3_temp +~ 0.29;
+      }
+      post {
+        sat3_camera = off;
+        sat3_attitude = 0;
+        sat3_storage += -38.0;
+        science_data += 38.0;
+        priority_targets += -1.0;
+      }
+    }
+  }
+
+  task sat3_downlink {
+    id 304;
+    duration 75;
+    pre {
+      sat3_gs_visible = true;
+      sat3_storage in [0.0, 950.0];
+      sat3_battery in [34.0, 100.0];
+    }
+    inv {
+      sat3_battery in [24.0, 100.0];
+      sat3_downlinking = true;
+    }
+    impacts {
+      pre {
+        sat3_camera = downloading;
+        sat3_attitude = 3;
+        sat3_downlinking = true;
+      }
+      maint {
+        sat3_cpu += 38.0;
+        sat3_memory += 3.8;
+        sat3_battery +~ -0.37;
+        sat3_temp +~ 0.23;
+        sat3_storage += 95.0;
+      }
+      post {
+        sat3_camera = off;
+        sat3_attitude = 0;
+        sat3_downlinking = false;
+      }
+    }
+  }
+
+  # ==== COORDINATION TASKS (simplified) ====
+
+  task gs_window_sat1 {
+    id 401;
+    duration 150;
+    impacts {
+      pre { sat1_gs_visible = true; }
+      post { sat1_gs_visible = false; }
+    }
+  }
+
+  task gs_window_sat2 {
+    id 402;
+    duration 150;
+    impacts {
+      pre { sat2_gs_visible = true; }
+      post { sat2_gs_visible = false; }
+    }
+  }
+
+  task gs_window_sat3 {
+    id 403;
+    duration 150;
+    impacts {
+      pre { sat3_gs_visible = true; }
+      post { sat3_gs_visible = false; }
+    }
+  }
+
+  properties {
+    # Safety properties (relaxed)
+    prop sat1_battery_safe: always (sat1_battery >= 15.0);
+    prop sat2_battery_safe: always (sat2_battery >= 15.0);
+    prop sat3_battery_safe: always (sat3_battery >= 15.0);
+
+    prop sat1_temp_safe: always (sat1_temp <= 85.0);
+    prop sat2_temp_safe: always (sat2_temp <= 85.0);
+    prop sat3_temp_safe: always (sat3_temp <= 85.0);
+
+    # Mission objectives (relaxed)
+    prop science_collected: eventually (science_data >= 80.0);
+    prop some_targets_covered: eventually (priority_targets <= 47.0);
+  }
+}

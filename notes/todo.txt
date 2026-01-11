@@ -1,8 +1,7 @@
 
 TODO
 
--> It should also be possible to change a rate (not just assign).
-- Check scalability
+-> Check scalability
 - Documentation
 
 MID TERM
@@ -21,3 +20,4 @@ LONGER TERM
 - Compared PyTasknet API with Python API to Z3.
 - They distinguish between atomic and Boolean timelines.
 - TILs: environment updates to timelines.
+- Scalability
