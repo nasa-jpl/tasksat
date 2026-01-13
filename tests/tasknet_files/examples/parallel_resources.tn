@@ -1,0 +1,69 @@
+
+
+
+
+tasknet ParallelResources {
+  end = 100;
+
+  timelines {
+    cpu : claim [0.0, 100.0] = 100.0;
+    memory : claim [0.0, 1000.0] = 1000.0;
+  }
+
+  task process_a {
+    id 1;
+    duration 50;
+    pre {
+      cpu in [30.0, 100.0];
+      memory in [200.0, 1000.0];
+    }
+    impacts {
+      pre {
+        cpu -= 30.0;
+        memory -= 200.0;
+      }
+      post {
+        cpu += 30.0;
+        memory += 200.0;
+      }
+    }
+  }
+
+  task process_b {
+    id 2;
+    duration 40;
+    pre {
+      cpu in [40.0, 100.0];
+      memory in [300.0, 1000.0];
+    }
+    impacts {
+      pre {
+        cpu -= 40.0;
+        memory -= 300.0;
+      }
+      post {
+        cpu += 40.0;
+        memory += 300.0;
+      }
+    }
+  }
+
+  task process_c {
+    id 3;
+    duration 30;
+    pre {
+      cpu in [50.0, 100.0];
+      memory in [150.0, 1000.0];
+    }
+    impacts {
+      pre {
+        cpu -= 50.0;
+        memory -= 150.0;
+      }
+      post {
+        cpu += 50.0;
+        memory += 150.0;
+      }
+    }
+  }
+}

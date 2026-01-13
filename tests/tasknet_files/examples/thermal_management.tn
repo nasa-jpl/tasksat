@@ -1,0 +1,37 @@
+
+
+
+
+tasknet ThermalManagement {
+  end = 100;
+
+  timelines {
+    temperature : rate [-2.0, 2.0] bounds [0.0, 100.0] = 20.0;
+    heater : atomic = false;
+  }
+
+  task warmup {
+    id 1;
+    duration 30;
+    impacts {
+      pre { heater = true; }
+      maint { temperature +~ 1.0; }  
+      post { heater = false; }
+    }
+  }
+
+  task operate {
+    id 2;
+    duration 40;
+    after warmup;
+    pre { temperature in [50.0, 80.0]; }  
+    inv { temperature in [40.0, 90.0]; }
+    impacts {
+      maint { temperature +~ -0.3; }  
+    }
+  }
+
+  constraints {
+    prop safe_temp: always (temperature <= 95.0);
+  }
+}

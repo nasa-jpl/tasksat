@@ -1,0 +1,114 @@
+
+
+
+tasknet MarsRoverDay {
+  end = 240;  
+
+  timelines {
+    battery : rate [-5.0, 10.0] bounds [0.0, 100.0] = 80.0;
+    data : cumulative [0.0, 5.0] bounds [0.0, 200.0] = 0.0;
+    wheels : state(stopped, moving) = stopped;
+    arm : state(stowed, deployed) = stowed;
+    temperature : rate [-1.0, 2.0] bounds [-20.0, 50.0] = 10.0;
+  }
+
+  
+  task solar_charge {
+    id 1;
+    duration 60;
+    start_range [0, 30];
+    impacts {
+      maint { battery +~ 1.5; }
+    }
+  }
+
+  
+  task drive_to_target {
+    id 2;
+    duration 40;
+    after solar_charge;
+    pre {
+      battery in [50.0, 100.0];
+      wheels = stopped;
+      temperature in [0.0, 40.0];
+    }
+    impacts {
+      pre { wheels = moving; }
+      maint {
+        battery +~ -2.0;
+        temperature +~ 0.5;
+      }
+      post { wheels = stopped; }
+    }
+  }
+
+  
+  task deploy_arm {
+    id 3;
+    duration 10;
+    after drive_to_target;
+    pre {
+      arm = stowed;
+      wheels = stopped;
+    }
+    impacts {
+      pre { arm = deployed; }
+      maint { battery +~ -0.3; }
+    }
+  }
+
+  
+  task collect_sample {
+    id 4;
+    duration 30;
+    after deploy_arm;
+    pre {
+      arm = deployed;
+      battery in [30.0, 100.0];
+    }
+    impacts {
+      maint {
+        battery +~ -1.0;
+        data +~ 2.0;
+        temperature +~ 0.3;
+      }
+    }
+  }
+
+  
+  task stow_arm {
+    id 5;
+    duration 10;
+    after collect_sample;
+    impacts {
+      maint { battery +~ -0.3; }
+      post { arm = stowed; }
+    }
+  }
+
+  
+  task transmit_data {
+    id 6;
+    duration 40;
+    after stow_arm;
+    start_range [180, 220];  
+    pre {
+      data in [20.0, 200.0];
+      battery in [40.0, 100.0];
+    }
+    impacts {
+      maint {
+        data +~ -3.0;
+        battery +~ -1.5;
+      }
+    }
+  }
+
+  constraints {
+    prop battery_safe: always (battery >= 10.0);
+    prop temp_safe: always (temperature <= 45.0);
+    prop arm_safe: always ((wheels = moving) -> (arm = stowed));
+    prop must_sample: eventually active(collect_sample);
+    prop must_transmit: eventually active(transmit_data);
+  }
+}

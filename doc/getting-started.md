@@ -46,7 +46,7 @@ code --install-extension tasknet-0.0.1.vsix --force
 
 ## Your First TaskNet
 
-Let's create a simple robot scheduling problem.
+Let's create a simple robot scheduling problem. You can either create this file yourself or use the provided example at [tests/tasknet_files/examples/my_robot.tn](../tests/tasknet_files/examples/my_robot.tn).
 
 ### Step 1: Create `my_robot.tn`
 
@@ -179,3 +179,19 @@ Now that you have TaskSAT running:
 - Verify impact timing (pre/maint/post)
 - Check initial timeline values
 - Review task dependencies
+
+## Running Examples in this Document
+
+All examples in this document are organized in 
+
+```
+tests/tasknet_files/examples.
+```
+
+Users can run any example, say `my_robot.py` in this documentation as folows:
+
+```
+python src/smt/tasknet_verifier.py tests/tasknet_files/examples/my_robot.tn --mode satisfy
+```
+
+If `--mode ...` is left out it will run in the default `optimize` mode.

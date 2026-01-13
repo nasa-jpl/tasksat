@@ -1,0 +1,31 @@
+
+
+
+
+tasknet ResourceMutex {
+  end = 50;
+
+  timelines {
+    resource : claim [0.0, 1.0] = 1.0;  
+  }
+
+  task use_resource_a {
+    id 1;
+    duration 20;
+    pre { resource in [1.0, 1.0]; }  
+    impacts {
+      pre { resource -= 1.0; }   
+      post { resource += 1.0; }  
+    }
+  }
+
+  task use_resource_b {
+    id 2;
+    duration 15;
+    pre { resource in [1.0, 1.0]; }
+    impacts {
+      pre { resource -= 1.0; }
+      post { resource += 1.0; }
+    }
+  }
+}

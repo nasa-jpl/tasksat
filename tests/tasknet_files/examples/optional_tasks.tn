@@ -1,0 +1,32 @@
+
+
+
+
+tasknet OptionalTasks {
+  end = 200;
+
+  timelines {
+    
+  }
+
+  task primary_mission {
+    id 1;
+    priority 100;  
+    duration 60;
+    
+  }
+
+  optional task bonus_science_1 {
+    id 2;
+    priority 50;
+    duration 40;
+    
+  }
+
+  optional task bonus_science_2 {
+    id 3;
+    priority 30;
+    duration 40;
+    
+  }
+}

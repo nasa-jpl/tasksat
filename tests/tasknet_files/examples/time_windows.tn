@@ -1,0 +1,24 @@
+
+
+
+
+tasknet TimeWindows {
+  end = 250;
+
+  timelines {
+    
+  }
+
+  task morning_observation {
+    id 1;
+    duration 30;
+    start_range [0, 50];    
+    end_range [30, 80];     
+  }
+
+  task evening_transmission {
+    id 2;
+    duration 20;
+    start_range [150, 180]; 
+  }
+}

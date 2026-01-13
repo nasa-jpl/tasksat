@@ -6,7 +6,7 @@ This tutorial provides an in-depth walkthrough of TaskSAT concepts, patterns, an
 
 ## A Complete Example
 
-Let's start with a complete TaskSAT specification and then understand each part. This example models a Mars rover conducting a science mission:
+Let's start with a complete TaskSAT specification and then understand each part. This example models a Mars rover conducting a science mission. The complete file is available at [tests/tasknet_files/examples/rover_mission.tn](../tests/tasknet_files/examples/rover_mission.tn).
 
 ```tasknet
 tasknet RoverMission {

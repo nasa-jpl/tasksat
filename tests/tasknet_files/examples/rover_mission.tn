@@ -1,0 +1,94 @@
+
+
+
+tasknet RoverMission {
+  end = 200;
+
+  timelines {
+    battery : rate [-10.0, 5.0] bounds [0.0, 100.0] = 80.0;
+    data : cumulative [0.0, 10.0] bounds [0.0, 200.0] = 0.0;
+    location : state(base, site_a, site_b) = base;
+    arm : state(stowed, deployed) = stowed;
+    wheels : atomic = false;
+  }
+
+  task drive_to_site {
+    id 1;
+    duration 30;
+
+    pre {
+      location = base;
+      battery in [40.0, 100.0];
+      arm = stowed;
+    }
+
+    impacts {
+      pre {
+        location = site_a;
+        wheels = true;
+      }
+      maint {
+        battery +~ -1.5;  
+      }
+      post {
+        wheels = false;
+      }
+    }
+  }
+
+  task collect_sample {
+    id 2;
+    duration 40;
+    after drive_to_site;
+
+    pre {
+      location = site_a;
+      battery in [30.0, 100.0];
+      arm = stowed;
+      wheels = false;
+    }
+
+    inv {
+      arm = deployed;
+    }
+
+    impacts {
+      pre {
+        arm = deployed;
+      }
+      maint {
+        battery +~ -0.8;   
+        data +~ 2.0;       
+      }
+      post {
+        arm = stowed;
+      }
+    }
+  }
+
+  task transmit_data {
+    id 3;
+    duration 30;
+    after collect_sample;
+
+    pre {
+      location = site_a;
+      data in [40.0, 200.0];  
+      battery in [35.0, 100.0];
+    }
+
+    impacts {
+      maint {
+        battery +~ -1.0;   
+        data +~ -2.5;      
+      }
+    }
+  }
+
+  constraints {
+    prop battery_safe: always (battery >= 20.0);
+    prop arm_while_stopped: always ((wheels = true) -> (arm = stowed));
+    prop must_collect: eventually active(collect_sample);
+    prop must_transmit: eventually active(transmit_data);
+  }
+}

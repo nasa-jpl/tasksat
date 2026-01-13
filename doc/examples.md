@@ -4,8 +4,26 @@ This document provides annotated examples demonstrating common patterns and real
 
 ## Example Files
 
-Complete working examples can be found in `tests/tasknet_files/valid/`:
+Complete working example files can be found in [tests/tasknet_files/examples/](../tests/tasknet_files/examples/):
 
+**Main Examples:**
+- [my_robot.tn](../tests/tasknet_files/examples/my_robot.tn) - Simple robot (getting started example)
+- [rover_mission.tn](../tests/tasknet_files/examples/rover_mission.tn) - Mars rover mission (tutorial example)
+- [mars_rover_day.tn](../tests/tasknet_files/examples/mars_rover_day.tn) - Complete rover daily activity plan
+
+**Pattern Examples:**
+- [sequential_tasks.tn](../tests/tasknet_files/examples/sequential_tasks.tn) - Sequential task chains
+- [resource_mutex.tn](../tests/tasknet_files/examples/resource_mutex.tn) - Mutual exclusion
+- [energy_budget.tn](../tests/tasknet_files/examples/energy_budget.tn) - Battery management
+- [state_machine.tn](../tests/tasknet_files/examples/state_machine.tn) - State transitions
+- [data_collection.tn](../tests/tasknet_files/examples/data_collection.tn) - Data collection & transmission
+- [optional_tasks.tn](../tests/tasknet_files/examples/optional_tasks.tn) - Optional tasks with priorities
+- [thermal_management.tn](../tests/tasknet_files/examples/thermal_management.tn) - Thermal constraints
+- [time_windows.tn](../tests/tasknet_files/examples/time_windows.tn) - Time window constraints
+- [parallel_resources.tn](../tests/tasknet_files/examples/parallel_resources.tn) - Parallel execution with shared resources
+- [conditional_execution.tn](../tests/tasknet_files/examples/conditional_execution.tn) - Conditional task execution
+
+Additional test files can be found in `tests/tasknet_files/valid/`:
 - [tasknet1.tn](../tests/tasknet_files/valid/tasknet1.tn) - Rover with heating, driving, communication
 - [tasknet6_optional.tn](../tests/tasknet_files/valid/tasknet6_optional.tn) - Optional tasks and optimization
 - [tasknet15_numeric_states.tn](../tests/tasknet_files/valid/tasknet15_numeric_states.tn) - Numeric state values

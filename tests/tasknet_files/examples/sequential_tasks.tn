@@ -1,0 +1,28 @@
+
+
+
+
+tasknet SequentialTasks {
+  end = 50;
+
+  timelines {
+    
+  }
+
+  task task1 {
+    id 1;
+    duration 10;
+  }
+
+  task task2 {
+    id 2;
+    duration 10;
+    after task1;  
+  }
+
+  task task3 {
+    id 3;
+    duration 10;
+    after task2;  
+  }
+}

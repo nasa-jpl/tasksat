@@ -4,23 +4,6 @@ TaskSAT is a domain-specific language and tool for modeling and verifying task s
 
 TaskSAT can be applied to scheduling problems in autonomous systems, such as spacecraft and rover operations, 
 
-TaskSAT allows you to:
-
-- **Model** complex scheduling problems using an expressive DSL
-- **Specify** temporal constraints, resource requirements, and task dependencies
-- **Verify** that schedules satisfy all constraints using formal methods
-- **Optimize** schedules to minimize optional tasks or other objectives
-- **Analyze** scheduling problems for feasibility and performance
-
-### Key Features
-
-- **Multiple Timeline Types**: Model discrete states, boolean flags, and continuous resources
-- **Rich Constraint Language**: Express preconditions, invariants, postconditions, and impacts
-- **Temporal Logic**: Verify properties using LTL-style operators (always, eventually, until, since)
-- **Automated Reasoning**: Leverage Z3's SMT solver for constraint satisfaction
-- **Two Solver Modes**: Satisfy mode for quick feasibility checks, optimize mode for finding best schedules
-- **Performance Insights**: Understand scaling characteristics through comprehensive stress testing
-
 ### System Architecture
 
 ```
@@ -64,3 +47,4 @@ TaskSAT allows you to:
 - **[Examples](doc/examples.md)** - Annotated examples and common patterns
 - **[Performance & Scaling](doc/performance.md)** - Stress test results and complexity guidelines
 - **[Architecture](doc/architecture.md)** - Implementation details and SMT encoding
+

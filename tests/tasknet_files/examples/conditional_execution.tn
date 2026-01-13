@@ -1,0 +1,27 @@
+
+
+
+
+tasknet ConditionalExecution {
+  end = 100;
+
+  timelines {
+    
+  }
+
+  task risky_operation {
+    id 1;
+    duration 40;
+    
+  }
+
+  task safety_check {
+    id 2;
+    duration 10;
+    
+  }
+
+  constraints {
+    prop safety_after_risk: active(risky_operation) -> eventually active(safety_check);
+  }
+}

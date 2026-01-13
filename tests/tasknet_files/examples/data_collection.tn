@@ -1,0 +1,41 @@
+
+
+
+
+tasknet DataCollection {
+  end = 150;
+
+  timelines {
+    data_storage : cumulative [0.0, 10.0] bounds [0.0, 500.0] = 0.0;
+    battery : rate [-5.0, 2.0] bounds [0.0, 100.0] = 100.0;
+  }
+
+  task collect_science {
+    id 1;
+    duration 50;
+    impacts {
+      maint {
+        data_storage +~ 3.0;   
+        battery +~ -0.5;        
+      }
+    }
+  }
+
+  task transmit_data {
+    id 2;
+    duration 30;
+    pre {
+      data_storage in [50.0, 500.0];  
+    }
+    impacts {
+      maint {
+        data_storage +~ -5.0;   
+        battery +~ -1.0;
+      }
+    }
+  }
+
+  constraints {
+    prop collect_then_transmit: active(transmit_data) -> once active(collect_science);
+  }
+}

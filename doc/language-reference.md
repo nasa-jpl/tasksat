@@ -2,6 +2,8 @@
 
 This document provides complete syntax reference for the TaskSAT DSL.
 
+For the formal grammar specification, see [grammar.txt](../src/smt/grammar.txt).
+
 ## File Structure
 
 A TaskSAT specification (`.tn` file) has this overall structure:
