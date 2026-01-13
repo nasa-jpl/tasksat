@@ -1,97 +1,87 @@
+# TaskSAT 
 
-# TaskVet
+TaskSAT is a domain-specific language and tool for modeling and verifying task scheduling problems with rich temporal and resource constraints. The system combines a declarative specification language with SMT-based automated reasoning using Z3. TaskSAT supports multiple types of state variables that model discrete states, Boolean flags, and continuous resources with complex dynamics. Tasks specify preconditions, invariants, postconditions, and resource impacts (assignments, deltas, rates) that occur at boundaries or during execution. The verifier encodes specifications into quantifier-free SMT formulas using zone-based time discretization, supporting both satisfiability checking and optimization. Users can express temporal properties using LTL-style operators (always, eventually, until, since) that are verified alongside scheduling constraints.
 
-Tool set for verifying (vetting) task networks written in the TaskNet DSL using SMT solving.
+TaskSAT can be applied to scheduling problems in autonomous systems, such as spacecraft and rover operations, 
 
-## Installation
+TaskSAT allows you to:
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+- **Model** complex scheduling problems using an expressive DSL
+- **Specify** temporal constraints, resource requirements, and task dependencies
+- **Verify** that schedules satisfy all constraints using formal methods
+- **Optimize** schedules to minimize optional tasks or other objectives
+- **Analyze** scheduling problems for feasibility and performance
+
+### Key Features
+
+- **Multiple Timeline Types**: Model discrete states, boolean flags, and continuous resources
+- **Rich Constraint Language**: Express preconditions, invariants, postconditions, and impacts
+- **Temporal Logic**: Verify properties using LTL-style operators (always, eventually, until, since)
+- **Automated Reasoning**: Leverage Z3's SMT solver for constraint satisfaction
+- **Two Solver Modes**: Satisfy mode for quick feasibility checks, optimize mode for finding best schedules
+- **Performance Insights**: Understand scaling characteristics through comprehensive stress testing
+
+### System Architecture
+
+```
+┌─────────────────┐
+│  TaskNet (.tn)  │  User writes specification in DSL
+│   Specification │
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│  Parser (PLY)   │  Lexer + Parser using Python Lex-Yacc
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│   AST + Type    │  Abstract syntax tree with wellformedness checking
+│     Checking    │
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│  SMT Encoding   │  Zone-based time discretization + quantifier-free formulas
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│  Z3 Solver      │  SMT solving (satisfy or optimize mode)
+└────────┬────────┘
+         │
+         v
+┌─────────────────┐
+│ Schedule/UNSAT  │  Valid schedule or proof of infeasibility
+└─────────────────┘
 ```
 
-## VS Code Syntax Highlighting (Optional)
+## Documentation Structure
 
-Install the TaskNet language extension for syntax highlighting of `.tn` files.
+This documentation is organized into the following sections:
 
-If the `.vsix` file already exists, simply install it:
-```bash
-cd vscode-dsl
-code --install-extension tasknet-0.0.1.vsix --force
-```
+### [Getting Started](doc/getting-started.md)
+Quick installation and your first TaskNet in minutes.
 
-If you've made changes or the `.vsix` doesn't exist, repackage first:
-```bash
-cd vscode-dsl
-vsce package --allow-missing-repository
-code --install-extension tasknet-0.0.1.vsix --force
-```
+### [Tutorial](doc/tutorial.md)
+In-depth walkthrough of concepts, patterns, and best practices.
 
-## Usage
+### [Language Reference](doc/language-reference.md)
+Complete DSL syntax including timeline types, task definitions, constraints, and temporal operators.
 
-### 1. Write a TaskNet File
+### [Examples](doc/examples.md)
+Annotated examples demonstrating common patterns and real-world applications.
 
-Create a `.tn` file defining your task network. A TaskNet specification includes:
+### [Performance & Scaling](doc/performance.md)
+Stress test results, scaling characteristics, and guidelines for problem complexity.
 
-- **Timelines**: State variables and resources (state, atomic, claim, rate)
-- **Tasks**: Operations with preconditions, invariants, postconditions, and resource impacts
-- **Properties**: Temporal logic properties to verify (using `always`, `eventually`, `once`, etc.)
+### [Architecture](doc/architecture.md)
+Implementation details: SMT encoding, zone-based discretization, and extending the system.
 
-### 2. Verify Your TaskNet
+## Getting Help
 
-Run the verifier on your TaskNet file:
-
-```bash
-python src/smt/tasknet_verifier.py path/to/your_tasknet.tn
-```
-
-The verifier will either:
-- **SAT**: Find and display a valid schedule satisfying all constraints
-- **UNSAT**: Report that no valid schedule exists
-
-#### Solver Modes
-
-The verifier supports two modes via the `--mode` flag:
-
-- **optimize** (default): Uses Z3's `Optimize` solver to minimize the number of optional tasks included
-  ```bash
-  python src/smt/tasknet_verifier.py path/to/your_tasknet.tn --mode optimize
-  ```
-
-- **satisfy**: Uses Z3's `Solver` to find any valid schedule without optimization. This mode is faster and provides unsat core debugging when no solution exists
-  ```bash
-  python src/smt/tasknet_verifier.py path/to/your_tasknet.tn --mode satisfy
-  ```
-
-### Example
-
-See [tasknet1.tn](src/smt/tasknet1.tn) for a complete example demonstrating:
-- State timelines (heating, driving, communicating)
-- Resources with bounds (battery, memory, distance, temperature)
-- Task definitions with temporal constraints
-- Temporal properties like `always (battery >= 60.0)`
-
-## TaskNet Language Features
-
-- **Timeline Types**: `state`, `atomic`, `claim`, `cumulative`, `rate`
-- **Task Constraints**: `pre`, `inv`, `post`, `impacts`, `after`
-- **Resource Operations**: `=`, `+=`, `-=`, `+~`, `-~`, `in [min, max]`
-- **Temporal Operators**: `always`, `eventually`, `once`, `sofar`, `until`, `since`
-- **Logical Operators**: `not`, `and`, `or`, `->`, `>=`, `<=`, `<`, `>`
-
-## Modifying Syntax Highlighting
-
-To update the syntax highlighting after making changes:
-
-1. Edit [tasknet.tmLanguage.json](vscode-dsl/syntaxes/tasknet.tmLanguage.json)
-2. Repackage the extension:
-   ```bash
-   cd vscode-dsl && vsce package --allow-missing-repository
-   ```
-3. Reinstall the extension:
-   ```bash
-   code --install-extension tasknet-0.0.1.vsix --force
-   ```
-4. Reload VS Code window (Command Palette → "Developer: Reload Window")
-
+- Start with [doc/getting-started.md](doc/getting-started.md) for quick setup
+- Read [doc/tutorial.md](doc/tutorial.md) for detailed concept explanations
+- Reference [doc/language-reference.md](doc/language-reference.md) for complete syntax
+- Browse [doc/examples.md](doc/examples.md) for pattern examples
+- Report issues at: https://github.com/[your-repo]/taskvet/issues
