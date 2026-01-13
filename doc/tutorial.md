@@ -4,27 +4,120 @@ This tutorial provides an in-depth walkthrough of TaskSAT concepts, patterns, an
 
 > **Prerequisites**: Install TaskSAT and run your first example by following [Getting Started](getting-started.md) first. This tutorial assumes you've already seen the basic MyRobot example.
 
-## Understanding Timelines
+## A Complete Example
 
-Timelines are the foundation of TaskSAT - they model state variables and resources that change over time. Let's explore each type in detail.
-    active tasks : drive
-    battery        = 90 -> 60
-    location       = target
+Let's start with a complete TaskSAT specification and then understand each part. This example models a Mars rover conducting a science mission:
 
-  -- zone 3: (55, 100] --
-    active tasks : (none)
-    battery        = 60 -> 60
-    location       = target
+```tasknet
+tasknet RoverMission {
+  end = 200;
 
-Temporal properties:
-  ✓ battery_safe: always (battery >= 0.0)
+  timelines {
+    battery : rate [-10.0, 5.0] bounds [0.0, 100.0] = 80.0;
+    data : cumulative [0.0, 10.0] bounds [0.0, 200.0] = 0.0;
+    location : state(base, site_a, site_b) = base;
+    arm : state(stowed, deployed) = stowed;
+    wheels : atomic = false;
+  }
+
+  task drive_to_site {
+    id 1;
+    duration 30;
+
+    pre {
+      location = base;
+      battery in [40.0, 100.0];
+      arm = stowed;
+    }
+
+    impacts {
+      pre {
+        location = site_a;
+        wheels = true;
+      }
+      maint {
+        battery +~ -1.5;  // Drain 1.5 units/time while driving
+      }
+      post {
+        wheels = false;
+      }
+    }
+  }
+
+  task collect_sample {
+    id 2;
+    duration 40;
+    after drive_to_site;
+
+    pre {
+      location = site_a;
+      battery in [30.0, 100.0];
+      arm = stowed;
+      wheels = false;
+    }
+
+    inv {
+      arm = deployed;
+    }
+
+    impacts {
+      pre {
+        arm = deployed;
+      }
+      maint {
+        battery +~ -0.8;   // Use power for sampling
+        data +~ 2.0;       // Collect 2 units/time
+      }
+      post {
+        arm = stowed;
+      }
+    }
+  }
+
+  task transmit_data {
+    id 3;
+    duration 30;
+    after collect_sample;
+
+    pre {
+      location = site_a;
+      data in [40.0, 200.0];  // Need data to transmit
+      battery in [35.0, 100.0];
+    }
+
+    impacts {
+      maint {
+        battery +~ -1.0;   // Use power for transmission
+        data +~ -2.5;      // Transmit 2.5 units/time
+      }
+    }
+  }
+
+  constraints {
+    prop battery_safe: always (battery >= 20.0);
+    prop arm_while_stopped: always ((wheels = true) -> (arm = stowed));
+    prop must_collect: eventually active(collect_sample);
+    prop must_transmit: eventually active(transmit_data);
+  }
+}
 ```
 
-**What this tells us:**
-- The robot charges from time 0 to 20 (battery: 50 → 90)
-- It waits from 20 to 25
-- It drives from 25 to 55 (battery: 90 → 60)
-- Battery stays above 0 throughout (property satisfied ✓)
+**What this specification does:**
+
+1. **Defines Resources**: Battery (drains/charges), data storage (accumulates), location (discrete states), arm position, wheel status
+2. **drive_to_site**: Rover drives from base to site_a, consuming battery
+3. **collect_sample**: Deploys arm, collects scientific data while using power
+4. **transmit_data**: Sends collected data back to Earth, consuming remaining data and power
+5. **Safety Properties**: Ensures battery stays safe, arm is stowed while driving, critical tasks complete
+
+When you run this:
+```bash
+python src/smt/tasknet_verifier.py rover_mission.tn --mode satisfy
+```
+
+The solver finds a schedule that satisfies all constraints, showing when each task executes and how resources change over time.
+
+Now let's break down each concept in detail.
 
 ## Basic Concepts
 

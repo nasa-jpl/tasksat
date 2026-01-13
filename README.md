@@ -64,5 +64,3 @@ TaskSAT allows you to:
 - **[Examples](doc/examples.md)** - Annotated examples and common patterns
 - **[Performance & Scaling](doc/performance.md)** - Stress test results and complexity guidelines
 - **[Architecture](doc/architecture.md)** - Implementation details and SMT encoding
-
-Report issues at: https://github.com/[your-repo]/taskvet/issues
