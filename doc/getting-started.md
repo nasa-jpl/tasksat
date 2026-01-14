@@ -13,8 +13,8 @@ This guide will get you up and running with TaskSAT in a few minutes.
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/[your-repo]/taskvet.git
-cd taskvet
+git clone https://github.jpl.nasa.gov/pass/tasksat.git
+cd tasksat
 ```
 
 2. Create and activate a virtual environment:
@@ -30,7 +30,7 @@ pip install -r requirements.txt
 
 4. Verify installation:
 ```bash
-python src/smt/tasknet_verifier.py tests/tasknet_files/valid/tasknet1.tn
+python src/smt/tasknet_verifier.py tests/tasknet_files/examples/my_robot.tn
 ```
 
 If you see a schedule output, you're ready to go!
@@ -55,7 +55,7 @@ tasknet MyRobot {
   end = 100;
 
   timelines {
-    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+    battery : rate [10.0, 100.0] bounds [0.0, 100.0] = 50.0;
     location : state(home, target) = home;
   }
 
@@ -65,7 +65,7 @@ tasknet MyRobot {
 
     pre {
       location = home;
-      battery in [0.0, 80.0];
+      battery in [0.0, 60.0];
     }
 
     impacts {
@@ -93,8 +93,8 @@ tasknet MyRobot {
     }
   }
 
-  constraints {
-    prop battery_safe: always (battery >= 0.0);
+  property {
+    prop target_reached: eventually location = target;
   }
 }
 ```

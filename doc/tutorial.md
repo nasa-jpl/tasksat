@@ -2,9 +2,9 @@
 
 This tutorial provides an in-depth walkthrough of TaskSAT concepts, patterns, and best practices.
 
-> **Prerequisites**: Install TaskSAT and run your first example by following [Getting Started](getting-started.md) first. This tutorial assumes you've already seen the basic MyRobot example.
+> **Prerequisites**: Install TaskSAT and run your first example by following [Getting Started](getting-started.md) first. 
 
-## A Complete Example
+## An Example
 
 Let's start with a complete TaskSAT specification and then understand each part. This example models a Mars rover conducting a science mission. The complete file is available at [tests/tasknet_files/examples/rover_mission.tn](../tests/tasknet_files/examples/rover_mission.tn).
 

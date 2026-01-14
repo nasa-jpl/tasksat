@@ -1,6 +1,6 @@
 # Experiments
 
-This directory contains experimental Python scripts developed during the implementation of TaskVet.
+This directory contains experimental Python scripts developed during the implementation of TaskSAT.
 
 ## Purpose
 
