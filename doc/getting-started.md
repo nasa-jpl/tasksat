@@ -34,7 +34,7 @@ We shall now verify the installation. The file
 [tests/tasknet_files/examples/my_robot.tn](../tests/tasknet_files/examples/my_robot.tn)
 contains the following tasknet:
 
-```tasknet
+```javascript
 tasknet MyRobot {
   end = 100;
 
