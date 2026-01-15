@@ -1,49 +1,44 @@
-
-
-
 tasknet MyRobot {
   end = 100;
 
   timelines {
-    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+    battery : rate [10.0, 100.0] bounds [0.0, 100.0] = 10.0;
     location : state(home, target) = home;
   }
 
   task charge {
-    id 1;
-    duration 20;
+    duration_range [30,40];
 
     pre {
       location = home;
-      battery in [0.0, 80.0];
+      battery in [0.0, 60.0];
     }
 
     impacts {
       maint {
-        battery +~ 2.0;  
+        battery +~ 2.0;  # Charge at 2 units per time
       }
     }
-  }
+  }  
 
   task drive {
-    id 2;
-    duration 30;
+    duration_range [30,40];
 
     pre {
-      battery in [30.0, 100.0];  
+      battery in [90.0, 100.0];  # Need enough power
     }
 
     impacts {
-      pre {
-        location = target;
-      }
       maint {
-        battery +~ -1.0;  
+        battery +~ -1.5;  # Drain 5 unit per time
+      }
+      post {
+        location = target;
       }
     }
   }
 
-  constraints {
-    prop battery_safe: always (battery >= 0.0);
+  properties {
+    prop target_reached: eventually location = target;
   }
 }
