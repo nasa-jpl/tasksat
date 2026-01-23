@@ -6,7 +6,182 @@ This tutorial provides an in-depth walkthrough of TaskSAT concepts, patterns, an
 
 ## An Example
 
-Let's start with a complete TaskSAT specification and then understand each part. This example models a Mars rover conducting a science mission. The complete file is available at [tests/tasknet_files/examples/rover_mission.tn](../tests/tasknet_files/examples/rover_mission.tn).
+Let's start with a complete TaskSAT specification and then understand each part. This example models a Mars rover conducting a science mission. The complete file is available at [tests/tasknet_files/examples/rover2.tn](../tests/tasknet_files/examples/rover2.tn).
+
+```
+tasknet MyRobot {
+  end = 400;
+
+  timelines {
+    battery : rate [10.0, 100.0] bounds [0.0, 100.0] = 60.0;
+    temperature : rate [5.0, 40.0] bounds [0.0, 100.0] = 10.0;
+    location : state(home, target) = home;
+    arm : atomic = false;
+    data : cumulative [0.0, 50.0] bounds [0.0, 100.0] = 0.0;
+  }
+
+  taskdef charge_def {
+    pre {
+      battery in [0.0, 60.0];
+    }
+
+    impacts {
+      maint {
+        battery +~ 2.0;  # Charge at 2 units per time
+      }
+    }
+  }  
+
+  taskdef drive_def {
+    pre {
+      battery in [60.0, 100.0];  # Need enough power
+      temperature in [10.0, 40.0];  # Safe temperature
+    }
+
+    impacts {
+      maint {
+        battery +~ -1.5;  # Drain 5 unit per time
+      }
+      post {
+        location = target;
+      }
+    }
+  }
+
+  optional task charge : charge_def {
+    duration_range [60,70];
+  }
+
+  optional task heating {
+    duration_range [10, 10];
+
+    impacts {
+      maint {
+        battery +~ -0.5;  # Small power drain
+        temperature +~ 2;  # Increase temperature
+      }
+    }
+  }
+
+  task drive: drive_def {
+    start_range [100, 120];
+    end_range [130, 160];
+    duration_range [30,40];
+
+    # after charge; # this will yield unsat
+  }
+  
+  task collect {
+    duration_range  [20, 30];
+
+    pre {
+      location = target;
+      battery in [60.0, 100.0];
+      arm = false;
+    }
+
+    impacts {
+      pre {
+        arm = true; 
+      }
+      maint {
+        battery +~ -0.5;   # Use power for collection
+        temperature +~ -0.2;
+      }
+      post {
+        data += 40.0;      # Collect 30 units of data
+        arm = false;      # Retract arm
+      }
+    }
+  }
+
+  constraints {
+     prop not_charge_drive: always not (active(charge) and active(drive));
+     prop not_charge_collect: always not (active(charge) and active(collect));
+     prop temperature10: always temperature >= 10;
+  }
+
+  properties {
+   prop target_reached: eventually (location = target and data >= 30);
+   prop drive_charge: always (active(drive) -> eventually active(charge));
+   prop temperature: always temperature >= 10;
+  }
+}
+```
+
+
+=================
+
+
+The ordering of charge and drive
+--------------------------------
+
+One would expect charging to happen first, but it has to come after the drive task, and the scheduler determines that. The reason is as follows.
+
+--- Charge first: ---
+
+Suppose we start by charging.
+
+Charge lasts 60-70 time units, adding 2.0 per time unit. If it starts right away at 60, we reach 100% after 20 time units (note that means that at least 40 time units have no charging effect). 
+
+When the drive task then starts, it will last 30-40 time units charging 1.5 per time unit, brining the battery to 55 to 40. The collection task pre condition requires the battery to be at least 60, so this can now not start.
+
+--- drive first: ---
+
+Suppose instead we start by driving. 
+
+The battery is initially 60 which satisfies the pre-condition of driving. Driving lasts 30-40 time units, 
+charging 1.5 per time unit, brining the battery to 15 to 0. 
+
+At this point charging can start, lasts 60-70 time units, adding 2.0 per time unit, giving a resulting charge of 100. This is then enough for the collection task to execute.
+
+
+--- proving this: ---
+
+If we add an 
+
+  after charge
+
+To drive we will see that there is no solution.
+
+
+Overlapping charge and drive
+-----------------------------
+
+However, when we look at the schedule we see that  charge overlaps with drive as well as collect. 
+We do not want this. We can avoid this by adding the constraints:
+
+     prop not_charge_drive: always not (active(charge) and active(drive));
+     prop not_charge_collect: always not (active(charge) and active(collect));
+
+The properties
+--------------
+
+We can state some properties we want to hold.
+
+   prop target_reached: eventually (location = target and data >= 30);
+   prop drive_charge: always (active(drive) -> eventually active(charge));
+   prop temperature: always temperature >= 10;
+
+The first two are satisfied but the third is not. Temperature dips down under 10 during collection, which decrements the temperature with 0.2 per time unit, from the initial 10.
+
+This is because nothing in the model solar restricts the temperature from going below 10. For example, the temperature timeline is defined as:
+
+  temperature : rate [5.0, 40.0] bounds [0.0, 100.0] = 10.0;
+
+Only enforcing a lower limit of 5. We could of course now change this to:
+
+  temperature : rate [10.0, 40.0] bounds [0.0, 100.0] = 10.0;
+
+Which will trigger the optional heating task to become active.
+
+However, we can also do it with an additional constraint:
+
+  prop temperature10: always temperature >= 10;
+
+
+
+
 
 ```tasknet
 tasknet RoverMission {

@@ -107,7 +107,21 @@ class TaskNetSMT:
     def _merge_task_with_definition(self, instance: Task, definition: Task) -> Task:
         """
         Merge instance with definition. Instance properties take precedence.
+        Impacts are merged (not overwritten) to preserve both definition impacts
+        and any impacts injected by transformation passes.
         """
+        # Merge impacts: combine definition impacts with instance impacts
+        merged_impacts = None
+        if definition.impacts is not None and instance.impacts is not None:
+            # Both have impacts - merge them
+            merged_impacts = list(definition.impacts) + list(instance.impacts)
+        elif definition.impacts is not None:
+            # Only definition has impacts
+            merged_impacts = definition.impacts
+        elif instance.impacts is not None:
+            # Only instance has impacts
+            merged_impacts = instance.impacts
+
         return Task(
             id=instance.id,
             ident=instance.ident if instance.ident is not None else definition.ident,
@@ -124,7 +138,7 @@ class TaskNetSMT:
             pre=instance.pre if instance.pre is not None else definition.pre,
             inv=instance.inv if instance.inv is not None else definition.inv,
             post=instance.post if instance.post is not None else definition.post,
-            impacts=instance.impacts if instance.impacts is not None else definition.impacts,
+            impacts=merged_impacts,  # Use merged impacts
         )
 
     # -------------------

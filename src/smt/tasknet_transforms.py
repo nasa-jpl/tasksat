@@ -135,6 +135,7 @@ def inject_task_state_timelines(tn: TaskNet) -> TaskNet:
     for task_id in referenced_tasks:
         # Find the task
         task = next((t for t in tn.tasks if t.id == task_id), None)
+
         if not task or task.kind == TaskKind.DEFINITION:
             # Skip if task doesn't exist or is a definition (not scheduled)
             continue
