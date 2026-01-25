@@ -666,14 +666,14 @@ python src/smt/tasknet_verifier.py some_tasknet.tn --mode satisfy
 
 Both Modes do This:
 
-- Step 1 - Find a schedule (existential):
-  * ∃ initial, schedule. constraints(initial, schedule)
+- Step 1 - existential: find a schedule the execution of which satisfies the constraints (including the initial state constraints):
+  * ∃ initial, schedule. constraints(execution(initial)(schedule))
   * Then evaluate properties on this specific schedule found.
-  bla bla
 
-- Step 2 - Verify properties (universal) for ALL possible schedules:
-  * ∀ initial, schedule. constraints(initial, schedule) → properties(schedule)
-  bla bla
+  This is the traditional planning problem that a planner will solve.
+
+- Step 2 - universal: 
+  * ∀ initial, schedule. constraints(execution(initial, schedule)) → properties(execution(initial, schedule))
 
 In optimize mode, Step 1 finds the optimal schedule rather than just any schedule.
 
