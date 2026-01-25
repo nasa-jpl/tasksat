@@ -685,9 +685,12 @@ This verification capability goes beyond what traditional planners can do.
 
 #### The difference between modes:
 
-- Optimize mode: Finds the optimal schedule in Step 1
+- Optimize mode: Finds the optimal minimal schedule in Step 1. The minimization is wrt. 
+  * number of optional tasks instantiated: they are only schedules if needed, and according to priority: lower priority numnber means higher priority.
+  * start times: an attempt is made to start the tasks according to start time preference.
+    It minimizes distance between desired start times and realized stat times. 
 - Satisfy mode: Finds any valid schedule in Step 1
-  Both modes perform the same universal property verification in Step 2.
+- Both modes perform the same universal property verification in Step 2.
 
 
 
