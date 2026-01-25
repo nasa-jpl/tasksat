@@ -641,36 +641,47 @@ In this case we attempt to see if there is a schedule if the battery is below 60
 
 ## Solver Modes
 
-TaskSAT supports two verification modes:
+### Commands
 
-### Optimize Mode (Default)
-
-Find an optimal schedule:
-
-```bash
-python src/smt/tasknet_verifier.py rover2.tn --mode optimize
-```
-
-This operates like a scheculder. It for example only instantiates optional tasks of they are needed.
-
-The mathematical problem solved here is:
-
-  ∃ schedule . properties hold
-
-
-**Use when:**
-
-- You have optional tasks
-- You want the best schedule
-- You need to maximize/minimize objectives
-
-### Satisfy Mode (Faster)
-
-Finds any valid schedule:
+TaskSAT supports two verification modes: `optimize` mode and `satisfy` mode. 
+`optimize` mode is activated as follows:
 
 ```bash
-python src/smt/tasknet_verifier.py rover2.tn --mode satisfy
+python src/smt/tasknet_verifier.py some_tasknet.tn --mode optimize
 ```
+
+or, since `optimize` mode is the default:
+
+```
+python src/smt/tasknet_verifier.py some_tasknet.tn
+```
+
+`satisfy` mode is activated as follows:
+
+```bash
+python src/smt/tasknet_verifier.py some_tasknet.tn --mode satisfy
+```
+
+### Explanation
+
+Both Modes do This:
+
+- Step 1 - Find a schedule (existential):
+  * ∃ initial, schedule. constraints(initial, schedule)
+  * Then evaluate properties on this specific schedule found.
+  bla bla
+
+- Step 2 - Verify properties (universal) for ALL possible schedules:
+  * ∀ initial, schedule. constraints(initial, schedule) → properties(schedule)
+  bla bla
+
+In optimize mode, Step 1 finds the optimal schedule rather than just any schedule.
+
+
+
+
+
+
 
 
 
