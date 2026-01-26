@@ -363,83 +363,6 @@ post {
 }
 ```
 
-### Constraint Operators
-
-**For state/atomic timelines:**
-- `timeline = value` (equality)
-
-**For numeric timelines:**
-- `timeline in [min, max]` (range check)
-- `timeline >= value`
-- `timeline <= value`
-- `timeline < value`
-- `timeline > value`
-- `timeline = value` (exact value)
-
-**Logical operators:**
-- `not condition`
-- `condition1 and condition2`
-- `condition1 or condition2`
-- `condition1 -> condition2` (implication)
-
-### Impacts
-
-Impacts specify how tasks affect timelines.
-
-**Impact timing:**
-- **pre**: Effect occurs at task start boundary
-- **maint**: Effect active during task execution
-- **post**: Effect occurs at task end boundary
-
-**Impact operators:**
-
-1. **Assignment** (`=`)
-   - Set a value
-   - Only for state/atomic timelines
-   - Only in `pre` and `post` (not `maint`)
-   - Example: `mode = active;`
-
-2. **Delta** (`+=`, `-=`)
-   - Instant change
-   - For numeric timelines only
-   - Works in `pre`, `maint`, `post`
-   - Example: `memory -= 50.0;`
-   - Timing:
-     - `pre`: Add/subtract at task start
-     - `maint`: Add at start, subtract at end (temporary)
-     - `post`: Add/subtract at task end
-
-3. **Rate** (`+~`, `-~`)
-   - Continuous change over time
-   - For numeric timelines only
-   - Works in `pre`, `maint`, `post`
-   - Example: `battery +~ -0.5;` (drain 0.5 per time unit)
-   - Timing:
-     - `pre`: Rate active from task start onward (permanent)
-     - `maint`: Rate active during task only (temporary)
-     - `post`: Rate active from task end onward (permanent)
-
-**Examples:**
-
-```tasknet
-impacts {
-  pre {
-    mode = active;           // Assignment: set state at start
-    memory -= 30.0;          // Delta: claim 30 units at start
-    battery +~ -1.0;         // Rate: start draining from now on
-  }
-  maint {
-    temperature +~ 0.5;      // Rate: heat during execution
-    bandwidth -= 10.0;       // Delta: claim during, release after
-  }
-  post {
-    mode = done;             // Assignment: set state at end
-    data_collected += 50.0;  // Delta: add 50 units at end
-    battery +~ 0.0;          // Rate: stop draining (set to 0)
-  }
-}
-```
-
 ## Temporal Properties
 
 Properties express temporal logic formulas that must hold over all valid schedules.
@@ -469,6 +392,23 @@ properties {
 **Note:** Both blocks have the same semantics. Use whichever name you prefer.
 
 ### Temporal Operators
+
+**For state/atomic timelines:**
+- `timeline = value` (equality)
+
+**For numeric timelines:**
+- `timeline in [min, max]` (range check)
+- `timeline >= value`
+- `timeline <= value`
+- `timeline < value`
+- `timeline > value`
+- `timeline = value` (exact value)
+
+**Logical operators:**
+- `not condition`
+- `condition1 and condition2`
+- `condition1 or condition2`
+- `condition1 -> condition2` (implication)
 
 **always φ**
 - φ must hold at all times
@@ -521,144 +461,3 @@ constraints {
 }
 ```
 
-## Complete Example
-
-```tasknet
-tasknet ScienceMission {
-  end = 200;
-
-  timelines {
-    mode : state(idle, warming, collecting, transmitting) = idle;
-    battery : rate [-2.0, 5.0] bounds [0.0, 100.0] = 100.0;
-    data : cumulative [0.0, 10.0] bounds [0.0, 500.0] = 0.0;
-    memory : claim [0.0, 100.0] = 100.0;
-    antenna : atomic = false;
-  }
-
-  task warmup {
-    id 1;
-    duration 20;
-    priority 10;
-
-    pre {
-      mode = idle;
-      battery in [50.0, 100.0];
-    }
-
-    inv {
-      battery in [30.0, 100.0];
-    }
-
-    post {
-      mode = idle;
-    }
-
-    impacts {
-      pre {
-        mode = warming;
-      }
-      maint {
-        battery +~ -0.5;
-      }
-      post {
-        mode = idle;
-      }
-    }
-  }
-
-  task collect_science {
-    id 2;
-    duration_range [30, 60];
-    after warmup;
-
-    pre {
-      mode = idle;
-      battery in [40.0, 100.0];
-      memory in [50.0, 100.0];
-    }
-
-    inv {
-      battery in [20.0, 100.0];
-      memory in [30.0, 100.0];
-    }
-
-    impacts {
-      pre {
-        mode = collecting;
-        memory -= 40.0;
-      }
-      maint {
-        battery +~ -1.0;
-        data +~ 2.0;
-      }
-      post {
-        mode = idle;
-        memory += 40.0;
-      }
-    }
-  }
-
-  optional task transmit_data {
-    id 3;
-    duration 40;
-
-    pre {
-      mode = idle;
-      data in [50.0, 500.0];
-      battery in [60.0, 100.0];
-    }
-
-    impacts {
-      pre {
-        mode = transmitting;
-        antenna = true;
-      }
-      maint {
-        battery +~ -1.5;
-        data +~ -5.0;
-      }
-      post {
-        mode = idle;
-        antenna = false;
-      }
-    }
-  }
-
-  constraints {
-    prop battery_safe: always (battery >= 15.0);
-    prop collect_once: eventually active(collect_science);
-    prop warmup_before_collect: active(collect_science) -> once active(warmup);
-    prop no_overlap: always (not (active(collect_science) and active(transmit_data)));
-  }
-}
-```
-
-## Grammar Summary
-
-### Keywords
-`tasknet`, `end`, `timelines`, `state`, `atomic`, `claim`, `cumulative`, `rate`, `bounds`, `task`, `optional`, `id`, `priority`, `duration`, `duration_range`, `start`, `start_range`, `end_range`, `after`, `pre`, `inv`, `post`, `impacts`, `maint`, `constraints`, `prop`, `always`, `eventually`, `once`, `sofar`, `until`, `since`, `active`, `not`, `and`, `or`, `in`, `true`, `false`
-
-### Operators
-- Assignment: `=`
-- Delta: `+=`, `-=`
-- Rate: `+~`, `-~`
-- Comparison: `<`, `>`, `<=`, `>=`
-- Logical: `not`, `and`, `or`, `->`
-- Range: `in [min, max]`
-
-### Comments
-- Single line: `// comment`
-- Multi-line: `/* comment */`
-
-### Identifiers
-- Timeline names: Start with letter, can contain letters, digits, underscores
-- Task names: Same rules as timeline names
-- Property names: Same rules as timeline names
-
-### Numbers
-- Integers: `0`, `42`, `-10`
-- Reals: `0.0`, `3.14`, `-2.5`
-
-### Strings
-- State values: Unquoted identifiers like `idle`, `active`
-- Can also use numeric values: `0`, `1`, `2.5`
