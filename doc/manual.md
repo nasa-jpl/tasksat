@@ -139,6 +139,28 @@ Timelines model state variables and resources that change over time. Each timeli
 
 ### Impact Operations Summary
 
+There are three different ways to update a timeline
+
+- assignments: 
+  * timeline = value
+- cumulative updates (adds/subtracts a delta):
+  * timeline += value
+  * timeline -= value
+- rate updates (sets the rate with which a timeline changes per time unit):
+  * timeline +~ value
+  * timeline -~ value
+
+Cumulative and rate updates only work on numeric timelines.
+
+The meaning of these updates depend on which impact kind it conerns:
+
+- pre: when the task starts
+- maint: during the execution of the task
+- post: at the end of the task
+
+Their impacts are shown in the following figure (from MEXEC User’s Guide
+Version 1.5.0, May 1, 2024):
+
 ![Impacts](impacts.png)
 
 This table shows which impact operations are allowed on each timeline type:
