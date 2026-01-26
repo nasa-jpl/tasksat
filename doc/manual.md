@@ -135,7 +135,23 @@ task task_name {
 
 ## Timelines
 
+
 Timelines model state variables and resources that change over time. Each timeline has a type that determines what values it can hold and how it can be modified.
+
+### The Five Kinds of Timelines
+
+There are five kinds of timelines, shown here in schematic form:
+
+```
+name : state(value1, value2, ...) = initial_value;
+name : atomic = true/false;
+name : claim [min, max] = initial_value;
+name : cumulative [min_rate, max_rate] bounds [min, max] = initial_value;
+name : rate [min_rate, max_rate] bounds [min, max] = initial_value;
+```
+
+The state timeline is an enumerate type of a finite number of values, which
+can be names or numbers. The atomic timeline is a special case where the values are Booleans. The three other timelines denote floating point numbers and allow different kinds of operations. They each have a range of values that a schdule must stay within. In addition, the cumulative and rate timelines have a minimal and maximal bound, and any value computed during the execution of a schedule will be clamped to stay in that interval. It is effectively the type of the timeline, whereas the first interval is a subtype of that.
 
 ### Impact Operations Summary
 
@@ -172,136 +188,6 @@ This table shows which impact operations are allowed on each timeline type:
 | **Claimable** | ✗ | ✓ | ✗ | like cumulative but maint only |
 | **Cumulative** | ✓    | ✓ | ✗ | Delta: pre/maint/post<br>Assignment: pre/post only |
 | **Rate** | ✓   | ✓    | ✓ | Delta/Rate: pre/maint/post<br>Assignment: pre/post only |
-
-### State Timeline
-
-Models discrete states (names or numeric values).
-
-**Syntax:**
-```tasknet
-name : state(value1, value2, ...) = value2;
-```
-
-**Examples:**
-```tasknet
-mode : state(idle, active, done) = idle;
-power_level : state(0, 1, 2, 3) = 0;           // Numeric states
-temperature_mode : state(0.0, 10.5, 20.0) = 0.0;  // Real-valued states
-```
-
-**Constraints:**
-- Can use `=` (equality)
-- Works in `pre`, `inv`, `post` sections
-
-**Impacts:**
-- Assignment (`=`) in `pre` and `post` only
-- No `maint` impacts allowed
-
-### Atomic Timeline
-
-Models boolean values (true/false).
-
-**Syntax:**
-```tasknet
-name : atomic = initial_value;
-```
-
-**Examples:**
-```tasknet
-sensor_active : atomic = false;
-heater_on : atomic = true;
-```
-
-**Constraints:**
-- Can use `=` (equality)
-- Works in `pre`, `inv`, `post` sections
-
-**Impacts:**
-- Assignment (`=`) in `pre` and `post` only
-- No `maint` impacts allowed
-
-### Claimable Timeline
-
-Models consumable/producible resources that can be claimed and released.
-
-**Syntax:**
-```tasknet
-name : claim [min, max] = initial_value;
-name : claimable [min, max] = initial_value;  // Alternative keyword
-```
-
-**Examples:**
-```tasknet
-memory : claim [0.0, 100.0] = 100.0;
-bandwidth : claim [0.0, 1000.0] = 500.0;
-```
-
-**Constraints:**
-- Can use `in [min, max]` (range check)
-- Can use comparison operators (`>=`, `<=`, `<`, `>`, `=`)
-- Works in `pre`, `inv`, `post` sections
-
-**Impacts:**
-- Delta (`+=`, `-=`) in `pre`, `maint`, `post`
-  - `pre`: Instant change at task start
-  - `maint`: Temporary claim (add at start, subtract at end)
-  - `post`: Instant change at task end
-- Rate (`+~`, `-~`) in `pre`, `maint`, `post`
-  - Continuous change over time
-
-### Cumulative Timeline
-
-Models accumulators that can only increase or decrease monotonically.
-
-**Syntax:**
-```tasknet
-name : cumulative [min_rate, max_rate] bounds [min, max] = initial_value;
-name : cumul [min_rate, max_rate] bounds [min, max] = initial_value;  // Alternative keyword
-```
-
-**Examples:**
-```tasknet
-data_collected : cumulative [0.0, 10.0] bounds [0.0, 1000.0] = 0.0;
-fuel_consumed : cumulative [0.0, 5.0] bounds [0.0, 500.0] = 0.0;
-```
-
-**Constraints:**
-- Can use `in [min, max]` (range check)
-- Can use comparison operators
-- Works in `pre`, `inv`, `post` sections
-
-**Impacts:**
-- Delta (`+=`, `-=`) in `pre`, `maint`, `post`
-- Assignment (`=`) in `pre`, `post` only
-- **Note:** Rate impacts (`+~`, `-~`) are NOT allowed on cumulative timelines
-
-### Rate Timeline
-
-Models continuous resources with rates of change.
-
-**Syntax:**
-```tasknet
-name : rate [min_rate, max_rate] bounds [min, max] = initial_value;
-```
-
-**Examples:**
-```tasknet
-battery : rate [-10.0, 10.0] bounds [0.0, 100.0] = 100.0;
-temperature : rate [-5.0, 5.0] bounds [0.0, 100.0] = 20.0;
-distance : rate [0.0, 50.0] bounds [0.0, 1000.0] = 0.0;
-```
-
-**Constraints:**
-- Can use `in [min, max]` (range check)
-- Can use comparison operators
-- Works in `pre`, `inv`, `post` sections
-
-**Impacts:**
-- Delta (`+=`, `-=`) in `pre`, `maint`, `post`
-  - Instant change to the accumulated value
-- Rate (`+~`, `-~`) in `pre`, `maint`, `post`
-  - Continuous change over time
-  - Example: `battery +~ -1.0` means drain at 1 unit per time
 
 ## Initial State Constraints
 
