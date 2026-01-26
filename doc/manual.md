@@ -359,33 +359,25 @@ post {
 }
 ```
 
-## Temporal Properties
-
-Properties express temporal logic formulas that must hold over all valid schedules.
-
-### Syntax
-
-Properties can be declared in either a `constraints` or `properties` block (they are synonyms):
+**constraints**
 
 ```tasknet
 constraints {
-  prop name: formula;
+  prop name1: formula1;
   prop name2: formula2;
   ...
 }
 ```
 
-or equivalently:
+**properties**
 
 ```tasknet
 properties {
-  prop name: formula;
+  prop name1: formula1;
   prop name2: formula2;
   ...
 }
 ```
-
-**Note:** Both blocks have the same semantics. Use whichever name you prefer.
 
 ### Temporal Operators
 
