@@ -329,10 +329,6 @@ All task fields are optional unless marked as required.
 - Solver will try to minimize number of optional tasks included
 - Example: `optional task bonus_science { ... }`
 
-### Constraints
-
-Constraints express conditions that must hold at specific points.
-
 **pre** (preconditions)
 - Must be true when task starts
 - Example:
