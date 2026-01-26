@@ -20,7 +20,7 @@ tasknet Name {
   end = time_horizon;
 
   timelines {
-    timeline_name : timeline_type ...;
+    timeline_name : timeline_type = value;
     ...
   }
 
@@ -65,8 +65,8 @@ tasknet Name {
 - `taskdef`: Reusable task definitions (optional)
 - `task`: Task instances and standalone tasks
 - `optional task`: Tasks that may or may not execute
-- `constraints`: Temporal properties to verify (checked universally)
-- `properties`: Same as constraints (alternate name)
+- `constraints`: Temporal properties constraining generated schedules
+- `properties`: Temporal properties checked on generated schedules
 
 ## Task Structure
 
@@ -75,8 +75,10 @@ Here is the schematic structure of a task:
 ```tasknet
 task task_name {
   duration 30;
+  duration_range [20,40];
+  start 20;
   start_range [10, 50];
-  end_range [40, 100];
+  end_range [30, 100];
   after other_task, another_task;
   containedin parent_task;
 
@@ -87,10 +89,12 @@ task task_name {
 
   inv {
     timeline_name = value;
+    timeline_name in [min, max];
   }
 
   post {
     timeline_name = value;
+    timeline_name in [min, max];
   }
 
   impacts {
@@ -113,9 +117,11 @@ task task_name {
 ```
 
 **Components:**
-- `duration` or `duration_range`: How long the task takes
+
+- `duration`: Preferred duration 
+- `duration_range`: Duration range
+- `start`: Preferred start time 
 - `start_range` / `end_range`: Time windows for when task can start/end
-- `start`: Fixed start time (alternative to start_range)
 - `after`: Task ordering dependencies (must start after other tasks end)
 - `containedin`: Task must execute during another task
 - `pre`: Preconditions (must hold at task start)
@@ -131,19 +137,36 @@ task task_name {
 
 Timelines model state variables and resources that change over time. Each timeline has a type that determines what values it can hold and how it can be modified.
 
+### Impact Operations Summary
+
+This table shows which impact operations are allowed on each timeline type:
+
+| Timeline Type | Assignment (`=`) | Delta (`+=`/`-=`) | Rate (`+~`/`-~`) | When Allowed |
+|---------------|------------------|-------------------|------------------|--------------|
+| **State** | ✓ | ✗ | ✗ | pre, post only |
+| **Atomic** | ✓ | ✗ | ✗ | pre, post only |
+| **Claimable** | ✗ | ✓ | ✗ | **maint only** |
+| **Cumulative** | ✓ (pre/post only) | ✓ (all) | ✗ | Delta: pre/maint/post<br>Assignment: pre/post only |
+| **Rate** | ✓ (pre/post only) | ✓ (all) | ✓ (all) | Delta/Rate: pre/maint/post<br>Assignment: pre/post only |
+
+**Key rules:**
+- **State & Atomic**: Only assignments, no deltas or rates, no maint assignments
+- **Claimable**: ONLY delta impacts in maint (claim/release pattern)
+- **Cumulative**: Delta impacts anywhere, assignments only in pre/post, NO rate impacts
+- **Rate**: All impact types allowed, but assignments only in pre/post
+
 ### State Timeline
 
-Models discrete states (string values or numeric values).
+Models discrete states (names or numeric values).
 
 **Syntax:**
 ```tasknet
-name : state(value1, value2, ...) = initial_value;
+name : state(value1, value2, ...) = value2;
 ```
 
 **Examples:**
 ```tasknet
 mode : state(idle, active, done) = idle;
-heating : state(off, on) = off;
 power_level : state(0, 1, 2, 3) = 0;           // Numeric states
 temperature_mode : state(0.0, 10.5, 20.0) = 0.0;  // Real-valued states
 ```
