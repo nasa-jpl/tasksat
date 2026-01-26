@@ -153,6 +153,34 @@ name : rate [min_rate, max_rate] bounds [min, max] = initial_value;
 The state timeline is an enumerate type of a finite number of values, which
 can be names or numbers. The atomic timeline is a special case where the values are Booleans. The three other timelines denote floating point numbers and allow different kinds of operations. They each have a range of values that a schdule must stay within. In addition, the cumulative and rate timelines have a minimal and maximal bound, and any value computed during the execution of a schedule will be clamped to stay in that interval. It is effectively the type of the timeline, whereas the first interval is a subtype of that.
 
+As shown above, timelines can be initialized to a specific value when defined. Howver, this is optional. If no initial value is provided, they can range over their type, unless they are constrained by an init-block shown below schematically:
+
+```tasknet
+init {
+  timeline1 = value;
+  timeline2 in [min, max];
+  timeline2 in value, [min1,max1], [min2,max2]'
+  ...
+}
+```
+
+Here timeline1 is given a value, timeline2 is specified to be in a range,
+and timeline3 is specified as a disjunction of options: either it has a specific value or it is in the range [min1,max1] or it is in the range [min2,max2] - as an example.
+
+Example:
+
+```tasknet
+init {
+  battery = 50.0;              // Battery must start at exactly 50
+  temperature in [10.0, 30.0]; // Temperature can start anywhere in this range
+  mode = idle;                 // Mode must start as idle
+}
+```
+
+### Constraints
+
+The constraints shown above for initializing timelines represent the general form of constraints, also used in pre, inv, and post conditions.
+
 ### Impact Operations Summary
 
 There are three different ways to update a timeline
@@ -188,35 +216,6 @@ This table shows which impact operations are allowed on each timeline type:
 | **Claimable** | ✗ | ✓ | ✗ | like cumulative but maint only |
 | **Cumulative** | ✓    | ✓ | ✗ | Delta: pre/maint/post<br>Assignment: pre/post only |
 | **Rate** | ✓   | ✓    | ✓ | Delta/Rate: pre/maint/post<br>Assignment: pre/post only |
-
-## Initial State Constraints
-
-The `init` block specifies constraints on initial values of timelines. This is optional - if not specified, timelines start with their declared initial values.
-
-**Syntax:**
-```tasknet
-init {
-  timeline_name = value;
-  timeline_name in [min, max];
-  ...
-}
-```
-
-**Examples:**
-```tasknet
-init {
-  battery = 50.0;              // Battery must start at exactly 50
-  temperature in [10.0, 30.0]; // Temperature can start anywhere in this range
-  mode = idle;                 // Mode must start as idle
-}
-```
-
-**Use cases:**
-- Constrain initial values to specific ranges
-- Test system behavior under different starting conditions
-- Ensure initial state meets safety requirements
-
-**Note:** If a timeline has both a declared initial value and an init constraint, both must be satisfied.
 
 ## Task Definitions and Instances
 
