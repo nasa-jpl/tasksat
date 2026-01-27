@@ -60,8 +60,6 @@ TaskSAT can be applied to scheduling problems in autonomous systems, such as spa
 - **[Getting Started](doc/getting-started.md)** - Quick installation and your first TaskNet in minutes
 - **[Tutorial](doc/tutorial.md)** - In-depth walkthrough of concepts, patterns, and best practices
 - **[Manual](doc/manual.md)** - Complete DSL syntax reference
-- **[Examples](doc/examples.md)** - Annotated examples and common patterns
-- **[Performance & Scaling](doc/performance.md)** - Stress test results and complexity guidelines
 - **[Architecture](doc/architecture.md)** - Implementation details and SMT encoding
 
 ## Running Examples in this Document
