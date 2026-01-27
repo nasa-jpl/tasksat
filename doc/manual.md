@@ -385,75 +385,66 @@ properties {
 }
 ```
 
-### Temporal Operators
+### Temporal Formulas
 
 Temporal properties are expressed in a temporal logic.
 
-**For state/atomic timelines:**
-- `timeline = value` (equality)
+**Atomic Formulas**
 
-**For numeric timelines:**
-- `timeline in [min, max]` (range check)
+- `timeline = value` 
 - `timeline >= value`
 - `timeline <= value`
 - `timeline < value`
 - `timeline > value`
-- `timeline = value` (exact value)
+
+Where value can be a name (for state timelines), a Boolean (for atomic timelines), or an integer or float.
+
+In addition the following formula:
+
+- `active`(task)
+
+is true when the specified task is executing.
 
 **Logical operators:**
-- `not condition`
-- `condition1 and condition2`
-- `condition1 or condition2`
-- `condition1 -> condition2` (implication)
 
-**always φ**
-- φ must hold at all times
-- Example: `always (battery >= 20.0)`
+- `not` φ
+- φ1 `and` φ2
+- φ1 `or` φ2
+- φ1 `->` φ2` (implication)
 
-**eventually φ**
-- φ must hold at some future time
-- Example: `eventually (mode = done)`
+**Temporal operators**
 
-**once φ**
-- φ has held at some past time
-- Example: `once (sensor_active = true)`
+Future time:
 
-**sofar φ**
-- φ has held at all past times
-- Example: `sofar (temperature <= 100.0)`
+- `always` φ - φ is true always in the future, including now
+- `eventually` φ - φ is true at some future time
+- φ1 `until` φ2 = φ2 eventually is true and until then (not including) φ1 is true
 
-**φ until ψ**
-- φ holds until ψ becomes true
-- Example: `(battery > 50.0) until (mode = charging)`
+Past time:
 
-**φ since ψ**
-- φ has held since ψ was true
-- Example: `(temperature < 80.0) since (heater_on = false)`
+- `sofar` φ - φ is true always in the past, including now
+- `once` φ - φ is true at some past time
+- φ1 since φ2 - φ2 once was true and since then (not including) φ1 is true
 
-### Special Predicates
-
-**active(task)**
-- True when the specified task is executing
-- Example: `eventually active(science_task)`
-
-### Property Examples
+**Examples**
 
 ```tasknet
-constraints {
-  // Battery must always stay above 20%
-  prop battery_safe: always (battery >= 20.0);
+  # Battery must always stay above 20%
+  prop battery_safe: always battery > 20.0;
 
-  // Must eventually reach the target
-  prop reach_target: eventually (location = target);
+  # Rover must eventually reach the target
+  prop reach_target: eventually location = target;
 
-  // If battery is low, must eventually charge
-  prop charge_when_low: (battery < 30.0) -> eventually active(charge);
+  # If battery is low, we must eventually charge
+  prop charge_when_low: always(battery < 30.0 -> eventually active(charge));
 
-  // Heating and cooling never happen simultaneously
+  # Heating and cooling never happen simultaneously
   prop exclusive_thermal: always (not (active(heating) and active(cooling)));
 
-  // Data collection happens after warming up
+  # Data collection happens after warming up
   prop collect_after_warmup: active(collect_data) -> once active(warmup);
-}
+
+  # Battery must stay above safe level until charging starts
+  prop safe_until_charge: (battery > 20.0) until active(charge);
 ```
 
