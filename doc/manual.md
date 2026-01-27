@@ -146,7 +146,7 @@ name : rate [min_rate, max_rate] bounds [min, max] = initial_value;
 ```
 
 The state timeline is an enumerate type of a finite number of values, which
-can be names or numbers. The atomic timeline is a special case where the values are Booleans. The three other timelines denote floating point numbers and allow different kinds of operations. They each have a range of values that a schdule must stay within. In addition, the cumulative and rate timelines have a minimal and maximal bound, and any value computed during the execution of a schedule will be clamped to stay in that interval. It is effectively the type of the timeline, whereas the first interval is a subtype of that.
+can be names or numbers. The atomic timeline is a special case where the values are Booleans. The three other timelines denote floating point numbers and allow different kinds of operations. They each have an optional range of values that a schdule must stay within. In addition, the cumulative and rate timelines have an optional minimal and maximal bound, and any value computed during the execution of a schedule will be clamped to stay in that interval. It is effectively the type of the timeline, whereas the first interval is a subtype of that.
 
 As shown above, timelines can be initialized to a specific value when defined. Howver, this is optional. If no initial value is provided, they can range over their type, unless they are constrained by an init-block shown below schematically:
 
@@ -284,6 +284,10 @@ task drive {
 Tasks represent operations with durations, constraints, and effects.
 
 All task fields are optional unless marked as required.
+
+**id**
+- A task can have a numeric id (integer) different from the name, but it is not currently used
+- Example: `id` 1;
 
 **duration**
 - Preferred duration
