@@ -42,7 +42,7 @@ We consider five timeline types, each with distinct semantics:
 **Atomic Timelines:** Boolean values.
 - Variables: $\alpha^{\ell}[j] \in \{\mathtt{true}, \mathtt{false}\}$ for timeline $\ell$ at zone $j$
 
-**Numeric Timelines:** Real-valued timelines with range $[r_{\min}, r_{\max}]$ and optional bounds $[b_{\min}, b_{\max}]$.
+**Numeric Timelines:** Real-valued timelines with range $[r_{\min}, r_{\max}]$ and bounds $[b_{\min}, b_{\max}]$.
 - **Claimable:** Resources that can be claimed/released (delta impacts only during maintenance)
 - **Cumulative:** Accumulators with delta impacts (no rate changes)
 - **Rate:** Continuous resources with rate-of-change impacts
@@ -56,6 +56,8 @@ For each timeline $\ell$ with initial value specification $v_0^{\ell}$:
 $$\sigma^{\ell}[0] = \mathtt{encode}(v_0^{\ell}) \quad \text{(state)}$$
 $$\alpha^{\ell}[0] = v_0^{\ell} \quad \text{(atomic)}$$
 $$\nu^{\ell}[0] = v_0^{\ell} \quad \text{(numeric)}$$
+
+where $\mathtt{encode}: \Sigma \to \{0, \ldots, |\Sigma|-1\}$ maps state values (strings) to integer indices for SMT encoding.
 
 ### 3.3 Range Constraints
 
@@ -111,6 +113,8 @@ where $\mathtt{eval}(\mathcal{C}, j)$ evaluates condition set $\mathcal{C}$ at z
 
 $$\mathtt{eval}(\mathcal{C}, j) = \bigwedge_{\ell \in \mathcal{C}} \left( \bigvee_{c \in \mathcal{C}[\ell]} \mathtt{test}(\ell, c, j) \right)$$
 
+Here, $\mathcal{C}$ is a set of **timeline conditions** (TlCon), where each condition specifies requirements for a timeline $\ell$. For each timeline $\ell$, we have a list of alternatives $\mathcal{C}[\ell]$ (a disjunction), and $\mathtt{test}(\ell, c, j)$ checks if timeline $\ell$ satisfies constraint $c$ at zone $j$ (e.g., $\nu^{\ell}[j] \in [a, b]$ or $\sigma^{\ell}[j] = v$). All timelines must satisfy their respective conditions (conjunction over timelines).
+
 ## 5. Impact Semantics
 
 ### 5.1 Impact Types
@@ -123,7 +127,11 @@ Tasks modify timelines through three impact mechanisms:
 
 ### 5.2 State and Atomic Timelines
 
-For state timeline $\ell$ and atomic timeline $\alpha$, only assignments are permitted at boundaries (no maint assignments). The transition from zone $i$ to zone $i+1$ is:
+For state timeline $\ell$ and atomic timeline $\alpha$, only assignments are permitted at boundaries (no maint assignments).
+
+**Important:** Timeline values are updated at zone boundaries, meaning that changes take effect at the **end** of zone $i$ (equivalently, at the start of zone $i+1$). This may be counterintuitive: an impact occurring "at" time $z_i$ affects the value starting from zone $i+1$, not within zone $i$ itself.
+
+The transition from zone $i$ to zone $i+1$ is:
 
 $$\sigma^{\ell}[i+1] = \begin{cases}
 v & \text{if } \exists t : z_i = s_t \land (t, \ell, \mathtt{pre}, =v) \in \mathcal{I} \\
@@ -135,27 +143,36 @@ where $\mathcal{I}$ denotes the set of all impacts. Multiple assignments to the 
 
 ### 5.3 Numeric Timelines: Delta Accumulation
 
+**Impact Notation:** We represent impacts as tuples $(t, \ell, w, \textit{op}, v)$ where:
+- $t$ is the task performing the impact
+- $\ell$ is the timeline identifier being modified
+- $w \in \{\mathtt{pre}, \mathtt{maint}, \mathtt{post}\}$ indicates when the impact occurs
+- $\textit{op}$ is the operation type ($=$, $\delta$, or $\sim$ for assignment, delta, or rate respectively)
+- $v$ is the value (the amount for delta/rate, or the target value for assignment)
+
+We use $\mathcal{I}_{\Delta}$ for the set of all delta impacts and $\mathcal{I}_R$ for all rate impacts.
+
 For numeric timeline $\nu^{\ell}$ over zone $i$ spanning interval $(z_i, z_{i+1}]$, define the accumulated delta:
 
-$$\Delta^{\ell}[i] = \sum_{(t,\ell,w,\delta,\delta v) \in \mathcal{I}_{\Delta}} \mathtt{active}(t, w, i) \cdot \delta v$$
+$$\Delta^{\ell}[i] = \sum_{(t,\ell,w,\delta,v) \in \mathcal{I}_{\Delta}} \mathtt{active}(t, w, i) \cdot v$$
 
 where:
 
-$$\mathtt{active}(t, \mathtt{pre}, i) = \begin{cases} \delta v & \text{if } z_i = s_t \\ 0 & \text{otherwise} \end{cases}$$
+$$\mathtt{active}(t, \mathtt{pre}, i) = \begin{cases} 1 & \text{if } z_i = s_t \\ 0 & \text{otherwise} \end{cases}$$
 
 $$\mathtt{active}(t, \mathtt{maint}, i) = \begin{cases}
-\delta v & \text{if } z_i = s_t \\
--\delta v & \text{if } z_i = e_t \\
++1 & \text{if } z_i = s_t \\
+-1 & \text{if } z_i = e_t \\
 0 & \text{otherwise}
 \end{cases}$$
 
-$$\mathtt{active}(t, \mathtt{post}, i) = \begin{cases} \delta v & \text{if } z_i = e_t \\ 0 & \text{otherwise} \end{cases}$$
+$$\mathtt{active}(t, \mathtt{post}, i) = \begin{cases} 1 & \text{if } z_i = e_t \\ 0 & \text{otherwise} \end{cases}$$
 
 ### 5.4 Numeric Timelines: Rate Integration
 
 For rate timeline $\nu^{\ell}$ over zone $i$ with duration $\Delta t_i = z_{i+1} - z_i$, define the rate contribution:
 
-$$R^{\ell}[i] = \sum_{(t,\ell,w,\!\!\sim\!,r) \in \mathcal{I}_R} \mathtt{rate\_active}(t, w, i) \cdot r \cdot \Delta t_i$$
+$$R^{\ell}[i] = \sum_{(t,\ell,w,\sim,r) \in \mathcal{I}_R} \mathtt{rate\_active}(t, w, i) \cdot r \cdot \Delta t_i$$
 
 where:
 
@@ -171,7 +188,11 @@ The value at zone boundary $i+1$ is computed as:
 
 $$\nu^{\ell}_{\mathtt{raw}}[i+1] = \nu^{\ell}[i] + \Delta^{\ell}[i] + R^{\ell}[i]$$
 
-If bounds $[b_{\min}, b_{\max}]$ are specified, apply clamping:
+If bounds $[b_{\min}, b_{\max}]$ are specified, apply clamping (i.e., constrain the value to lie within bounds):
+
+$$\nu^{\ell}_{\mathtt{clamped}}[i+1] = \max(b_{\min}, \min(b_{\max}, \nu^{\ell}_{\mathtt{raw}}[i+1]))$$
+
+Equivalently:
 
 $$\nu^{\ell}_{\mathtt{clamped}}[i+1] = \begin{cases}
 b_{\min} & \text{if } \nu^{\ell}_{\mathtt{raw}}[i+1] < b_{\min} \\
@@ -228,7 +249,13 @@ $$\bigwedge_{\phi \in \mathtt{constraints}} \phi[0]$$
 
 **Property Verification:** To check if property $\psi$ holds universally, we search for a counterexample by solving:
 
-$$\mathtt{SAT}\left( \bigwedge \text{(schedule constraints)} \land \bigwedge \text{(constraints)} \land \neg \psi[0] \right)$$
+$$\mathtt{SAT}\left( \Phi_{\mathtt{sched}} \land \Phi_{\mathtt{zones}} \land \Phi_{\mathtt{init}} \land \Phi_{\mathtt{impacts}} \land \bigwedge_{\phi \in \mathtt{constraints}} \phi[0] \land \neg \psi[0] \right)$$
+
+where:
+- $\Phi_{\mathtt{sched}}$ = task scheduling constraints (duration, precedence, containment, distinctness) from Section 4.1
+- $\Phi_{\mathtt{zones}}$ = zone boundary constraints and task-zone correspondence from Section 2
+- $\Phi_{\mathtt{init}}$ = initial state and bounds constraints from Section 3.2-3.3
+- $\Phi_{\mathtt{impacts}}$ = zone transitions with impact semantics and task conditions from Section 4.2 and 5
 
 If unsatisfiable, the property holds for all valid schedules.
 
