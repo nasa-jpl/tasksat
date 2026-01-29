@@ -52,6 +52,8 @@ Timelines represent **state variables** that evolve over time as tasks execute. 
 
 3. **Claimable Timeline**: 
 $\kappa \in \mathcal{L}_{\text{claim}}$ 
+with real values 
+$\mathbb{R}$, range 
 
 
 4. **Cumulative Timeline**: $\gamma \in \mathcal{L}_{\text{cumul}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
