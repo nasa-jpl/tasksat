@@ -54,7 +54,7 @@ Timelines represent **state variables** that evolve over time as tasks execute. 
 $\kappa \in \mathcal{L}_{\text{claim}}$ 
 with real values 
 $\mathbb{R}$, range 
-
+$[r_x, r_y]$, 
 and optional initial value 
 $v_0 \in \mathbb{R}$
 
