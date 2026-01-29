@@ -50,7 +50,7 @@ Timelines represent **state variables** that evolve over time as tasks execute. 
 
 2. **Atomic Timeline**: $\alpha \in \mathcal{L}_{\mathtt{atomic}}$ with boolean values $\{\mathtt{true}, \mathtt{false}\}$ and optional initial value $v_0 \in \{\mathtt{true}, \mathtt{false}\}$
 
-3. **Claimable Timeline**: $\kappa \in \mathcal{L}_{\text{claim}}$ with real values $\mathbb{R}$, range $[{\min}, {\max}]$, and optional initial value $v_0 \in \mathbb{R}$
+3. **Claimable Timeline**: $\kappa \in \mathcal{L}_{\text{claim}}$ with real values $\mathbb{R}$, range $[r{\min}, r{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
 
 4. **Cumulative Timeline**: $\gamma \in \mathcal{L}_{\text{cumul}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
 
