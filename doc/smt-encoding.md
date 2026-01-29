@@ -406,8 +406,6 @@ $$\mathtt{minimize} \sum_{t \in T : \mathtt{dur}_t^{\mathtt{pref}} \text{ specif
 
 **Theorem (Completeness):** If there exists a valid schedule and timeline trace for a TaskNet, then the SMT encoding is satisfiable.
 
-**Proof Sketch:** The zone abstraction is complete because it explicitly represents all task start and end times as zone boundaries. The bijection ensures no task boundaries are lost. Timeline semantics are preserved through direct encoding of impact accumulation and clamping. Temporal logic operators are bounded by the finite zone sequence, ensuring decidability.
-
 ## 10. Complexity
 
 **Encoding Size:** For $n$ tasks and $m$ timelines:
