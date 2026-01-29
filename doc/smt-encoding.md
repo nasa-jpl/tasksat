@@ -306,10 +306,9 @@ If bounds $[b_{\min}, b_{\max}]$ are specified, apply clamping (i.e., constrain 
 
 ====
 
-$$\nu^{\ell}_{\mathtt{clamped}}[i+1] = \text{max}(b_{\text{min}}, \text{min}(b_{\text{max}}, \nu^{\ell}_{\mathtt{raw}}[i+1]))$$
+$$\nu^{\ell}_{\mathtt{clamped}}[i+1] = \operatorname{max}(b_{\text{min}}, \operatorname{min}(b_{\text{max}}, \nu^{\ell}_{\mathtt{raw}}[i+1]))$$
 
-$$\nu^{\ell}_{\mathtt{clamped}}[i+1] = \text{clamp}(\nu^{\ell}_{\mathtt{raw}}[i+1], b_{\text{min}}, b_{\text{max}})$$
-
+$$\nu^{\ell}_{\mathtt{clamped}}[i+1] = \operatorname{clamp}(\nu^{\ell}_{\mathtt{raw}}[i+1], b_{\text{min}}, b_{\text{max}})$$
 
 ====
 
