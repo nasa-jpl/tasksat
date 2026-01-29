@@ -106,7 +106,7 @@ Given a TaskNet $N$, the **scheduling problem** is to find:
 
 1. A **schedule**: An assignment of start and end times $s_t, e_t \in [0, H]$ for each $t \in T_{\mathtt{req}}$ and a subset $T' \subseteq T_{\mathtt{opt}}$ with start/end times for included optional tasks
 
-2. A **timeline trace**: Functions $\sigma^\ell(t) (state timelines), \alpha^\ell(t) (atomic timelines), \nu^\ell(t) (claimable/cumulative/rate timelines)$ giving timeline values at each time $t \in [0, H]$
+2. A **timeline trace**: Functions $\sigma^\ell(t)$ (state timelines) , $\alpha^\ell(t)$ (atomic timelines), $\nu^\ell(t)$ (claimable/cumulative/rate timelines) giving timeline values at each time $t \in [0, H]$
 
 such that:
 - All temporal bounds, dependencies, and conditions are satisfied
