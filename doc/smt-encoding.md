@@ -95,10 +95,10 @@ Tasks modify timelines through **impacts**. An impact is a tuple $(t, \ell, w, \
 
 **Temporal Logic:** Formulas are built from:
 - Atomic propositions: comparisons over timeline values (e.g., $\nu^{\ell} > c$, $\sigma^{\ell} = v$)
+- Task predicates: $\mathtt{active}(t)$ (true when task $t$ is executing)
 - Boolean connectives: $\land, \lor, \neg, \rightarrow$
 - Temporal operators: $\mathtt{always}$, $\mathtt{eventually}$, $\mathtt{until}$, 
   $\mathtt{sofar}$, $\mathtt{once}$, $\mathtt{since}$ 
-- Task predicates: $\mathtt{active}(t)$ (true when task $t$ is executing)
 
 ### 2.5 Scheduling Problem
 
