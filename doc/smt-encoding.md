@@ -60,7 +60,7 @@ We have $L = L_{\mathtt{state}} \cup L_{\mathtt{atomic}} \cup L_{\text{claim}} \
 
 **Semantics:**
 - **Range** $[r_{\min}, r_{\max}]$ constrains values at all times (hard constraint)
-- **Bounds** $[b_{\min}, b_{\max}]$ define limits for accumulation with clamping semantics
+- **Bounds** $[b_{\min}, b_{\max}]$ define limits on impacts with clamping semantics
 
 ### 2.3 Impacts
 
@@ -89,9 +89,9 @@ Tasks modify timelines through **impacts**. An impact is a tuple $(t, \ell, w, \
 
 **Initial Constraints** $C_0$: Boolean formulas over timeline values that must hold at time 0.
 
-**Temporal Constraints** $\Phi$: A set of temporal logic formulas that must hold during schedule generation. These constrain which schedules are valid.
+**Temporal Constraints** $\Phi$: A set of temporal logic formulas that must hold on generated schedules. Any generated schedule will satisfy these formulas.
 
-**Temporal Properties** $\Psi$: A set of temporal logic formulas to be verified. A property $\psi \in \Psi$ holds if it is satisfied by all valid schedules (those satisfying temporal constraints $\Phi$).
+**Temporal Properties** $\Psi$: A set of temporal logic formulas to be verified. A property $\psi \in \Psi$ holds if it is satisfied by all valid schedules.
 
 **Temporal Logic:** Formulas are built from:
 - Atomic propositions: comparisons over timeline values (e.g., $\nu^{\ell} > c$, $\sigma^{\ell} = v$)
