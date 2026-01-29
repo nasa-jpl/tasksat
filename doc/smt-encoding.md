@@ -52,9 +52,9 @@ Timelines represent **state variables** that evolve over time as tasks execute. 
 
 3. **Claimable Timeline**: $\kappa \in L_{\text{claim}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
 
-4. **Cumulative Timeline**: $\gamma \in \mathcal{L}_{\text{cumul}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
+4. **Cumulative Timeline**: $\gamma \in L_{\text{cumul}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
 
-5. **Rate Timeline**: $\rho \in \mathcal{L}_{\text{rate}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
+5. **Rate Timeline**: $\rho \in L_{\text{rate}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
 
 We have $\mathcal{L} = \mathcal{L}_{\mathtt{state}} \cup \mathcal{L}_{\mathtt{atomic}} \cup \mathcal{L}_{\text{claim}} \cup \mathcal{L}_{\text{cumul}} \cup \mathcal{L}_{\text{rate}}$.
 
