@@ -46,15 +46,15 @@ Timelines represent **state variables** that evolve over time as tasks execute. 
 
 **Definition 2.2 (Timeline Types).**
 
-- **State Timeline**: $\sigma \in \mathcal{L}_{\mathtt{state}}$ with finite value set $\Sigma$ and optional initial value $v_0 \in \Sigma$
+1. **State Timeline**: $\sigma \in \mathcal{L}_{\mathtt{state}}$ with finite value set $\Sigma$ and optional initial value $v_0 \in \Sigma$
 
-- **Atomic Timeline**: $\alpha \in \mathcal{L}_{\mathtt{atomic}}$ with boolean values $\{\mathtt{true}, \mathtt{false}\}$ and optional initial value $v_0 \in \{\mathtt{true}, \mathtt{false}\}$
+2. **Atomic Timeline**: $\alpha \in \mathcal{L}_{\mathtt{atomic}}$ with boolean values $\{\mathtt{true}, \mathtt{false}\}$ and optional initial value $v_0 \in \{\mathtt{true}, \mathtt{false}\}$
 
-- **Claimable Timeline**: $\kappa \in \mathcal{L}_{\mathtt{claim}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
+3. **Claimable Timeline**: $\kappa \in \mathcal{L}_{\mathtt{claim}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
 
-- **Cumulative Timeline**: $\gamma \in \mathcal{L}_{\mathtt{cumul}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
+4. **Cumulative Timeline**: $\gamma \in \mathcal{L}_{\mathtt{cumul}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
 
-- **Rate Timeline**: $\rho \in \mathcal{L}_{\mathtt{rate}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
+5. **Rate Timeline**: $\rho \in \mathcal{L}_{\mathtt{rate}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
 
 We have $\mathcal{L} = \mathcal{L}_{\mathtt{state}} \cup \mathcal{L}_{\mathtt{atomic}} \cup \mathcal{L}_{\mathtt{claim}} \cup \mathcal{L}_{\mathtt{cumul}} \cup \mathcal{L}_{\mathtt{rate}}$.
 
