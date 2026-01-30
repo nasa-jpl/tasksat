@@ -357,17 +357,17 @@ $$\bigwedge_{\phi \in \mathtt{constraints}} \phi[0]$$
 
 $$\mathtt{SAT}\left( 
   \Phi_{\mathtt{zones}} 
-  \and
+  \land
   \Phi_{\mathtt{init}} 
-  \and
+  \land
   \Phi_{\mathtt{sched}} 
-  \and 
+  \land 
   \Phi_{\mathtt{conditions}} 
-  \and 
+  \land 
   \Phi_{\mathtt{impacts}} 
-  \and 
+  \land 
   \bigwedge_{\phi \in \mathtt{constraints}} \phi[0] 
-  \and 
+  \land 
   \neg \psi[0] \right)
 $$
 
