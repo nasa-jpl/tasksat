@@ -353,6 +353,35 @@ $$(\phi_1 \mathbin{\mathtt{since}} \phi_2)[j] \equiv \bigvee_{k=0}^{j} \left( \p
 
 $$\bigwedge_{\phi \in \mathtt{constraints}} \phi[0]$$
 
+**Scheduling Problem:** To find a valid schedule (as described informally in Section 2.5), we solve the satisfiability problem:
+
+$$\mathtt{SAT}\left(
+  \Phi_{\mathtt{zones}}
+  \land
+  \Phi_{\mathtt{init}}
+  \land
+  \Phi_{\mathtt{sched}}
+  \land
+  \Phi_{\mathtt{conditions}}
+  \land
+  \Phi_{\mathtt{impacts}}
+  \land
+  \bigwedge_{\phi \in \mathtt{constraints}} \phi[0] \right)
+$$
+
+where:
+- $\Phi_{\mathtt{zones}}$ = zone boundary constraints and task-zone correspondence from Section 3
+- $\Phi_{\mathtt{init}}$ = initial state and bounds constraints from Section 4.2-4.3
+- $\Phi_{\mathtt{sched}}$ = task scheduling constraints (duration, precedence, containment, distinctness) from Section 5.1
+- $\Phi_{\mathtt{conditions}}$ = task conditions (preconditions, invariants, postconditions) from Section 5.2
+- $\Phi_{\mathtt{impacts}}$ = zone transitions with impact semantics from Section 6
+
+A satisfying model $M$ provides:
+- Zone boundary times: $z_0, \ldots, z_{Z-1}$
+- Task start and end times: $s_t, e_t$ for each task $t \in T$
+- Timeline values: $\sigma^{\ell}[j]$, $\alpha^{\ell}[j]$, $\nu^{\ell}[j]$ at each zone boundary $j$
+- Optional task inclusion: $\iota_t$ for each $t \in T_{\mathtt{opt}}$ (if optimization is enabled)
+
 **Property Verification:** To check if property $\psi$ holds universally, we search for a counterexample by solving:
 
 $$\mathtt{SAT}\left( 
@@ -370,13 +399,6 @@ $$\mathtt{SAT}\left(
   \land 
   \neg \psi[0] \right)
 $$
-
-where:
-- $\Phi_{\mathtt{zones}}$ = zone boundary constraints and task-zone correspondence from Section 3
-- $\Phi_{\mathtt{init}}$ = initial state and bounds constraints from Section 4.2-4.3
-- $\Phi_{\mathtt{sched}}$ = task scheduling constraints (duration, precedence, containment, distinctness) from Section 5.1
-- $\Phi_{\mathtt{conditions}}$ = task conditions from Section 5.2
-- $\Phi_{\mathtt{impacts}}$ = zone transitions with impact semantics from Section 6
 
 If unsatisfiable, the property holds for all valid schedules.
 
