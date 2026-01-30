@@ -359,15 +359,15 @@ $$\mathtt{SAT}\left(
   \Phi_{\mathtt{zones}} 
   \and
   \Phi_{\mathtt{init}} 
-  \land
+  \and
   \Phi_{\mathtt{sched}} 
-  \land 
+  \and 
   \Phi_{\mathtt{conditions}} 
-  \land 
+  \and 
   \Phi_{\mathtt{impacts}} 
-  \land 
+  \and 
   \bigwedge_{\phi \in \mathtt{constraints}} \phi[0] 
-  \land 
+  \and 
   \neg \psi[0] \right)
 $$
 
