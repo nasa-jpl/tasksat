@@ -29,20 +29,20 @@ tasknet Rover2 {
 
     impacts {
       maint {
-        battery +~ 2.0;  # Charge at 2 units per time
+        battery +~ 2.0;  
       }
     }
   }  
 
   taskdef drive_def {
     pre {
-      battery in [60.0, 100.0];  # Need enough power
-      temperature in [10.0, 40.0];  # Safe temperature
+      battery in [60.0, 100.0]; 
+      temperature in [10.0, 40.0];  
     }
 
     impacts {
       maint {
-        battery +~ -1.5;  # Drain 5 unit per time
+        battery +~ -1.5;  
       }
       post {
         location = target;
@@ -67,8 +67,8 @@ tasknet Rover2 {
 
     impacts {
       maint {
-        battery +~ -0.5;  # Small power drain
-        temperature +~ 2;  # Increase temperature
+        battery +~ -0.5; 
+        temperature +~ 2; 
       }
     }
   }
@@ -87,12 +87,12 @@ tasknet Rover2 {
         arm = true; 
       }
       maint {
-        battery +~ -0.5;   # Use power for collection
+        battery +~ -0.5;   
         temperature +~ -0.2;
       }
       post {
-        data += 40.0;      # Collect 30 units of data
-        arm = false;      # Retract arm
+        data += 40.0;  
+        arm = false;  
       }
     }
   }
@@ -162,7 +162,7 @@ taskdef charge_def {
 
     impacts {
       maint {
-        battery +~ 2.0;  # Charge at 2 units per time
+        battery +~ 2.0;  
       }
     }
   }  
@@ -179,13 +179,13 @@ indicated by a post-impact, it assigns the value `target` to the `location` time
 ```
 taskdef drive_def {
     pre {
-      battery in [60.0, 100.0];  # Need enough power
-      temperature in [10.0, 40.0];  # Safe temperature
+      battery in [60.0, 100.0]; 
+      temperature in [10.0, 40.0]; 
     }
 
     impacts {
       maint {
-        battery +~ -1.5;  # Drain 5 unit per time
+        battery +~ -1.5;  
       }
       post {
         location = target;
@@ -223,8 +223,8 @@ This task is also optional
 
     impacts {
       maint {
-        battery +~ -0.5;  # Small power drain
-        temperature +~ 2;  # Increase temperature
+        battery +~ -0.5;  
+        temperature +~ 2;  
       }
     }
   }
@@ -249,12 +249,12 @@ The `collect` task shows some new concepts. It has a pre-condition containing a 
         arm = true; 
       }
       maint {
-        battery +~ -0.5;   # Use power for collection
+        battery +~ -0.5;  
         temperature +~ -0.2;
       }
       post {
-        data += 40.0;      # Collect 30 units of data
-        arm = false;      # Retract arm
+        data += 40.0;  
+        arm = false; 
       }
     }
   }

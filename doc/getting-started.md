@@ -53,7 +53,7 @@ tasknet Rover1 {
 
     impacts {
       maint {
-        battery +~ 2.0;  # Charge at 2 units per time
+        battery +~ 2.0; 
       }
     }
   }  
@@ -62,12 +62,12 @@ tasknet Rover1 {
     duration_range [30,40];
 
     pre {
-      battery in [90.0, 100.0];  # Need enough power
+      battery in [90.0, 100.0]; 
     }
 
     impacts {
       maint {
-        battery +~ -1.5;  # Drain 5 unit per time
+        battery +~ -1.5;  
       }
       post {
         location = target;
