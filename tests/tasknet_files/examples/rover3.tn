@@ -1,19 +1,17 @@
-tasknet Rover2 {
+tasknet Rover3 {
   end = 400;
 
   timelines {
     arm : atomic = false;
     location : state(home, target) = home;
     data : cumulative [0.0, 50.0] bounds [0.0, 100.0] = 0.0;
-    battery : rate [10.0, 100.0] bounds [0.0, 100.0];
+    battery : rate [10.0, 100.0] bounds [0.0, 100.0] = 60.0;
     temperature : rate [5.0, 40.0] bounds [0.0, 100.0] = 10.0;
   }
 
-  initial {
-    battery in [0,59];
-  }
+  optional task charge {
+    duration_range [60,70];
 
-  taskdef charge_def {
     pre {
       battery in [0.0, 60.0];
     }
@@ -23,9 +21,13 @@ tasknet Rover2 {
         battery +~ 2.0;  # Charge at 2 units per time
       }
     }
-  }  
+  }
 
-  taskdef drive_def {
+  task drive {
+    start_range [100, 120];
+    end_range [130, 160];
+    duration_range [30,40];
+
     pre {
       battery in [60.0, 100.0];  # Need enough power
       temperature in [10.0, 40.0];  # Safe temperature
@@ -39,16 +41,6 @@ tasknet Rover2 {
         location = target;
       }
     }
-  }
-
-  optional task charge : charge_def {
-    duration_range [60,70];
-  }
-
-  task drive: drive_def {
-    start_range [100, 120];
-    end_range [130, 160];
-    duration_range [30,40];
 
     # after charge; # this will yield unsat
   }
@@ -63,7 +55,7 @@ tasknet Rover2 {
       }
     }
   }
-  
+
   task collect {
     duration_range  [20, 30];
 
@@ -75,7 +67,7 @@ tasknet Rover2 {
 
     impacts {
       pre {
-        arm = true; 
+        arm = true;
       }
       maint {
         battery +~ -0.5;   # Use power for collection
