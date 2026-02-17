@@ -248,8 +248,8 @@ For state timeline $\ell$ and atomic timeline $\alpha$, only assignments are per
 The transition from zone $i$ to zone $i+1$ is:
 
 $$\sigma^{\ell}[i+1] = \begin{cases}
-v & \text{if } \exists t : z_i = s_t \land (t, \ell, \mathtt{pre}, =v) \in I \\
-v & \text{if } \exists t : z_i = e_t \land (t, \ell, \mathtt{post}, =v) \in I \\
+v & \text{if } \exists t : z_i = s_t \land (t, \ell, \mathtt{pre}, =, v) \in I \\
+v & \text{if } \exists t : z_i = e_t \land (t, \ell, \mathtt{post}, =, v) \in I \\
 \sigma^{\ell}[i] & \text{otherwise}
 \end{cases}$$
 
