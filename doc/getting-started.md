@@ -13,7 +13,7 @@ This guide will get you up and running with TaskSAT in a few minutes.
 
 1. Clone the repository:
 ```bash
-git clone https://github.jpl.nasa.gov/pass/tasksat.git
+git clone https://github.com/nasa-jpl/tasksat.git
 cd tasksat
 ```
 
