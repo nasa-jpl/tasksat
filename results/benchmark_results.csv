@@ -1,0 +1,23 @@
+benchmark_name,benchmark_path,mode,result,validity_time,property_time,total_time,properties_hold,properties_violated,properties_unknown,timeout,error_msg
+par_10_3,tests/tasknet_files/benchmark/par_10_3.tn,satisfy,SAT,0.15,0.0,0.27,0,0,0,False,
+par_20_5,tests/tasknet_files/benchmark/par_20_5.tn,satisfy,TIMEOUT,,,300.00764989852905,0,0,0,True,Exceeded 300s timeout
+par_30_10,tests/tasknet_files/benchmark/par_30_10.tn,satisfy,TIMEOUT,,,300.01088523864746,0,0,0,True,Exceeded 300s timeout
+par_5_2,tests/tasknet_files/benchmark/par_5_2.tn,satisfy,SAT,0.02,0.0,0.05,0,0,0,False,
+prop_10_20,tests/tasknet_files/benchmark/prop_10_20.tn,satisfy,SAT,1.51,87.99,89.64,12,0,8,False,
+prop_10_50,tests/tasknet_files/benchmark/prop_10_50.tn,satisfy,SAT,3.79,215.17,219.11,30,0,20,False,
+prop_15_100,tests/tasknet_files/benchmark/prop_15_100.tn,satisfy,TIMEOUT,,,300.0081021785736,0,0,0,True,Exceeded 300s timeout
+prop_5_10,tests/tasknet_files/benchmark/prop_5_10.tn,satisfy,SAT,0.04,33.03,33.11,8,0,2,False,
+seq_10,tests/tasknet_files/benchmark/seq_10.tn,satisfy,SAT,33.45,0.17,33.75,1,0,0,False,
+seq_15,tests/tasknet_files/benchmark/seq_15.tn,satisfy,SAT,253.17,0.38,253.82,1,0,0,False,
+seq_20,tests/tasknet_files/benchmark/seq_20.tn,satisfy,TIMEOUT,,,529.9957499504089,0,0,0,True,Exceeded 300s timeout
+seq_5,tests/tasknet_files/benchmark/seq_5.tn,satisfy,SAT,0.17,0.04,0.25,1,0,0,False,
+seqforce_10,tests/tasknet_files/benchmark/seqforce_10.tn,satisfy,SAT,6.83,0.22,7.17,1,0,0,False,
+seqforce_15,tests/tasknet_files/benchmark/seqforce_15.tn,satisfy,SAT,22.1,0.35,22.72,1,0,0,False,
+seqforce_20,tests/tasknet_files/benchmark/seqforce_20.tn,satisfy,SAT,108.3,0.86,109.61,1,0,0,False,
+seqforce_5,tests/tasknet_files/benchmark/seqforce_5.tn,satisfy,SAT,0.05,0.05,0.14,1,0,0,False,
+unsat_10_dependency,tests/tasknet_files/benchmark/unsat_10_dependency.tn,satisfy,SAT,61.48,0.0,61.6,0,0,0,False,
+unsat_10_resource,tests/tasknet_files/benchmark/unsat_10_resource.tn,satisfy,SAT,134.02,,134.1,0,0,0,False,
+unsat_10_temporal,tests/tasknet_files/benchmark/unsat_10_temporal.tn,satisfy,SAT,9.68,,9.78,0,0,0,False,
+unsat_20_resource,tests/tasknet_files/benchmark/unsat_20_resource.tn,satisfy,TIMEOUT,,,300.00615191459656,0,0,0,True,Exceeded 300s timeout
+unsat_25_dependency,tests/tasknet_files/benchmark/unsat_25_dependency.tn,satisfy,TIMEOUT,,,300.0117392539978,0,0,0,True,Exceeded 300s timeout
+unsat_30_temporal,tests/tasknet_files/benchmark/unsat_30_temporal.tn,satisfy,TIMEOUT,,,300.01018476486206,0,0,0,True,Exceeded 300s timeout

@@ -12,6 +12,8 @@ TaskSAT's performance depends heavily on:
 
 **Key finding**: Constraint structure matters more than raw task count. Sequential dependency chains are significantly harder than multi-resource problems.
 
+**Note on solver modes**: The `--mode` flag controls only the main schedule generation (Phase 1). Property verification (Phase 2) always uses Solver mode regardless of the flag, as counterexamples don't need to be optimal. See [Tutorial](tutorial.md) for details.
+
 ## Stress Test Results
 
 Comprehensive stress tests are located in `tests/tasknet_files/stress/`.
@@ -102,11 +104,13 @@ Comprehensive stress tests are located in `tests/tasknet_files/stress/`.
 
 **Observation:** Optimize mode is 10-20x slower than satisfy mode for same problem.
 
-**Reason:** Must explore multiple solutions to find the optimal one.
+**Reason:** Must explore multiple solutions to find the optimal one (for Phase 1: main schedule generation).
+
+**Note:** Property verification (Phase 2) always uses Solver mode for faster counterexample finding, regardless of the `--mode` flag.
 
 **Guideline:**
 - Use `--mode satisfy` for initial validation
-- Use `--mode optimize` only when needed
+- Use `--mode optimize` only when you need optimized main schedules
 - Minimize number of optional tasks
 
 ### 4. Multi-Resource Problems Scale Better

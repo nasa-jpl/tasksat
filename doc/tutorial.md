@@ -675,6 +675,8 @@ Find a schedule that satisfies all constraints. The found schedule is displayed 
 
 This is the traditional planning problem that planners solve.
 
+**Solver used**: Depends on `--mode` flag (Optimize or Solver)
+
 #### Step 2 - Verify properties (universal):
 
 ∀ initial, schedule. constraints(initial, schedule) → properties(schedule)
@@ -683,14 +685,16 @@ Prove that properties hold for all valid schedules, not just the one found in St
 
 This verification capability goes beyond what traditional planners can do.
 
+**Solver used**: Always Solver (regardless of `--mode` flag) for faster counterexample finding
+
 #### The difference between modes:
 
-- Optimize mode: Finds the optimal minimal schedule in Step 1. The minimization is wrt. 
+- Optimize mode: Finds the optimal minimal schedule in Step 1. The minimization is wrt.
   * number of optional tasks instantiated: they are only schedules if needed, and according to priority: lower priority numnber means higher priority.
   * start times: an attempt is made to start the tasks according to start time preference.
-    It minimizes distance between desired start times and realized stat times. 
+    It minimizes distance between desired start times and realized stat times.
 - Satisfy mode: Finds any valid schedule in Step 1
-- Both modes perform the same universal property verification in Step 2.
+- **Important**: The mode flag only controls Step 1 (main schedule generation). Step 2 (property verification) always uses Solver mode for faster counterexample finding, regardless of the `--mode` flag. This is an optimization since counterexamples don't need to be optimal.
 
 
 

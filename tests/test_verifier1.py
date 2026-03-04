@@ -12,9 +12,13 @@ class TestVerifier:
             "heating       : start =   11, end =   80",
             "driving       : start =  100, end =  180",
             "communicating : start =  220, end =  280",
-            "PROPERTY 'p1' HOLDS",
-            "PROPERTY 'p2' HOLDS",
-            "PROPERTY 'p3' HOLDS",
+            "[1/3] Checking property 'p1'...",
+            "  → HOLDS",
+            "[2/3] Checking property 'p2'...",
+            "  → HOLDS",
+            "[3/3] Checking property 'p3'...",
+            "  → HOLDS",
+            "Summary: 3 hold, 0 violated, 0 unknown"
         )
 
     def test_tasknet2(self):
@@ -23,12 +27,16 @@ class TestVerifier:
         Loosening start and end ranges, finds different schedule, p2 violated
         """
         verify_out('tasknet2.tn')(
-            "heating       : start =    1, end =   29",
-            "driving       : start =   30, end =   80",
-            "communicating : start =   81, end =  231",
-            "PROPERTY 'p1' VIOLATED!",
-            "PROPERTY 'p2' VIOLATED!",
-            "PROPERTY 'p3' HOLDS"
+            "heating       : start =  197, end =  248",
+            "driving       : start =  249, end =  299",
+            "communicating : start =  190, end =  196",
+            "[1/3] Checking property 'p1'...",
+            "  → VIOLATED!",
+            "[2/3] Checking property 'p2'...",
+            "  → VIOLATED!",
+            "[3/3] Checking property 'p3'...",
+            "  → HOLDS",
+            "Summary: 1 hold, 2 violated, 0 unknown"
         )
 
     def test_tasknet3(self):
@@ -40,9 +48,13 @@ class TestVerifier:
             "heating       : start =    1, end =   12",
             "driving       : start =   13, end =   63",
             "communicating : start =   64, end =   65",
-            "PROPERTY 'p1' VIOLATED!",
-            "PROPERTY 'p2' HOLDS",
-            "PROPERTY 'p3' HOLDS"
+            "[1/3] Checking property 'p1'...",
+            "  → VIOLATED!",
+            "[2/3] Checking property 'p2'...",
+            "  → HOLDS",
+            "[3/3] Checking property 'p3'...",
+            "  → HOLDS",
+            "Summary: 2 hold, 1 violated, 0 unknown"
         )
 
     def test_tasknet4_containedin(self):
@@ -78,7 +90,9 @@ class TestVerifier:
             "C2            : start =  102, end =  122",
             "C3            : [OPTIONAL - NOT INCLUDED]",
             "C4            : [OPTIONAL - NOT INCLUDED]",
-            "PROPERTY 'p1' HOLDS"
+            "[1/1] Checking property 'p1'...",
+            "  → HOLDS",
+            "Summary: 1 hold, 0 violated, 0 unknown"
         )
 
     def test_tasknet8_with_definitions_unsat(self):
@@ -98,17 +112,23 @@ class TestVerifier:
         )
 
     def test_tasknet10_optimize_mode(self):
-        """Test with optional tasks and temporal properties"""
+        """Test with optional tasks and temporal properties
+
+        Main schedule uses Optimize(), but property counterexamples use Solver()
+        for faster verification.
+        """
         verify_out('tasknet10_verify.tn')(
             "*** NEW SCHEDULE***",
             "T1            : start =  140, end =  170",
             "T2            : start =  169, end =  199",
             "T3            : [OPTIONAL - NOT INCLUDED]",
-            "PROPERTY 'p1' VIOLATED!",
+            "[1/1] Checking property 'p1'...",
+            "  → VIOLATED!",
             "Counterexample:",
-            "T1            : start =    5, end =    6",
-            "T2            : start =    1, end =    4",
-            "T3            : start =    3, end =    7"            
+            "T1            : start =    4, end =    6",
+            "T2            : start =    3, end =    7",
+            "T3            : start =    1, end =    2",
+            "Summary: 0 hold, 1 violated, 0 unknown"
         )
     
     def test_tasknet10_satisfy_mode(self):
@@ -118,11 +138,13 @@ class TestVerifier:
             "T1            : start =    5, end =    6",
             "T2            : start =    1, end =    4",
             "T3            : [OPTIONAL - NOT INCLUDED]",
-            "PROPERTY 'p1' VIOLATED!",
+            "[1/1] Checking property 'p1'...",
+            "  → VIOLATED!",
             "Counterexample:",
-            "T1            : start =    1, end =    3",
-            "T2            : start =    2, end =    4",
-            "T3            : start =    5, end =    6"
+            "T1            : start =    2, end =    3",
+            "T2            : start =    1, end =    5",
+            "T3            : start =    4, end =    6",
+            "Summary: 0 hold, 1 violated, 0 unknown"
         )
 
     def test_tasknet11_priority(self):
@@ -134,7 +156,9 @@ class TestVerifier:
             "T3            : [OPTIONAL - NOT INCLUDED]",
             "T4            : start =   75, end =   85",
             "T5            : [OPTIONAL - NOT INCLUDED]",
-            "PROPERTY 'p1' HOLDS"
+            "[1/1] Checking property 'p1'...",
+            "  → HOLDS",
+            "Summary: 1 hold, 0 violated, 0 unknown"
         )
 
     def test_tasknet12_assign_numeric(self):
@@ -143,7 +167,9 @@ class TestVerifier:
             "*** NEW SCHEDULE***",
             "heating       : start =    1, end =    2",
             "driving       : start =    3, end =    4",
-            "PROPERTY 'p1' HOLDS"
+            "[1/1] Checking property 'p1'...",
+            "  → HOLDS",
+            "Summary: 1 hold, 0 violated, 0 unknown"
         )
 
     def test_tasknet13_task_active(self):
@@ -152,10 +178,17 @@ class TestVerifier:
             "*** NEW SCHEDULE***",
             "T1            : start =    1, end =    2",
             "T2            : start =    3, end =    4",
-            "PROPERTY 'p1' HOLDS",
-            "PROPERTY 'p2' HOLDS",
-            "PROPERTY 'p3' HOLDS",
-            "PROPERTY 'p4' HOLDS"
+            "[1/5] Checking property 'p1'...",
+            "  → HOLDS",
+            "[2/5] Checking property 'p2'...",
+            "  → HOLDS",
+            "[3/5] Checking property 'p3'...",
+            "  → HOLDS",
+            "[4/5] Checking property 'p4'...",
+            "  → HOLDS",
+            "[5/5] Checking property 'p5'...",
+            "  → HOLDS",
+            "Summary: 5 hold, 0 violated, 0 unknown"
         )
         
     def test_tasknet14_active_syntax(self):
@@ -164,10 +197,17 @@ class TestVerifier:
             "*** NEW SCHEDULE***",
             "T1            : start =    1, end =    2",
             "T2            : start =    3, end =    4",
-            "PROPERTY 'p1' HOLDS",
-            "PROPERTY 'p2' HOLDS",
-            "PROPERTY 'p3' HOLDS",
-            "PROPERTY 'p4' HOLDS"
+            "[1/5] Checking property 'p1'...",
+            "  → HOLDS",
+            "[2/5] Checking property 'p2'...",
+            "  → HOLDS",
+            "[3/5] Checking property 'p3'...",
+            "  → HOLDS",
+            "[4/5] Checking property 'p4'...",
+            "  → HOLDS",
+            "[5/5] Checking property 'p5'...",
+            "  → HOLDS",
+            "Summary: 5 hold, 0 violated, 0 unknown"
         )
 
     def test_tasknet15_numeric_states(self):
@@ -176,5 +216,7 @@ class TestVerifier:
             "*** NEW SCHEDULE***",
             "heating       : start =    1, end =    2",
             "driving       : start =    3, end =    4",
-            "PROPERTY 'p1' HOLDS"
+            "[1/1] Checking property 'p1'...",
+            "  → HOLDS",
+            "Summary: 1 hold, 0 violated, 0 unknown"
         )

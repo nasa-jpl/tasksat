@@ -1,11 +1,9 @@
 
 TODO
 
--> Check scalability
-- Documentation
-
 MID TERM
 
+- Include temporal properties as constraint in scheduling phase
 - Tranlator from PyTasknetworks to TaskSAT.
 - Python API to the tool.
 - Visualizing a schedule.

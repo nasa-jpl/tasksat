@@ -1179,32 +1179,47 @@ class TaskNetTL(TaskNetSMT):
         else:
             print(f"Checking {len(self.tn.properties)} temporal properties:")
 
-        # 1) REALIZABILITY CHECK (non-vacuousness)
-        base = TaskNetTL(self.tn, error_trace=self.error_trace)  # fresh encoding
-        base_res = base.solver.check()
-        if base_res != sat:
-            print("UNREALIZABLE under initial_constraints + constraints (no schedule/trace exists).")
-            # You can still print UNSAT once and stop; any property result would be vacuous.
-            print()
-            return
+        # Realizability already verified by initial validity check in tasknet_verifier.py
+        # Skip redundant check to eliminate one solver call (optimization)
 
-        # 2) PROPERTY CHECKS: look for counterexamples
-        for prop in self.tn.properties:
-            enc = TaskNetTL(self.tn, error_trace=self.error_trace)  # fresh encoding
+        # PROPERTY CHECKS: look for counterexamples
+        import sys
+        total_props = len(self.tn.properties)
+        holds_count = 0
+        violated_count = 0
+        unknown_count = 0
+
+        for idx, prop in enumerate(self.tn.properties, start=1):
+            # Show progress indicator before checking - with newline to force flush
+            print(f"[{idx}/{total_props}] Checking property '{prop.name}'...")
+            sys.stdout.flush()
+
+            # Always use Solver() for property checks (faster counterexample finding)
+            # use_optimization=False ensures we use Solver() even if main schedule used Optimize()
+            enc = TaskNetTL(self.tn, error_trace=self.error_trace, use_optimization=False)
             phi = prop.formula
             enc.solver.add(Not(enc._encode_formula_at_pos(phi, 0)))
 
+            # Set timeout to prevent hanging on difficult properties (10 seconds)
+            enc.solver.set("timeout", 10000)
+
             res = enc.solver.check()
             if res == sat:
-                print(f"PROPERTY '{prop.name}' VIOLATED!")
+                print("  → VIOLATED!")
+                violated_count += 1
                 if self.error_trace:
                     print("Counterexample:\n")
                     model = enc.solver.model()
                     enc.pretty_print(model)
             elif str(res) == "unsat":
-                print(f"PROPERTY '{prop.name}' HOLDS")
+                print("  → HOLDS")
+                holds_count += 1
             else:
-                print(f"*** PROPERTY '{prop.name}' UNKNOWN (Z3: {res}).")
+                print("  → UNKNOWN")
+                unknown_count += 1
 
+        # Print summary
+        print()
+        print(f"Summary: {holds_count} hold, {violated_count} violated, {unknown_count} unknown")
         print()
    
