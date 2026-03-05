@@ -1,0 +1,131 @@
+# 4a: The conventional way we encode mutual exclusion in MEXEC with atomic variables.
+tasknet Rover4 {
+  end = 400;
+
+  timelines {
+    arm : atomic = false;
+    location : state(home, target) = home;
+    data : cumulative [0.0, 50.0] bounds [0.0, 100.0] = 0.0;
+    battery : rate [10.0, 100.0] bounds [0.0, 100.0] = 60.0;
+    temperature : rate [5.0, 40.0] bounds [0.0, 100.0] = 10.0;
+    optical_global_localization : atomic = false;
+  }
+
+  taskdef charge_def {
+    pre {
+      battery in [0.0, 60.0];
+      optical_global_localization = false;
+    }
+
+    impacts {
+      maint {
+        battery +~ 2.0; 
+      }
+    }
+  }  
+
+  taskdef drive_def {
+    pre {
+      battery in [60.0, 100.0];  
+      temperature in [10.0, 40.0];
+      optical_global_localization = false;
+    }
+
+    impacts {
+      maint {
+        battery +~ -1.5;  
+      }
+      post {
+        location = target;
+      }
+    }
+  }
+
+
+  taskdef optical_global_localization {
+    pre {
+      optical_global_localization = false;
+    }
+    impacts {
+      pre {
+        optical_global_localization = true;
+      }
+      post {
+        optical_global_localization = false;
+      }
+    }
+  }
+
+  optional task charge : charge_def {
+    duration_range [60,70];
+  }
+
+  task drive: drive_def {
+    start_range [100, 120];
+    #end_range [130, 2000];
+    duration_range [31,400];
+
+    # after charge; # this will yield unsat
+  }
+
+  task localization: optical_global_localization {
+    start_range [200, 240];
+    duration_range [10, 20];
+  }
+
+  optional task heating {
+    duration_range [10, 10];
+
+    impacts {
+      maint {
+        battery +~ -0.5;  
+        temperature +~ 2; 
+      }
+    }
+  }
+  
+  task collect {
+    duration_range  [20, 30];
+
+    pre {
+      location = target;
+      battery in [60.0, 100.0];
+      arm = false;
+      optical_global_localization = false;
+    }
+
+    inv {
+        optical_global_localization = false;
+    }
+
+    impacts {
+      pre {
+        arm = true; 
+      }
+      maint {
+        battery +~ -0.5;   
+        temperature +~ -0.2;
+      }
+      post {
+        data += 40.0;  
+        arm = false;  
+      }
+    }
+  }
+
+  constraints {
+    prop not_charge_drive: always not (active(charge) and active(drive));
+    prop not_charge_collect: always not (active(charge) and active(collect));
+    prop temperature10: always temperature >= 10;
+  }
+
+  properties {
+    prop target_reached: eventually (location = target and data >= 30);
+    prop drive_charge: always (active(drive) -> eventually active(charge));
+    prop temperature: always temperature >= 10;
+
+    # Is it always the case that exclusion always works for the start/duration ranges we're trying?
+    prop drive_exclusive_localization: always not (active(drive) and active(localization));
+
+  }
+}

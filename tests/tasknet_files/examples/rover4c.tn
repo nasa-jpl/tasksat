@@ -1,0 +1,120 @@
+# 4c: If we had support for temporal constraints in tasknet specifications, we could:
+# - simplify the problem by avoiding atomic exclusion variables; and
+# - use temporal constraints to analyze the robustness and vulnerabilities of a class of task networks.
+
+tasknet Rover4 {
+  end = 400;
+
+  timelines {
+    arm : atomic = false;
+    location : state(home, target) = home;
+    data : cumulative [0.0, 50.0] bounds [0.0, 100.0] = 0.0;
+    battery : rate [10.0, 100.0] bounds [0.0, 100.0] = 60.0;
+    temperature : rate [5.0, 40.0] bounds [0.0, 100.0] = 10.0;
+  }
+
+  taskdef charge_def {
+    pre {
+      battery in [0.0, 60.0];
+    }
+
+    impacts {
+      maint {
+        battery +~ 2.0; 
+      }
+    }
+  }  
+
+  taskdef drive_def {
+    pre {
+      battery in [60.0, 100.0];  
+      temperature in [10.0, 40.0];
+    }
+
+    impacts {
+      maint {
+        battery +~ -1.5;  
+      }
+      post {
+        location = target;
+      }
+    }
+  }
+
+
+  taskdef optical_global_localization {
+  }
+
+  optional task charge : charge_def {
+    duration_range [60,70];
+  }
+
+  task drive: drive_def {
+    start_range [100, 150];
+    #end_range [130, 2000];
+    duration_range [30,400];
+
+    # after charge; # this will yield unsat
+  }
+
+  task localization: optical_global_localization {
+    start_range [110, 110];
+    duration_range [10, 20];
+  }
+
+  optional task heating {
+    duration_range [10, 10];
+
+    impacts {
+      maint {
+        battery +~ -0.5;  
+        temperature +~ 2; 
+      }
+    }
+  }
+  
+  task collect {
+    duration_range  [20, 30];
+
+    pre {
+      location = target;
+      battery in [60.0, 100.0];
+      arm = false;
+    }
+
+    impacts {
+      pre {
+        arm = true; 
+      }
+      maint {
+        battery +~ -0.5;   
+        temperature +~ -0.2;
+      }
+      post {
+        data += 40.0;  
+        arm = false;  
+      }
+    }
+  }
+
+  constraints {
+    prop not_charge_drive: always not (active(charge) and active(drive));
+    prop not_charge_collect: always not (active(charge) and active(collect));
+    prop require_drive_exclusive_localization: always not (active(drive) and active(localization));
+    prop require_drive_exclusive_collect: always not (active(drive) and active(collect));
+    prop require_drive_exclusive_charge: always not (active(drive) and active(charge));
+    prop temperature10: always temperature >= 10;
+  }
+
+  properties {
+    prop target_reached: eventually (location = target and data >= 30);
+    prop drive_charge: always (active(drive) -> eventually active(charge));
+    prop temperature: always temperature >= 10;
+
+    # Refutation game just to make sure it works as expected.
+    prop verify_drive_exclusive_localization: always not (active(drive) and active(localization));
+    prop verify_drive_exclusive_collect: always not (active(drive) and active(collect));
+    prop verify_drive_exclusive_charge: always not (active(drive) and active(charge));
+
+  }
+}
