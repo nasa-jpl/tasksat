@@ -1,8 +1,14 @@
 
 TODO
 
+- Unsat core
+- Colors for results
+
 MID TERM
 
+- // comments
+- Pre{ ... cannot be empty ...}
+- Shorthand for overlap constraints
 - Include temporal properties as constraint in scheduling phase
 - Tranlator from PyTasknetworks to TaskSAT.
 - Python API to the tool.
