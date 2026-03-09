@@ -176,6 +176,10 @@ cython_debug/
 # Other
 .DS_Store
 
+# Visualization output
+*.dot
+visualizations/
+
 # Directories
 
 jpl/

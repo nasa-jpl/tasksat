@@ -696,6 +696,88 @@ This verification capability goes beyond what traditional planners can do.
 - Satisfy mode: Finds any valid schedule in Step 1
 - **Important**: The mode flag only controls Step 1 (main schedule generation). Step 2 (property verification) always uses Solver mode for faster counterexample finding, regardless of the `--mode` flag. This is an optimization since counterexamples don't need to be optimal.
 
+## Visualizing Tasknets
+
+For complex tasknets with many tasks and timelines, it can be helpful to visualize the structure of the model. TaskSAT includes a visualization tool that generates graph diagrams showing task dependencies and timeline interactions.
+
+### Basic Usage
+
+To visualize a tasknet file, use the `tasknet_visualize.py` script:
+
+```bash
+python src/smt/tasknet_visualize.py tests/tasknet_files/examples/rover2.tn
+```
+
+This generates two types of graphs in a `visualizations/` directory next to your tasknet file:
+
+1. **Task Dependency Graph** (`*_tasks.dot` and `*_tasks.png`): Shows relationships between tasks
+2. **Timeline Interaction Graph** (`*_timeline_interactions.dot` and `*_timeline_interactions.png`): Shows how tasks interact with timelines
+
+Both `.dot` (Graphviz format) and `.png` (rendered image) files are generated automatically if Graphviz is installed on your system.
+
+### Understanding the Task Dependency Graph
+
+The task dependency graph shows:
+
+- **Task instances** (boxes): Actual tasks that will be scheduled
+- **Explicit dependencies** (blue solid arrows): `after` and `containedin` relationships declared in the tasknet
+- **Implicit dependencies** (green dashed arrows): Dependencies inferred from timeline states (e.g., when one task sets a boolean flag that another task requires)
+
+For example, if task A sets `completed = true` in its `post` block and task B requires `completed = true` as a `pre` condition, the visualization will show an implicit dependency arrow from B to A labeled "assumes completed".
+
+By default, task definitions (templates) are hidden, showing only task instances for clarity.
+
+### Understanding the Timeline Interaction Graph
+
+The timeline interaction graph shows:
+
+- **Timelines** (ellipses): State variables from your tasknet
+- **Tasks** (boxes): Tasks that read or modify timelines
+- **Constraint arrows**: Pre-conditions, invariants, and post-conditions on timelines
+- **Impact arrows**: How tasks modify timeline values (assignments, additions, rates)
+
+This helps you understand which tasks affect which timelines and what constraints are in place.
+
+### Customization Options
+
+#### Include Detailed Information
+
+Add the `--detail` flag to include additional information like time ranges, constraint details, and impact specifics:
+
+```bash
+python src/smt/tasknet_visualize.py tests/tasknet_files/examples/rover2.tn --detail
+```
+
+#### Show Task Definitions
+
+To include task definitions (templates) in addition to task instances:
+
+```bash
+python src/smt/tasknet_visualize.py tests/tasknet_files/examples/rover2.tn --show-definitions
+```
+
+#### Custom Output Location
+
+By default, visualizations are created in a `visualizations/` subdirectory next to your tasknet file. To specify a different location:
+
+```bash
+python src/smt/tasknet_visualize.py tests/tasknet_files/examples/rover2.tn --output-dir /path/to/output
+```
+
+### Example: Visualizing the Rover2 Tasknet
+
+Running the visualization on our rover example:
+
+```bash
+python src/smt/tasknet_visualize.py tests/tasknet_files/examples/rover2.tn
+```
+
+Produces:
+- `tests/tasknet_files/examples/visualizations/rover2_tasks.png`: Shows the four task instances (charge, drive, heating, collect) and their dependencies
+- `tests/tasknet_files/examples/visualizations/rover2_timeline_interactions.png`: Shows the five timelines (arm, location, data, battery, temperature) and how each task interacts with them
+
+The task dependency graph will show that the `collect` task has an implicit dependency on the `drive` task (via the `location` timeline being set to `target`), helping you understand the ordering constraints in your model.
+
 
 
 
