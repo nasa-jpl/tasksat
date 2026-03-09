@@ -1,11 +1,17 @@
 
 TODO
 
+SHORT TERM
+
 - Unsat core
 - Colors for results
 
 MID TERM
 
+- rate keyword causes confusion
+- Allow option to only run safety check (they can be faster)
+- Check again effects of soft constraints (priorities, start, end, optional)
+- MEXEC allows maint updates for atomic timelines
 - // comments
 - Pre{ ... cannot be empty ...}
 - Shorthand for overlap constraints
@@ -13,8 +19,9 @@ MID TERM
 - Tranlator from PyTasknetworks to TaskSAT.
 - Python API to the tool.
 - Visualizing a schedule.
+- MEXEC task requests.
 
-LONGER TERM
+LONG TERM
 
 - Tiago launched the thought that one should start with PDDL 3 - if we want to go down the road of an external DSL.
 - Are we entering the planning and scheduling community - requires literature study, can we compete?
@@ -26,9 +33,8 @@ LONGER TERM
 - TILs: environment updates to timelines.
 - Scalability
 
-==========
+MEXEC:
 
-In MEXEC:
 - Timeline ids are used for reference
 - Task definition ids are used for reference
 - Parameters - we need them
@@ -38,3 +44,7 @@ In MEXEC:
 - After and contains create instances of definitions.
   Can't refer to instances.
 - Instances might not even be scheduled.
+- MEXEC's background rate concept doesn't directly translate - must be modeled through task impacts.
+- MEXEC uses completion timelines for chaining
+- has init_rate value, in TaskSAT must be modeled through task impacts, not as an initial rate
+- uses parameters, such as tc.SOC_TYPE, tc.SOC_INITIAL, tc.SOC_BACKGROUND

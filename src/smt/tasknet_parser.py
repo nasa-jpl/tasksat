@@ -551,9 +551,9 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
         elif item_kind == "start":
             start = value
         elif item_kind == "after":
-            after_list = value
+            after_list.extend(value)
         elif item_kind == "containedin":
-            containedin_list = value
+            containedin_list.extend(value)
         elif item_kind == "constraints":
             pre_c, inv_c, post_c = value
             pre_list.extend(pre_c)
