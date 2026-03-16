@@ -5,9 +5,12 @@ SHORT TERM
 
 - Unsat core
 - Colors for results
+- Store results in a JSON file
+- duration_range not highlighted in VS
 
 MID TERM
 
+- Consider preferred_duration (instead of duration) as keyword, same with stat, end
 - rate keyword causes confusion
 - Allow option to only run safety check (they can be faster)
 - Check again effects of soft constraints (priorities, start, end, optional)
@@ -20,6 +23,8 @@ MID TERM
 - Python API to the tool.
 - Visualizing a schedule.
 - MEXEC task requests.
+- Modules
+- right-after or give time constraints
 
 LONG TERM
 
@@ -37,7 +42,7 @@ MEXEC:
 
 - Timeline ids are used for reference
 - Task definition ids are used for reference
-- Parameters - we need them
+- Parameters - we need them (arguments to tasknet?)
 - Requests: maximal
 - Priority: order in which it tries to schedule
   Bigger number means higher priority

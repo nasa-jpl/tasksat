@@ -33,6 +33,10 @@ tasknet Rover3 {
       temperature in [10.0, 40.0];  
     }
 
+    inv {
+      battery in [15, 100.0]; 
+    }
+
     impacts {
       maint {
         battery +~ -1.5; 
