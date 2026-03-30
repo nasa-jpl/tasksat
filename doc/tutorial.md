@@ -2,7 +2,7 @@
 
 This tutorial provides an in-depth walkthrough of TaskSAT concepts, patterns, and best practices.
 
-> **Prerequisites**: Install TaskSAT and run your first example by following [Getting Started](getting-started.md) first. 
+**Prerequisites**: Install TaskSAT and run your first example by following [Getting Started](getting-started.md) first. 
 
 ## An Example
 

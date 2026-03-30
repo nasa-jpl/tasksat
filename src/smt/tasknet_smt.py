@@ -91,14 +91,13 @@ class TaskNetSMT:
                 # Skip definitions - they're not scheduled
                 continue
 
-            if t.definition is not None:
-                # Merge with definition
-                if t.definition not in definitions:
-                    raise ValueError(f"Task {t.id} references undefined definition {t.definition}")
-
+            if t.definition is not None and t.definition in definitions:
+                # Merge with definition (only if definition exists in map)
                 defn = definitions[t.definition]
                 resolved_tasks.append(self._merge_task_with_definition(t, defn))
             else:
+                # Either no definition reference, or already resolved
+                # (definition field preserved for type-level constraint lookups)
                 resolved_tasks.append(t)
 
         tn.tasks = resolved_tasks
@@ -126,15 +125,18 @@ class TaskNetSMT:
             id=instance.id,
             ident=instance.ident if instance.ident is not None else definition.ident,
             kind=instance.kind,
-            definition=None,  # Already resolved
+            definition=instance.definition,  # Preserve for type-level constraint lookups
             priority=instance.priority if instance.priority is not None else definition.priority,
             startrng=instance.startrng if instance.startrng is not None else definition.startrng,
             endrng=instance.endrng if instance.endrng is not None else definition.endrng,
             durrng=instance.durrng if instance.durrng is not None else definition.durrng,
             dur=instance.dur if instance.dur is not None else definition.dur,
             start=instance.start if instance.start is not None else definition.start,
-            after=instance.after if instance.after is not None else definition.after,
-            containedin=instance.containedin if instance.containedin is not None else definition.containedin,
+            # Type-level constraints from definition, instance-level from instance
+            after_instances=instance.after_instances,
+            after_definitions=definition.after_definitions,
+            containedin_instances=instance.containedin_instances,
+            containedin_definitions=definition.containedin_definitions,
             pre=instance.pre if instance.pre is not None else definition.pre,
             inv=instance.inv if instance.inv is not None else definition.inv,
             post=instance.post if instance.post is not None else definition.post,
@@ -230,18 +232,34 @@ class TaskNetSMT:
             # if t.dur is not None:
             #     add_constraint(e - s == t.dur)
 
-            # after dependencies
-            if t.after is not None:
-                for bid in t.after:
+            # Instance-level after dependencies (specific task IDs)
+            if t.after_instances is not None:
+                for bid in t.after_instances:
                     if bid not in self.end_vars:
                         # ill-formed TaskNet — forbid
                         self.solver.add(False)
                     else:
                         add_constraint(self.end_vars[bid] <= s)
 
-            # containedin dependencies
-            if t.containedin is not None:
-                for pid in t.containedin:
+            # Type-level after dependencies (definition IDs with OR semantics)
+            if t.after_definitions is not None:
+                for def_id in t.after_definitions:
+                    # Find all instances of def_id (exclude definitions themselves)
+                    def_instances = [inst for inst in tasks
+                                    if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
+
+                    if not def_instances:
+                        # No instances of required definition - constraint cannot be satisfied
+                        self.solver.add(False)
+                    else:
+                        # At least one instance must complete before this task starts
+                        # Encoding: OR over all instances: (end(inst1) <= s) OR (end(inst2) <= s) OR ...
+                        constraints = [self.end_vars[inst.id] <= s for inst in def_instances]
+                        add_constraint(Or(*constraints))
+
+            # Instance-level containedin dependencies (specific task IDs)
+            if t.containedin_instances is not None:
+                for pid in t.containedin_instances:
                     if pid not in self.start_vars or pid not in self.end_vars:
                         # ill-formed TaskNet — forbid
                         self.solver.add(False)
@@ -249,6 +267,25 @@ class TaskNetSMT:
                         # parent task must be active during this task's execution
                         # parent_start <= this_start AND this_end <= parent_end
                         add_constraint(self.start_vars[pid] <= s, e <= self.end_vars[pid])
+
+            # Type-level containedin dependencies (definition IDs with OR semantics)
+            if t.containedin_definitions is not None:
+                for def_id in t.containedin_definitions:
+                    # Find all instances of def_id (exclude definitions themselves)
+                    def_instances = [inst for inst in tasks
+                                    if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
+
+                    if not def_instances:
+                        # No instances of required definition - constraint cannot be satisfied
+                        self.solver.add(False)
+                    else:
+                        # Must be contained within at least one instance
+                        # Encoding: OR over all instances:
+                        #   (parent1.start <= s AND e <= parent1.end) OR
+                        #   (parent2.start <= s AND e <= parent2.end) OR ...
+                        constraints = [And(self.start_vars[inst.id] <= s, e <= self.end_vars[inst.id])
+                                      for inst in def_instances]
+                        add_constraint(Or(*constraints))
 
         # --- All task boundaries are pairwise distinct ---
         # Only for included tasks

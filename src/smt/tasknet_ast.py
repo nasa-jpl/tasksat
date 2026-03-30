@@ -153,8 +153,12 @@ class Task:
     durrng: Optional[IntRange] = None
     dur: Optional[int] = None
     start: Optional[int] = None
-    after: Optional[List[str]] = None
-    containedin: Optional[List[str]] = None
+    # Instance-level temporal constraints (reference specific task IDs)
+    after_instances: Optional[List[str]] = None
+    containedin_instances: Optional[List[str]] = None
+    # Type-level temporal constraints (reference definition IDs)
+    after_definitions: Optional[List[str]] = None
+    containedin_definitions: Optional[List[str]] = None
     pre: Optional[List[TlCon]] = None
     inv: Optional[List[TlCon]] = None
     post: Optional[List[TlCon]] = None

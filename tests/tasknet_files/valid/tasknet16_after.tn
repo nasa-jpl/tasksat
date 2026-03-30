@@ -1,0 +1,35 @@
+# Test: Type-level 'after' constraint in task definition
+# A task definition with 'after' should require its instances to come after
+# at least one instance of the referenced definition (OR semantics).
+
+tasknet TypeLevelAfter {
+  end = 200;
+
+  timelines {
+    dummy : state(off, on) = off;
+  }
+
+  # Definition: preheat must happen first
+  taskdef preheat {
+    duration_range [10, 20];
+  }
+
+  # Definition: main_task must come after some instance of preheat
+  taskdef main_task {
+    after preheat;  # Type-level constraint referencing definition
+    duration_range [30, 40];
+  }
+
+  # Create instances
+  task preheat_1 : preheat {
+    duration 15;
+  }
+
+  task main_1 : main_task {
+    duration 35;
+  }
+
+  # Expected behavior:
+  # - preheat_1.end <= main_1.start
+  # - Solution should exist (e.g., preheat_1 at [0,15], main_1 at [15,50])
+}

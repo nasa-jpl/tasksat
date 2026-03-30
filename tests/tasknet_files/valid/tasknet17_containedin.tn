@@ -1,0 +1,35 @@
+# Test: Type-level 'containedin' constraint in task definition
+# A task definition with 'containedin' should require its instances to be
+# temporally contained within at least one instance of the referenced definition (OR semantics).
+
+tasknet TypeLevelContainedIn {
+  end = 200;
+
+  timelines {
+    dummy : state(off, on) = off;
+  }
+
+  # Definition: parent task that contains other tasks
+  taskdef parent_window {
+    duration_range [50, 100];
+  }
+
+  # Definition: child task must be contained within some parent_window instance
+  taskdef child_task {
+    containedin parent_window;  # Type-level constraint referencing definition
+    duration_range [20, 30];
+  }
+
+  # Create instances
+  task parent_1 : parent_window {
+    duration 60;
+  }
+
+  task child_1 : child_task {
+    duration 25;
+  }
+
+  # Expected behavior:
+  # - parent_1.start <= child_1.start AND child_1.end <= parent_1.end
+  # - Solution should exist (e.g., parent_1 at [0,60], child_1 at [10,35])
+}

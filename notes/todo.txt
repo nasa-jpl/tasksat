@@ -6,50 +6,54 @@ SHORT TERM
 - Unsat core
 - Colors for results
 - Store results in a JSON file
-- duration_range not highlighted in VS
+- rate timelines can have an initial rate (MEXEC TASKNET HAS THIS)
+- two kinds of rate impacts: CUMULATIVE_RATE (value is added) and ASSIGNMENT_RATE (value is assigned)
+- MEXEC allows maint updates for atomic timelines
+- // comments
+- Priority: order in which it tries to schedule
+  Bigger number means higher priority
+- Requests: maximal
+- Consider preferred_duration (instead of duration) as keyword, same with stat, end
+- rate keyword causes confusion
+- Pre{ ... cannot be empty ...} etc.
+- Shorthand for overlap constraints
+- Check again effects of soft constraints (priorities, start, end, optional)
+- Visualizing a schedule (e.g. Gant chart)
+- other syntax: implies
+- true and false as temporal formulas
+- tlcons not allowed in temporal formulas (not clean)
+- static check does not check duplicates of constraint names
+- rename optimize to schedule and satisfy to verify
+
+BUGS
+
+- check 'eventually active(drive) in example for paper, Some problem with constraints at some point (maybe it got fixed).
+-> Remove examples that do not compile
 
 MID TERM
 
-- Consider preferred_duration (instead of duration) as keyword, same with stat, end
-- rate keyword causes confusion
+- min/max instances of optional tasks (MEXEC TASKNET HAS THIS)
 - Allow option to only run safety check (they can be faster)
-- Check again effects of soft constraints (priorities, start, end, optional)
-- MEXEC allows maint updates for atomic timelines
-- // comments
-- Pre{ ... cannot be empty ...}
-- Shorthand for overlap constraints
 - Include temporal properties as constraint in scheduling phase
-- Tranlator from PyTasknetworks to TaskSAT.
 - Python API to the tool.
-- Visualizing a schedule.
-- MEXEC task requests.
+- Visualizing a schedule (e.g. Gant chart)
 - Modules
 - right-after or give time constraints
 
 LONG TERM
 
-- Tiago launched the thought that one should start with PDDL 3 - if we want to go down the road of an external DSL.
-- Are we entering the planning and scheduling community - requires literature study, can we compete?
-- Tiago said that most V&V efforts focus on the execution. where tasks can be re-arranged.
-- Greg said that maybe one exactly wants to know what MEXEC does.
-- In the Python API one can "program" generation of tasknets, as we do with the Python API for Z3.
-- Compared PyTasknet API with Python API to Z3.
-- They distinguish between atomic and Boolean timelines.
-- TILs: environment updates to timelines.
+- One could start with PDDL 3 - if we want to go down the road of an external DSL.
+- Most V&V efforts focus on the execution. where tasks can be re-arranged.
+- Maybe one exactly wants to know what MEXEC does.
 - Scalability
+- Non-deterministic rates
 
 MEXEC:
 
-- Timeline ids are used for reference
-- Task definition ids are used for reference
-- Parameters - we need them (arguments to tasknet?)
-- Requests: maximal
-- Priority: order in which it tries to schedule
-  Bigger number means higher priority
-- After and contains create instances of definitions.
-  Can't refer to instances.
+- Tyoes
+- Timeline and task ids are used for reference
 - Instances might not even be scheduled.
-- MEXEC's background rate concept doesn't directly translate - must be modeled through task impacts.
 - MEXEC uses completion timelines for chaining
-- has init_rate value, in TaskSAT must be modeled through task impacts, not as an initial rate
-- uses parameters, such as tc.SOC_TYPE, tc.SOC_INITIAL, tc.SOC_BACKGROUND
+- parameters, such as tc.SOC_TYPE, tc.SOC_INITIAL, tc.SOC_BACKGROUND, local to tasks, numbered (MEXEC TASKNET HAS THIS)
+- They distinguish between atomic and Boolean timelines.
+- TILs: environment updates to timelines.

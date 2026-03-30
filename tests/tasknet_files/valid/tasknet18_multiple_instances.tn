@@ -1,0 +1,43 @@
+# Test: Type-level constraints with OR semantics over multiple instances
+# When multiple instances of a definition exist, the constraint is satisfied
+# if the task comes after (or is contained in) ANY one of them.
+
+tasknet TypeLevelMultipleInstances {
+  end = 200;
+
+  timelines {
+    dummy : state(off, on) = off;
+  }
+
+  taskdef preheat {
+    duration_range [10, 20];
+  }
+
+  taskdef main_task {
+    after preheat;  # Must come after at least ONE preheat instance
+    duration_range [30, 40];
+  }
+
+  # Create two preheat instances at different times
+  task preheat_1 : preheat {
+    start_range [0, 50];
+    duration 15;
+  }
+
+  task preheat_2 : preheat {
+    start_range [100, 150];
+    duration 18;
+  }
+
+  # Create main task
+  task main_1 : main_task {
+    duration 35;
+  }
+
+  # Expected behavior (OR semantics):
+  # - (preheat_1.end <= main_1.start) OR (preheat_2.end <= main_1.start)
+  # - Valid solution: preheat_1 at [0,15], main_1 at [15,50], preheat_2 at [100,118]
+  #   (main_1 only needs to come after preheat_1, not both)
+  # - Another valid solution: main_1 at [120,155], preheat_2 at [100,118], preheat_1 anywhere
+  #   (main_1 only needs to come after preheat_2, not both)
+}

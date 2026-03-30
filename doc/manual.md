@@ -122,8 +122,10 @@ task task_name {
 - `duration_range`: Duration range
 - `start`: Preferred start time 
 - `start_range` / `end_range`: Time windows for when task can start/end
-- `after`: Task ordering dependencies (must start after other tasks end)
-- `containedin`: Task must execute during another task
+- `after`: Task ordering dependencies (must start after other tasks end). Note that an `after X` constraint in a task definition
+   means that the task must occur after some instance of the task definition `X`.
+- `containedin`: Task must execute during another task. Note that a `containedin X` constraint in a task definition
+   means that the task must be contained in some instance of the task definition `X`.
 - `pre`: Preconditions (must hold at task start)
 - `inv`: Invariants (must hold throughout task execution)
 - `post`: Postconditions (must hold at task end)

@@ -96,9 +96,9 @@ class WellFormednessChecker:
             if t.kind == TaskKind.DEFINITION:
                 continue
 
-            # Check 'after' dependencies
-            if t.after is not None:
-                for dep_id in t.after:
+            # Check instance-level 'after' dependencies (reference specific task instances)
+            if t.after_instances is not None:
+                for dep_id in t.after_instances:
                     if dep_id not in self.task_map:
                         self._error(
                             "Task Dependency",
@@ -108,12 +108,27 @@ class WellFormednessChecker:
                         self._error(
                             "Task Dependency",
                             f"Task '{t.id}' has 'after' dependency on definition '{dep_id}' "
-                            "(definitions are not scheduled)"
+                            "(use definition-level 'after' in taskdef, not instance)"
                         )
 
-            # Check 'containedin' dependencies
-            if t.containedin is not None:
-                for parent_id in t.containedin:
+            # Check type-level 'after' dependencies (reference task definitions)
+            if t.after_definitions is not None:
+                for def_id in t.after_definitions:
+                    if def_id not in self.task_map:
+                        self._error(
+                            "Task Dependency",
+                            f"Task '{t.id}' has 'after' dependency on non-existent definition '{def_id}'"
+                        )
+                    elif self.task_map[def_id].kind != TaskKind.DEFINITION:
+                        self._error(
+                            "Task Dependency",
+                            f"Task '{t.id}' has type-level 'after' on non-definition '{def_id}' "
+                            "(should reference a taskdef)"
+                        )
+
+            # Check instance-level 'containedin' dependencies (reference specific task instances)
+            if t.containedin_instances is not None:
+                for parent_id in t.containedin_instances:
                     if parent_id not in self.task_map:
                         self._error(
                             "Task Dependency",
@@ -123,7 +138,22 @@ class WellFormednessChecker:
                         self._error(
                             "Task Dependency",
                             f"Task '{t.id}' has 'containedin' dependency on definition '{parent_id}' "
-                            "(definitions are not scheduled)"
+                            "(use definition-level 'containedin' in taskdef, not instance)"
+                        )
+
+            # Check type-level 'containedin' dependencies (reference task definitions)
+            if t.containedin_definitions is not None:
+                for def_id in t.containedin_definitions:
+                    if def_id not in self.task_map:
+                        self._error(
+                            "Task Dependency",
+                            f"Task '{t.id}' has 'containedin' dependency on non-existent definition '{def_id}'"
+                        )
+                    elif self.task_map[def_id].kind != TaskKind.DEFINITION:
+                        self._error(
+                            "Task Dependency",
+                            f"Task '{t.id}' has type-level 'containedin' on non-definition '{def_id}' "
+                            "(should reference a taskdef)"
                         )
 
     # ========== Impact Type Checks ==========

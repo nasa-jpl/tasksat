@@ -520,16 +520,20 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
     durrng = None
     dur = None
     start = None
-    after = None
-    containedin = None
+    after_instances = None
+    after_definitions = None
+    containedin_instances = None
+    containedin_definitions = None
     pre = None
     inv = None
     post = None
     impacts = None
 
     # Extract values from items
-    after_list: List[str] = []
-    containedin_list: List[str] = []
+    after_instances_list: List[str] = []
+    after_definitions_list: List[str] = []
+    containedin_instances_list: List[str] = []
+    containedin_definitions_list: List[str] = []
     pre_list: List[TlCon] = []
     inv_list: List[TlCon] = []
     post_list: List[TlCon] = []
@@ -551,9 +555,15 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
         elif item_kind == "start":
             start = value
         elif item_kind == "after":
-            after_list.extend(value)
+            if kind == TaskKind.DEFINITION:
+                after_definitions_list.extend(value)
+            else:  # INSTANCE or OPTIONAL
+                after_instances_list.extend(value)
         elif item_kind == "containedin":
-            containedin_list.extend(value)
+            if kind == TaskKind.DEFINITION:
+                containedin_definitions_list.extend(value)
+            else:  # INSTANCE or OPTIONAL
+                containedin_instances_list.extend(value)
         elif item_kind == "constraints":
             pre_c, inv_c, post_c = value
             pre_list.extend(pre_c)
@@ -571,10 +581,14 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
             raise ValueError(f"Unknown task_body_item kind: {item_kind!r}")
 
     # Set optional fields if they have values
-    if after_list:
-        after = after_list
-    if containedin_list:
-        containedin = containedin_list
+    if after_instances_list:
+        after_instances = after_instances_list
+    if after_definitions_list:
+        after_definitions = after_definitions_list
+    if containedin_instances_list:
+        containedin_instances = containedin_instances_list
+    if containedin_definitions_list:
+        containedin_definitions = containedin_definitions_list
     if pre_list:
         pre = pre_list
     if inv_list:
@@ -599,8 +613,10 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
         durrng=durrng,
         dur=dur,
         start=start,
-        after=after,
-        containedin=containedin,
+        after_instances=after_instances,
+        after_definitions=after_definitions,
+        containedin_instances=containedin_instances,
+        containedin_definitions=containedin_definitions,
         pre=pre,
         inv=inv,
         post=post,
