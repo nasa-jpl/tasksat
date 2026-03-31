@@ -1103,9 +1103,9 @@ class TaskNetSMT:
                 objective_optional = Sum([If(self.optional_included[t.id], 1, 0) for t in self.optional_tasks])
                 self.solver.minimize(objective_optional)
 
-            # 2. Secondary objective: minimize priority-weighted cost
-            # Lower priority values = higher importance = lower cost
-            # Cost = sum of (priority * inclusion_factor) for all tasks
+            # 2. Secondary objective: maximize priority-weighted benefit
+            # Higher priority values = higher importance = higher benefit
+            # Benefit = sum of (priority * inclusion_factor) for all tasks
             priority_terms = []
             for t in self.all_scheduled_tasks:
                 if t.priority is not None:
@@ -1118,7 +1118,7 @@ class TaskNetSMT:
 
             if priority_terms:
                 objective_priority = Sum(priority_terms)
-                self.solver.minimize(objective_priority)
+                self.solver.maximize(objective_priority)
 
             # 3. Tertiary objective: minimize deviation from preferred start times
             # Cost = sum of |actual_start - preferred_start| for tasks with preferred starts

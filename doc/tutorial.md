@@ -690,9 +690,9 @@ This verification capability goes beyond what traditional planners can do.
 #### The difference between modes:
 
 - Optimize mode: Finds the optimal minimal schedule in Step 1. The minimization is wrt.
-  * number of optional tasks instantiated: they are only schedules if needed, and according to priority: lower priority numnber means higher priority.
+  * number of optional tasks instantiated: they are only scheduled if needed, and according to priority: higher priority number means higher priority.
   * start times: an attempt is made to start the tasks according to start time preference.
-    It minimizes distance between desired start times and realized stat times.
+    It minimizes distance between desired start times and realized start times.
 - Satisfy mode: Finds any valid schedule in Step 1
 - **Important**: The mode flag only controls Step 1 (main schedule generation). Step 2 (property verification) always uses Solver mode for faster counterexample finding, regardless of the `--mode` flag. This is an optimization since counterexamples don't need to be optimal.
 

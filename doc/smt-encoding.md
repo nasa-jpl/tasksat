@@ -32,7 +32,7 @@ Each task $t \in T$ represents an activity to be scheduled within the horizon. A
 - **Dependencies**:
   - Precedence: set $\mathtt{after}_t \subseteq T$ of tasks that must complete before $t$ starts
   - Containment: set $\mathtt{within}_t \subseteq T$ of tasks within which $t$ must execute
-- **Priority**: Optional integer $p_t \in \mathbb{Z}$ for optimization (lower is higher priority)
+- **Priority**: Optional integer $p_t \in \mathbb{Z}$ for optimization (higher is higher priority)
 - **Conditions**: Boolean formulas over timeline states that must hold at specific execution points
   - Preconditions $\mathtt{pre}_t$: must hold when task starts
   - Invariants $\mathtt{inv}_t$: must hold throughout task execution

@@ -346,7 +346,7 @@ All task fields are optional unless marked as required.
 - Example: `end_range` [100, 200];
 
 **priority**
-- Integer priority for scheduling preferences (lower values = higher priority)
+- Integer priority for scheduling preferences (higher values = higher priority)
 - Example: `priority` 10;
 
 **after**

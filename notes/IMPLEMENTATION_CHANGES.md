@@ -10,7 +10,23 @@ This document details all changes made to implement three MEXEC-compatible featu
 
 ## Breaking Changes
 
-**Rate operator semantics changed**:
+### 1. Priority Semantics Reversed (BREAKING CHANGE)
+
+**Changed**: Priority semantics to match MEXEC convention
+
+**Before**: Lower priority number = higher priority (minimize priority sum)
+**After**: Higher priority number = higher priority (maximize priority sum)
+
+**Example**:
+- Task with priority 100: Now HIGH priority (was low)
+- Task with priority 1: Now LOW priority (was high)
+
+**Impact**: Existing TaskNet files using priorities will have reversed behavior. Users must update priority values or understand the new semantics.
+
+### 2. Rate Operator Semantics Changed (BREAKING CHANGE)
+
+**Changed**: Rate operators `+~` and `-~` from assignment to cumulative
+
 - `+~` and `-~` now perform CUMULATIVE rate updates (add/subtract from current rate)
 - New `=~` operator performs ASSIGNMENT rate updates (set rate to absolute value)
 - This is a BREAKING CHANGE matching MEXEC semantics
@@ -24,7 +40,86 @@ This document details all changes made to implement three MEXEC-compatible featu
 
 ## Source Code Changes
 
-### 1. `src/smt/tasknet_ast.py`
+### Priority Semantics Fix
+
+#### `src/smt/tasknet_smt.py` (lines 1106-1121)
+
+**Purpose**: Fix priority semantics to match MEXEC (higher number = higher priority)
+
+**Before**:
+```python
+# 2. Secondary objective: minimize priority-weighted cost
+# Lower priority values = higher importance = lower cost
+# Cost = sum of (priority * inclusion_factor) for all tasks
+priority_terms = []
+for t in self.all_scheduled_tasks:
+    if t.priority is not None:
+        if t.kind == TaskKind.OPTIONAL:
+            priority_terms.append(If(self.optional_included[t.id], t.priority, 0))
+        else:
+            priority_terms.append(t.priority)
+
+if priority_terms:
+    objective_priority = Sum(priority_terms)
+    self.solver.minimize(objective_priority)  # MINIMIZE = prefer lower numbers
+```
+
+**After**:
+```python
+# 2. Secondary objective: maximize priority-weighted benefit
+# Higher priority values = higher importance = higher benefit
+# Benefit = sum of (priority * inclusion_factor) for all tasks
+priority_terms = []
+for t in self.all_scheduled_tasks:
+    if t.priority is not None:
+        if t.kind == TaskKind.OPTIONAL:
+            priority_terms.append(If(self.optional_included[t.id], t.priority, 0))
+        else:
+            priority_terms.append(t.priority)
+
+if priority_terms:
+    objective_priority = Sum(priority_terms)
+    self.solver.maximize(objective_priority)  # MAXIMIZE = prefer higher numbers
+```
+
+**Key Change**: Changed from `minimize(objective_priority)` to `maximize(objective_priority)`
+
+#### `doc/manual.md` (line 349)
+
+**Before**:
+```markdown
+**priority**
+- Integer priority for scheduling preferences (lower values = higher priority)
+- Example: `priority` 10;
+```
+
+**After**:
+```markdown
+**priority**
+- Integer priority for scheduling preferences (higher values = higher priority)
+- Example: `priority` 10;
+```
+
+#### `tests/test_verifier1.py` (lines 150-162)
+
+Updated test expectations for `test_tasknet11_priority`:
+
+**Before** (priority 1 was high, priority 20 was low):
+- T4 (priority 1): INCLUDED
+- T2, T3, T5 (priority 20): NOT INCLUDED
+
+**After** (priority 20 is high, priority 1 is low):
+- T2 (priority 20): INCLUDED
+- T3, T5 (priority 20): NOT INCLUDED
+- T4 (priority 1): NOT INCLUDED
+
+**Test Result**: T2 with priority 20 is now scheduled instead of T4 with priority 1, confirming higher numbers = higher priority.
+
+---
+
+### Rate Timeline Features
+
+#### 1. `src/smt/tasknet_ast.py`
 
 #### Lines 71-76: Added `initial_rate` field to `RateTimeline`
 

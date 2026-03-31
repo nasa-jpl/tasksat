@@ -3,12 +3,7 @@ TODO
 
 FOR SUPPORTING TRANSLATION FROM MEXEC TASKNET
 
--> rate timelines can have an initial rate (MEXEC TASKNET HAS THIS)
--> two kinds of rate impacts: CUMULATIVE_RATE (value is added) and ASSIGNMENT_RATE (value is assigned)
--> MEXEC allows maint updates for atomic timelines
-
-- Priority: order in which it tries to schedule, Bigger number means higher priority
-- Requests: maximal
+-> Requests: maximal
 
 SHORT TERM
 
