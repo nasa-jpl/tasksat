@@ -101,16 +101,18 @@ task task_name {
     pre {
       timeline_name = value;
       timeline_name += delta;
-      timeline_name +~ rate;
+      timeline_name +~ rate_delta;
+      timeline_name =~ absolute_rate;
     }
     maint {
       timeline_name += delta;
-      timeline_name +~ rate;
+      timeline_name +~ rate_delta;
     }
     post {
       timeline_name = value;
       timeline_name += delta;
-      timeline_name +~ rate;
+      timeline_name +~ rate_delta;
+      timeline_name =~ absolute_rate;
     }
   }
 }
@@ -144,11 +146,30 @@ name : state(value1, value2, ...) = initial_value;
 name : atomic = true/false;
 name : claim [min, max] = initial_value;
 name : cumulative [min_rate, max_rate] bounds [min, max] = initial_value;
-name : rate [min_rate, max_rate] bounds [min, max] = initial_value;
+name : rate [min_rate, max_rate] bounds [min, max] = initial_value initial_rate = rate_value;
 ```
 
 The state timeline is an enumerate type of a finite number of values, which
-can be names or numbers. The atomic timeline is a special case where the values are Booleans. The three other timelines denote floating point numbers and allow different kinds of operations. They each have an optional range of values that a schdule must stay within. In addition, the cumulative and rate timelines have an optional minimal and maximal bound, and any value computed during the execution of a schedule will be clamped to stay in that interval. It is effectively the type of the timeline, whereas the first interval is a subtype of that.
+can be names or numbers. The atomic timeline is a special case where the values are Booleans (internally represented as Int[0,1] to support claim/release patterns). The three other timelines denote floating point numbers and allow different kinds of operations. They each have an optional range of values that a schdule must stay within. In addition, the cumulative and rate timelines have an optional minimal and maximal bound, and any value computed during the execution of a schedule will be clamped to stay in that interval. It is effectively the type of the timeline, whereas the first interval is a subtype of that.
+
+**Rate Timelines with Initial Rate:**
+
+Rate timelines track both a VALUE (the resource level) and a RATE (how fast it changes per time unit). The `initial_rate` parameter sets the default rate of change when no task is affecting the timeline. The value evolves as the integral of the rate over time:
+
+```
+value(t) = value(t₀) + ∫[t₀ to t] rate(τ) dτ
+```
+
+Example:
+```tasknet
+battery : rate [-5.0, 5.0] bounds [0.0, 100.0] = 50.0 initial_rate = -0.1;
+```
+
+This defines a battery timeline with:
+- Initial value: 50.0
+- Initial rate: -0.1 (drains at 0.1 units per time step by default)
+- Rate bounds: [-5.0, 5.0] (can charge up to 5.0 or drain up to -5.0)
+- Value bounds: [0.0, 100.0] (clamped to this range)
 
 As shown above, timelines can be initialized to a specific value when defined. Howver, this is optional. If no initial value is provided, they can range over their type, unless they are constrained by an init-block shown below schematically:
 
@@ -180,18 +201,30 @@ The constraints shown above for initializing timelines represent the general for
 
 ## Impact Operations
 
-There are three different ways to update a timeline
+There are four different ways to update a timeline:
 
-- assignments: 
-  * timeline = value
-- cumulative updates (adds/subtracts a delta):
-  * timeline += value
-  * timeline -= value
-- rate updates (sets the rate with which a timeline changes per time unit):
-  * timeline +~ value
-  * timeline -~ value
+- **Assignments**:
+  * `timeline = value`
+- **Cumulative updates** (adds/subtracts a delta to the value):
+  * `timeline += value`
+  * `timeline -= value`
+- **Cumulative rate updates** (adds/subtracts a delta to the rate):
+  * `timeline +~ value`
+  * `timeline -~ value`
+- **Rate assignment** (sets the rate to an absolute value):
+  * `timeline =~ value`
 
-Cumulative and rate updates only work on numeric timelines.
+Cumulative and rate updates only work on numeric timelines (claimable, cumulative, rate).
+
+**Rate Updates vs Rate Assignment:**
+
+For rate timelines, there are two distinct operations:
+- **Cumulative rate** (`+~`, `-~`): Adds or subtracts from the current rate
+  - Example: If rate = 1.0 and task does `+~ 2.0`, new rate = 3.0
+  - MAINT impacts automatically restore: `+~ 2.0` at start, `-~ 2.0` at end
+- **Rate assignment** (`=~`): Sets the rate to an absolute value
+  - Example: If rate = 1.0 and task does `=~ 5.0`, new rate = 5.0
+  - Only allowed in PRE and POST (not MAINT) due to restoration complexity
 
 The meaning of these updates depend on which impact kind it conerns:
 
@@ -206,13 +239,17 @@ Version 1.5.0, May 1, 2024):
 
 This table shows which impact operations are allowed on each timeline type:
 
-| Timeline Type | Assignment (`=`) | Delta (`+=`/`-=`) | Rate (`+~`/`-~`) | When Allowed |
-|---------------|------------------|-------------------|------------------|--------------|
-| **State** | ✓ | ✗ | ✗ | pre, post only |
-| **Atomic** | ✓ | ✗ | ✗ | pre, post only |
-| **Claimable** | ✗ | ✓ | ✗ | like cumulative but maint only |
-| **Cumulative** | ✓    | ✓ | ✗ | Delta: pre/maint/post<br>Assignment: pre/post only |
-| **Rate** | ✓   | ✓    | ✓ | Delta/Rate: pre/maint/post<br>Assignment: pre/post only |
+| Timeline Type | Assignment (`=`) | Delta (`+=`/`-=`) | Rate Cumulative (`+~`/`-~`) | Rate Assignment (`=~`) | When Allowed |
+|---------------|------------------|-------------------|-----------------------------|------------------------|--------------|
+| **State** | ✓ | ✗ | ✗ | ✗ | Assignment: pre/post only |
+| **Atomic** | ✓ | ✓ | ✗ | ✗ | Assignment: pre/post only<br>Delta: pre/maint/post (for claim/release) |
+| **Claimable** | ✗ | ✓ | ✗ | ✗ | Delta: maint only |
+| **Cumulative** | ✓ | ✓ | ✗ | ✗ | Delta: pre/maint/post<br>Assignment: pre/post only |
+| **Rate** | ✓ | ✓ | ✓ | ✓ | Delta/Rate Cumulative: pre/maint/post<br>Assignment (value or rate): pre/post only |
+
+**Notes:**
+- **Atomic timelines** now support cumulative impacts (typically `+= 1` to claim, `-= 1` to release) for mutual exclusion patterns. Use MAINT timing for automatic claim/release at task start/end.
+- **Rate assignment (`=~`) with MAINT** is not supported due to restoration complexity in the zone-based model. Use cumulative rate impacts (`+~`/`-~`) with MAINT, which automatically restore (e.g., `+~ 2.0` at start, `-~ 2.0` at end).
 
 ## Task Definitions and Instances
 
@@ -229,7 +266,7 @@ taskdef charge_def {
   }
   impacts {
     maint {
-      battery +~ 2.0;
+      battery +~ 2.0;  // Cumulative: adds 2.0 to current rate during task
     }
   }
 }
@@ -276,7 +313,7 @@ task drive {
   duration 30;
   pre { battery >= 50.0; }
   impacts {
-    maint { battery +~ -1.5; }
+    maint { battery -~ 1.5; }  // Cumulative: subtracts 1.5 from current rate during task
   }
 }
 ```

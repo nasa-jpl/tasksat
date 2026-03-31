@@ -17,6 +17,7 @@ reserved = {
     "tasknet":        "TASKNET",
     "timelines":      "TIMELINES",
     "initial":        "INITIAL",
+    "initial_rate":   "INITIAL_RATE",
     "task":           "TASK",
     "taskdef":        "TASKDEF",
     "optional":       "OPTIONAL",
@@ -86,6 +87,7 @@ tokens = [
     "MINUS_EQ",
     "PLUS_RATE",
     "MINUS_RATE",
+    "ASSIGN_RATE",
     "GE",
     "LE",
     "GT",
@@ -107,6 +109,7 @@ t_PLUS_EQ   = r"\+="
 t_MINUS_EQ  = r"-="
 t_PLUS_RATE = r"\+~"
 t_MINUS_RATE= r"-~"
+t_ASSIGN_RATE= r"=~"
 t_GE        = r">="
 t_LE        = r"<="
 t_GT        = r">"
@@ -379,6 +382,17 @@ def p_init_opt_some(p):
     "init_opt : EQ NUMBER"
     p[0] = float(p[2])
 
+
+def p_initial_rate_opt_empty(p):
+    "initial_rate_opt : empty"
+    p[0] = None
+
+
+def p_initial_rate_opt_some(p):
+    "initial_rate_opt : INITIAL_RATE EQ NUMBER"
+    p[0] = float(p[3])
+
+
 def p_init_bool_opt_empty(p):
     "init_bool_opt : empty"
     p[0] = None
@@ -440,10 +454,11 @@ def p_timeline_kind_cumul(p):
     )
 
 def p_timeline_kind_rate(p):
-    "timeline_kind : RATE range_opt bounds_opt init_opt"
+    "timeline_kind : RATE range_opt bounds_opt init_opt initial_rate_opt"
     rng = p[2]
     bnds = p[3]
     init = p[4]
+    init_rate = p[5]
     BIG = 1e9
 
     if rng is None:
@@ -457,12 +472,14 @@ def p_timeline_kind_rate(p):
         b_lo, b_hi = bnds
 
     init_val = None if init is None else float(init)
+    init_rate_val = None if init_rate is None else float(init_rate)
 
     p[0] = RateTimeline(
         id=None,
         range=RealRange(r_lo, r_hi),
         bounds=RealRange(b_lo, b_hi),
         initial=init_val,          # <-- None means unconstrained
+        initial_rate=init_rate_val,
     )
 
 # ------------ initial timeline values ------------
@@ -935,8 +952,10 @@ def p_impact_group(p):
             how = ImpactAssign(payload)
         elif kind == "cumul":
             how = ImpactCumulative(payload)
-        elif kind == "rate":
-            how = ImpactRate(payload)
+        elif kind == "rate_cumul":
+            how = ImpactRateCumulative(payload)
+        elif kind == "rate_assign":
+            how = ImpactRateAssignment(payload)
         else:
             raise ValueError(f"Unknown impact kind: {kind}")
         impacts.append(Impact(id=tl_name, when=when, how=how))
@@ -992,12 +1011,17 @@ def p_impact_rhs_cumul_minus(p):
 
 def p_impact_rhs_rate_plus(p):
     "impact_rhs : PLUS_RATE NUMBER"
-    p[0] = ("rate", float(p[2]))
+    p[0] = ("rate_cumul", float(p[2]))
 
 
 def p_impact_rhs_rate_minus(p):
     "impact_rhs : MINUS_RATE NUMBER"
-    p[0] = ("rate", -float(p[2]))
+    p[0] = ("rate_cumul", -float(p[2]))
+
+
+def p_impact_rhs_rate_assign(p):
+    "impact_rhs : ASSIGN_RATE NUMBER"
+    p[0] = ("rate_assign", float(p[2]))
 
 
 # ------------ top-level temporal constraints & properties ------------

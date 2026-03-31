@@ -73,6 +73,7 @@ class RateTimeline:
     range: RealRange
     bounds: RealRange
     initial: Optional[float]
+    initial_rate: Optional[float] = None
 
 Timeline = Union[
     StateTimeline,
@@ -95,10 +96,14 @@ class ImpactCumulative:
     v: float           
 
 @dataclass
-class ImpactRate:
-    r: float           
+class ImpactRateCumulative:
+    delta: float  # Amount to add to current rate
 
-ImpactHow = Union[ImpactAssign, ImpactCumulative, ImpactRate]
+@dataclass
+class ImpactRateAssignment:
+    r: float  # Absolute rate value to set
+
+ImpactHow = Union[ImpactAssign, ImpactCumulative, ImpactRateCumulative, ImpactRateAssignment]
 
 @dataclass
 class Impact:

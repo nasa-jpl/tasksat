@@ -1,0 +1,67 @@
+# Test: Cumulative vs assignment rate impacts
+# This tests the new feature distinguishing between:
+# - +~ and -~ for cumulative rate impacts (add to current rate)
+# - =~ for assignment rate impacts (set rate to value)
+
+tasknet RateCumulativeTest {
+  end = 200;
+
+  timelines {
+    # Rate timeline for testing rate impacts
+    energy : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+  }
+
+  # Task that uses cumulative rate impact (adds to current rate)
+  task charge {
+    id 1;
+    priority 1;
+    start_range [10, 50];
+    duration_range [20, 30];
+
+    impacts {
+      maint {
+        # Cumulative: adds +2.0 to current rate while active
+        energy +~ 2.0;
+      }
+    }
+  }
+
+  # Task that uses assignment rate impact (sets rate to value)
+  task discharge_controlled {
+    id 2;
+    priority 1;
+    start_range [60, 100];
+    duration_range [20, 30];
+
+    impacts {
+      pre {
+        # Assignment: sets rate to -1.0 at task start
+        energy =~ -1.0;
+      }
+      post {
+        # Assignment: sets rate back to 0.0 at task end
+        energy =~ 0.0;
+      }
+    }
+  }
+
+  # Task that uses negative cumulative rate impact
+  task slow_drain {
+    id 3;
+    priority 1;
+    start_range [120, 160];
+    duration_range [20, 30];
+
+    impacts {
+      maint {
+        # Cumulative: subtracts 0.5 from current rate while active
+        energy -~ 0.5;
+      }
+    }
+  }
+
+  # Expected behavior:
+  # - charge: energy rate becomes currentRate + 2.0 during task
+  # - discharge_controlled: energy rate becomes -1.0 at start, 0.0 at end
+  # - slow_drain: energy rate becomes currentRate - 0.5 during task
+}

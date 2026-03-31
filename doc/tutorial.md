@@ -42,7 +42,7 @@ tasknet Rover2 {
 
     impacts {
       maint {
-        battery +~ -1.5;  
+        battery -~ 1.5;  
       }
       post {
         location = target;
@@ -67,7 +67,7 @@ tasknet Rover2 {
 
     impacts {
       maint {
-        battery +~ -0.5; 
+        battery -~ 0.5; 
         temperature +~ 2; 
       }
     }
@@ -87,8 +87,8 @@ tasknet Rover2 {
         arm = true; 
       }
       maint {
-        battery +~ -0.5;   
-        temperature +~ -0.2;
+        battery -~ 0.5;   
+        temperature -~ 0.2;
       }
       post {
         data += 40.0;  
@@ -185,7 +185,7 @@ taskdef drive_def {
 
     impacts {
       maint {
-        battery +~ -1.5;  
+        battery -~ 1.5;  
       }
       post {
         location = target;
@@ -223,7 +223,7 @@ This task is also optional
 
     impacts {
       maint {
-        battery +~ -0.5;  
+        battery -~ 0.5;  
         temperature +~ 2;  
       }
     }
@@ -249,8 +249,8 @@ The `collect` task shows some new concepts. It has a pre-condition containing a 
         arm = true; 
       }
       maint {
-        battery +~ -0.5;  
-        temperature +~ -0.2;
+        battery -~ 0.5;  
+        temperature -~ 0.2;
       }
       post {
         data += 40.0;  

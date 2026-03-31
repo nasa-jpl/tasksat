@@ -70,7 +70,7 @@ tasknet UNSAT10_dependency {
     }
     impacts {
       maint {
-        tl1 -~ 4.0;
+        tl1 +~ -4.0;
         tl2 +~ 1.2;
       }
     }
@@ -87,7 +87,7 @@ tasknet UNSAT10_dependency {
     }
     impacts {
       maint {
-        tl1 -~ 4.0;
+        tl1 +~ -4.0;
         tl2 +~ 1.2;
       }
     }
@@ -104,7 +104,7 @@ tasknet UNSAT10_dependency {
     }
     impacts {
       maint {
-        tl1 -~ 4.0;
+        tl1 +~ -4.0;
         tl2 +~ 1.2;
       }
     }
@@ -121,7 +121,7 @@ tasknet UNSAT10_dependency {
     }
     impacts {
       maint {
-        tl1 -~ 4.0;
+        tl1 +~ -4.0;
         tl2 +~ 1.2;
       }
     }
@@ -138,7 +138,7 @@ tasknet UNSAT10_dependency {
     }
     impacts {
       maint {
-        tl1 -~ 4.0;
+        tl1 +~ -4.0;
         tl2 +~ 1.2;
       }
     }
@@ -152,7 +152,7 @@ tasknet UNSAT10_dependency {
     }
     impacts {
       maint {
-        tl2 -~ 1.0;
+        tl2 +~ -1.0;
       }
     }
   }
@@ -165,7 +165,7 @@ tasknet UNSAT10_dependency {
     }
     impacts {
       maint {
-        tl2 -~ 1.0;
+        tl2 +~ -1.0;
       }
     }
   }
@@ -178,7 +178,7 @@ tasknet UNSAT10_dependency {
     }
     impacts {
       maint {
-        tl2 -~ 1.0;
+        tl2 +~ -1.0;
       }
     }
   }
@@ -191,7 +191,7 @@ tasknet UNSAT10_dependency {
     }
     impacts {
       maint {
-        tl2 -~ 1.0;
+        tl2 +~ -1.0;
       }
     }
   }
@@ -204,7 +204,7 @@ tasknet UNSAT10_dependency {
     }
     impacts {
       maint {
-        tl2 -~ 1.0;
+        tl2 +~ -1.0;
       }
     }
   }

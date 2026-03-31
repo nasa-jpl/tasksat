@@ -47,7 +47,7 @@ tasknet HeatDriveCommunicate {
       }
       maint {
         temperature +~ 1.0;
-        battery     +~ -0.01;
+        battery +~ -0.01;
       }
       post {
         heating = off;
@@ -86,9 +86,9 @@ tasknet HeatDriveCommunicate {
         driving = on;
       }
       maint {
-        distance    +~ -1.0;
+        distance +~ -1.0;
         temperature +~ -0.2;
-        battery     +~ -0.2;
+        battery +~ -0.2;
       }
       post {
         driving = off;

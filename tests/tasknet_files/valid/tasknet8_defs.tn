@@ -31,7 +31,7 @@ tasknet MaintenanceSchedule {
       }
       maint {
         temperature +~ -0.5;
-        battery     +~ -0.1;
+        battery +~ -0.1;
       }
       post {
         power = low;

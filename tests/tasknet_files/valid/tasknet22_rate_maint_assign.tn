@@ -1,0 +1,51 @@
+# Test: Rate assignment with PRE/POST (cumulative rate with MAINT)
+# This tests rate assignment at boundaries and cumulative rate during MAINT
+# Note: MAINT with assignment (=~) is not supported - only cumulative (+~/-~) works for MAINT
+
+tasknet RateAssignTest {
+  end = 100;
+
+  timelines {
+    # Rate timeline with initial rate 1.0
+    energy : rate [0.0, 200.0] bounds [0.0, 200.0] = 50.0 initial_rate = 1.0;
+  }
+
+  # Task that uses cumulative rate during execution (MAINT cumulative)
+  task controlled_charge {
+    id 1;
+    priority 1;
+    start_range [10, 20];
+    duration 20;
+
+    impacts {
+      maint {
+        # Cumulative with MAINT: adds +2.0 to current rate during task
+        # Rate becomes 1.0 + 2.0 = 3.0 during task, restores to 1.0 at end
+        energy +~ 2.0;
+      }
+    }
+  }
+
+  # Task that assigns rate at end (POST assignment)
+  task set_idle_rate {
+    id 2;
+    priority 1;
+    start_range [40, 60];
+    duration 10;
+    after controlled_charge;
+
+    impacts {
+      post {
+        # Assignment at POST: sets rate to 0.5 after task ends
+        energy =~ 0.5;
+      }
+    }
+  }
+
+  # Expected behavior:
+  # [0, 10]:    rate = 1.0 (initial), value increases from 50 to 60
+  # [10, 30]:   rate = 3.0 (1.0 + 2.0 cumulative), value increases by 60
+  # [30, 40]:   rate = 1.0 (restored), value increases by 10
+  # [40, 50]:   rate = 1.0, value increases by 10
+  # [50, 100]:  rate = 0.5 (POST assignment), value increases by 25
+}

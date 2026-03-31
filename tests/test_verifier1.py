@@ -9,9 +9,9 @@ class TestVerifier:
         """Finds a valid schedule, properties hold"""
         verify_out('tasknet1.tn')(
             "*** NEW SCHEDULE***",
-            "heating       : start =   11, end =   80",
-            "driving       : start =  100, end =  180",
-            "communicating : start =  220, end =  280",
+            "heating       : start =   20, end =   80",
+            "driving       : start =  101, end =  191",
+            "communicating : start =  201, end =  280",
             "[1/3] Checking property 'p1'...",
             "  → HOLDS",
             "[2/3] Checking property 'p2'...",
@@ -27,9 +27,9 @@ class TestVerifier:
         Loosening start and end ranges, finds different schedule, p2 violated
         """
         verify_out('tasknet2.tn')(
-            "heating       : start =  197, end =  248",
+            "heating       : start =  198, end =  248",
             "driving       : start =  249, end =  299",
-            "communicating : start =  190, end =  196",
+            "communicating : start =  196, end =  197",
             "[1/3] Checking property 'p1'...",
             "  → VIOLATED!",
             "[2/3] Checking property 'p2'...",
@@ -45,9 +45,9 @@ class TestVerifier:
         Adds property as a constraint. Now all properties hold again.
         """
         verify_out('tasknet3.tn')(
-            "heating       : start =    1, end =   12",
-            "driving       : start =   13, end =   63",
-            "communicating : start =   64, end =   65",
+            "heating       : start =    1, end =   52",
+            "driving       : start =   53, end =  103",
+            "communicating : start =  298, end =  299",
             "[1/3] Checking property 'p1'...",
             "  → VIOLATED!",
             "[2/3] Checking property 'p2'...",
@@ -86,8 +86,8 @@ class TestVerifier:
         """Test comprehensive example with task definitions and optional tasks"""
         verify_out('tasknet7_optional.tn')(
             "*** NEW SCHEDULE***",
-            "C1            : start =   36, end =   56",
-            "C2            : start =  102, end =  122",
+            "C1            : start =   50, end =   70",
+            "C2            : start =  104, end =  124",
             "C3            : [OPTIONAL - NOT INCLUDED]",
             "C4            : [OPTIONAL - NOT INCLUDED]",
             "[1/1] Checking property 'p1'...",

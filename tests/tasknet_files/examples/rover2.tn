@@ -29,7 +29,7 @@ tasknet Rover2 {
 
     impacts {
       maint {
-        battery +~ -1.5;  
+        battery -~ 1.5;  
       }
       post {
         location = target;
@@ -54,7 +54,7 @@ tasknet Rover2 {
 
     impacts {
       maint {
-        battery +~ -0.5;  
+        battery -~ 0.5;  
         temperature +~ 2; 
       }
     }
@@ -74,8 +74,8 @@ tasknet Rover2 {
         arm = true; 
       }
       maint {
-        battery +~ -0.5;   
-        temperature +~ -0.2;
+        battery -~ 0.5;   
+        temperature -~ 0.2;
       }
       post {
         data += 40.0;  

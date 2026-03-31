@@ -59,6 +59,8 @@ class TaskNetSMT:
         self.atomic_tl_zone: Dict[str, List] = {}
         # numeric timelines: id -> (range, bounds_opt, [Real vars])
         self.numeric_tl_zone: Dict[str, Tuple[RealRange, Optional[RealRange], List]] = {}
+        # rate timeline rates: id -> [Real vars] for the RATE (not value)
+        self.rate_tl_rate_zone: Dict[str, List] = {}
 
         self._mk_zone_state_vars()
         self._encode_initial_state_zones()
@@ -412,8 +414,13 @@ class TaskNetSMT:
                     self.solver.add(v >= 0, v < len(states))
 
             elif isinstance(tl, AtomicTimeline):
-                vars_z = [Bool(f"{tl.id}_z{j}") for j in range(Z)]
+                # Use Int instead of Bool to support cumulative MAINT (claim/release)
+                # Range [0,1] enforces mutual exclusion via overflow detection
+                vars_z = [Int(f"{tl.id}_z{j}") for j in range(Z)]
                 self.atomic_tl_zone[tl.id] = vars_z
+                # Add range constraints [0,1] for all zones
+                for v in vars_z:
+                    self.solver.add(v >= 0, v <= 1)
 
             elif isinstance(tl, ClaimableTimeline):
                 vars_z = [Real(f"{tl.id}_z{j}") for j in range(Z)]
@@ -424,8 +431,12 @@ class TaskNetSMT:
                 self.numeric_tl_zone[tl.id] = (tl.range, tl.bounds, vars_z)
 
             elif isinstance(tl, RateTimeline):
+                # VALUE variables (as before)
                 vars_z = [Real(f"{tl.id}_z{j}") for j in range(Z)]
                 self.numeric_tl_zone[tl.id] = (tl.range, tl.bounds, vars_z)
+                # RATE variables (new for dual tracking)
+                rate_vars = [Real(f"{tl.id}_rate_z{j}") for j in range(Z)]
+                self.rate_tl_rate_zone[tl.id] = rate_vars
 
     def _encode_initial_state_zones(self):
         # Zone 0 corresponds to time 0
@@ -439,7 +450,11 @@ class TaskNetSMT:
             elif isinstance(tl, AtomicTimeline):
                 vars_z = self.atomic_tl_zone[tl.id]
                 if getattr(tl, "initial", None) is not None:
+                    # Initial value specified (0 or 1)
                     self.solver.add(vars_z[z0_idx] == tl.initial)
+                else:
+                    # Default to 0 (unclaimed) for atomic timelines
+                    self.solver.add(vars_z[z0_idx] == 0)
 
             elif isinstance(tl, ClaimableTimeline):
                 _, _, vars_z = self.numeric_tl_zone[tl.id]
@@ -452,9 +467,17 @@ class TaskNetSMT:
                     self.solver.add(vars_z[0] == tl.initial)
 
             elif isinstance(tl, RateTimeline):
+                # Initialize VALUE at zone 0
                 _, _, vars_z = self.numeric_tl_zone[tl.id]
                 if tl.initial is not None:
                     self.solver.add(vars_z[0] == tl.initial)
+                # Initialize RATE at zone 0
+                rate_vars = self.rate_tl_rate_zone[tl.id]
+                if getattr(tl, "initial_rate", None) is not None:
+                    self.solver.add(rate_vars[0] == tl.initial_rate)
+                else:
+                    # Default to 0 rate if not specified
+                    self.solver.add(rate_vars[0] == 0.0)
 
     def _encode_initial_bounds(self):
         for tl in self.tn.timelines:
@@ -472,14 +495,14 @@ class TaskNetSMT:
 
     def _numeric_delta_zone(self, tl_id: str, zone_i: int):
         """
-        Sum of all numeric deltas over zone i for numeric timelines
-        (cumulative + rate).
+        Sum of all numeric deltas over zone i for ClaimableTimeline and CumulativeTimeline.
+        RateTimeline now uses dual tracking and is handled separately.
         Zone i spans [z_i, z_{i+1}].
         """
         z = self.zones
         zi = z[zone_i]
         zi1 = z[zone_i + 1]
-        dt = zi1 - zi  
+        dt = zi1 - zi
 
         terms = []
         for t in self.all_scheduled_tasks:
@@ -512,33 +535,10 @@ class TaskNetSMT:
                         term = If(self.optional_included[t.id], term, 0.0)
                     terms.append(term)
 
-                # RATE: r * dt while task active over the entire zone
-                elif isinstance(how, ImpactRate):
-                    r = how.r
-
-                    # We assume zi, zi1, dt are already defined above in your function.
-                    # Semantics:
-                    #   pre   : rate active from start time onward
-                    #   maint : rate active only while task is active (start <= t < end)
-                    #   post  : rate active from end time onward
-
-                    active_pre   = (zi >= s)                 # t ≥ start
-                    active_maint = And(zi >= s, zi < e)      # start ≤ t < end
-                    active_post  = (zi >= e)                 # t ≥ end
-
-                    if when == "pre":
-                        term = If(active_pre, r * dt, 0.0)
-                    elif when == "maint":
-                        term = If(active_maint, r * dt, 0.0)
-                    elif when == "post":
-                        term = If(active_post, r * dt, 0.0)
-                    else:
-                        continue
-
-                    # Guard with optional_included for optional tasks
-                    if t.kind == TaskKind.OPTIONAL:
-                        term = If(self.optional_included[t.id], term, 0.0)
-                    terms.append(term)
+                # RATE: Skip - RateTimeline uses dual tracking in _encode_zone_transitions
+                elif isinstance(how, (ImpactRateCumulative, ImpactRateAssignment)):
+                    # Skip - rate impacts are handled in dual tracking for RateTimeline
+                    continue
                 # Assign to numeric timelines: skip here, handled in _encode_zone_transitions
                 elif isinstance(how, ImpactAssign):
                     # Skip - assignments are applied separately in zone transitions
@@ -611,8 +611,12 @@ class TaskNetSMT:
                 vars_z = self.atomic_tl_zone[tl.id]
                 for i in range(Z - 1):
                     cur = vars_z[i]
-                    expr = cur
+                    # Start with delta-based value (for cumulative impacts)
+                    delta = 0  # Will accumulate +1/-1 from tasks
+
                     zi = self.zones[i]
+
+                    # Collect cumulative impacts (for claim/release MAINT pattern)
                     for t in self.all_scheduled_tasks:
                         s = self.start_vars[t.id]
                         e = self.end_vars[t.id]
@@ -621,23 +625,57 @@ class TaskNetSMT:
                         for imp in t.impacts:
                             if imp.id != tl.id:
                                 continue
-                            if not isinstance(imp.how, ImpactAssign):
+
+                            if isinstance(imp.how, ImpactCumulative):
+                                v = imp.how.v  # Typically +1 (claim) or -1 (release)
+                                if imp.when == "maint":
+                                    # +v at start, -v at end (claim/release)
+                                    delta = If(zi == s, delta + v,
+                                              If(zi == e, delta - v, delta))
+                                elif imp.when == "pre":
+                                    delta = If(zi == s, delta + v, delta)
+                                elif imp.when == "post":
+                                    delta = If(zi == e, delta + v, delta)
+
+                    # Apply delta to get next value
+                    expr = cur + delta
+
+                    # Apply assignments (override delta-based value)
+                    for t in self.all_scheduled_tasks:
+                        s = self.start_vars[t.id]
+                        e = self.end_vars[t.id]
+                        if t.impacts is None:
+                            continue
+                        for imp in t.impacts:
+                            if imp.id != tl.id:
                                 continue
-                            v = imp.how.v
-                            if not isinstance(v, BoolVal):
-                                self.solver.add(False)
-                                continue
-                            if imp.when == "pre":
-                                expr = If(zi == s, v.v, expr)
-                            elif imp.when == "post":
-                                expr = If(zi == e, v.v, expr)
-                            else:
-                                self.solver.add(False)
+
+                            # Assignment impacts (pre/post only, NOT maint)
+                            if isinstance(imp.how, ImpactAssign):
+                                v = imp.how.v
+                                # Accept both IntVal (0/1) and BoolVal (true/false)
+                                if isinstance(v, IntVal):
+                                    int_val = v.v
+                                elif isinstance(v, BoolVal):
+                                    # Convert BoolVal to Int (true -> 1, false -> 0)
+                                    int_val = 1 if v.v else 0
+                                else:
+                                    self.solver.add(False)
+                                    continue
+
+                                if imp.when == "pre":
+                                    expr = If(zi == s, int_val, expr)
+                                elif imp.when == "post":
+                                    expr = If(zi == e, int_val, expr)
+                                else:  # maint
+                                    self.solver.add(False)  # Still reject maint+assign for atomic
+
                     self.solver.add(vars_z[i + 1] == expr)
 
-        # Numeric timelines: deltas + clamping by bounds (not by range!)
+        # Numeric timelines (Claimable and Cumulative): deltas + clamping by bounds
+        # RateTimeline handled separately below due to dual tracking
         for tl in self.tn.timelines:
-            if isinstance(tl, (ClaimableTimeline, CumulativeTimeline, RateTimeline)):
+            if isinstance(tl, (ClaimableTimeline, CumulativeTimeline)):
                 range_r, bounds_opt, vars_z = self.numeric_tl_zone[tl.id]
 
                 if bounds_opt is not None:
@@ -697,6 +735,171 @@ class TaskNetSMT:
                                 self.solver.add(False)
 
                     self.solver.add(vars_z[i + 1] == expr)
+
+        # Rate timelines: dual tracking of VALUE and RATE
+        for tl in self.tn.timelines:
+            if isinstance(tl, RateTimeline):
+                range_r, bounds_opt, value_vars = self.numeric_tl_zone[tl.id]
+                rate_vars = self.rate_tl_rate_zone[tl.id]
+
+                if bounds_opt is not None:
+                    low_bnd, high_bnd = bounds_opt.low, bounds_opt.high
+                else:
+                    low_bnd, high_bnd = None, None
+
+                for i in range(Z - 1):
+                    zi = self.zones[i]
+                    zi1 = self.zones[i + 1]
+                    dt = zi1 - zi
+
+                    cur_value = value_vars[i]
+                    cur_rate = rate_vars[i]
+
+                    # ===== Update RATE variable =====
+                    # Compute rate[i+1] from rate[i]
+
+                    # Step 1: Apply cumulative rate deltas at boundary zi+1
+                    rate_delta = 0.0
+                    for t in self.all_scheduled_tasks:
+                        s = self.start_vars[t.id]
+                        e = self.end_vars[t.id]
+                        if t.impacts is None:
+                            continue
+                        for imp in t.impacts:
+                            if imp.id != tl.id:
+                                continue
+
+                            if isinstance(imp.how, ImpactRateCumulative):
+                                delta = imp.how.delta
+                                # Apply deltas that occur at the END of this zone (zi+1)
+                                if imp.when == "pre":
+                                    # Pre happens when zi+1 == task start
+                                    term = If(zi1 == s, delta, 0.0)
+                                elif imp.when == "maint":
+                                    # +delta at start, -delta at end
+                                    term = If(zi1 == s, delta, If(zi1 == e, -delta, 0.0))
+                                elif imp.when == "post":
+                                    # Post happens when zi+1 == task end
+                                    term = If(zi1 == e, delta, 0.0)
+                                else:
+                                    continue
+
+                                if t.kind == TaskKind.OPTIONAL:
+                                    term = If(self.optional_included[t.id], term, 0.0)
+                                rate_delta = rate_delta + term
+
+                    # Base rate: cur_rate + cumulative deltas (before assignments)
+                    base_rate = cur_rate + rate_delta
+
+                    # Step 2: Apply rate assignments at boundary zi+1
+                    rate_expr = base_rate
+                    for t in self.all_scheduled_tasks:
+                        s = self.start_vars[t.id]
+                        e = self.end_vars[t.id]
+                        if t.impacts is None:
+                            continue
+                        for imp in t.impacts:
+                            if imp.id != tl.id:
+                                continue
+
+                            if isinstance(imp.how, ImpactRateAssignment):
+                                r = imp.how.r
+                                if imp.when == "pre":
+                                    # Assign when zi+1 == task start
+                                    if t.kind == TaskKind.OPTIONAL:
+                                        rate_expr = If(And(self.optional_included[t.id], zi1 == s), r, rate_expr)
+                                    else:
+                                        rate_expr = If(zi1 == s, r, rate_expr)
+                                elif imp.when == "post":
+                                    # Assign when zi+1 == task end
+                                    if t.kind == TaskKind.OPTIONAL:
+                                        rate_expr = If(And(self.optional_included[t.id], zi1 == e), r, rate_expr)
+                                    else:
+                                        rate_expr = If(zi1 == e, r, rate_expr)
+                                elif imp.when == "maint":
+                                    # MAINT not supported for assignment (cannot restore correctly)
+                                    # Already checked in wellformedness
+                                    self.solver.add(False)
+
+                    self.solver.add(rate_vars[i + 1] == rate_expr)
+
+                    # ===== Update VALUE variable =====
+                    # Compute value[i+1] from value[i]
+                    # Value evolves as: value[i+1] = value[i] + rate[i] * dt
+
+                    # Step 1: Integrate rate over the zone
+                    # Use cur_rate (rate at start of zone, which is rate[i])
+                    integrated_value = cur_value + cur_rate * dt
+
+                    # Step 2: Add cumulative VALUE impacts at boundary zi+1
+                    value_delta = 0.0
+                    for t in self.all_scheduled_tasks:
+                        s = self.start_vars[t.id]
+                        e = self.end_vars[t.id]
+                        if t.impacts is None:
+                            continue
+                        for imp in t.impacts:
+                            if imp.id != tl.id:
+                                continue
+
+                            if isinstance(imp.how, ImpactCumulative):
+                                v = imp.how.v
+                                if imp.when == "pre":
+                                    term = If(zi1 == s, v, 0.0)
+                                elif imp.when == "maint":
+                                    term = If(zi1 == s, v, If(zi1 == e, -v, 0.0))
+                                elif imp.when == "post":
+                                    term = If(zi1 == e, v, 0.0)
+                                else:
+                                    continue
+
+                                if t.kind == TaskKind.OPTIONAL:
+                                    term = If(self.optional_included[t.id], term, 0.0)
+                                value_delta = value_delta + term
+
+                    raw_value = integrated_value + value_delta
+
+                    # Step 3: Apply bounds clamping
+                    if bounds_opt is not None:
+                        clamped_value = If(raw_value < low_bnd, low_bnd,
+                                          If(raw_value > high_bnd, high_bnd, raw_value))
+                    else:
+                        clamped_value = raw_value
+
+                    # Step 4: Apply value assignments at boundary zi+1
+                    value_expr = clamped_value
+                    for t in self.all_scheduled_tasks:
+                        s = self.start_vars[t.id]
+                        e = self.end_vars[t.id]
+                        if t.impacts is None:
+                            continue
+                        for imp in t.impacts:
+                            if imp.id != tl.id:
+                                continue
+
+                            if isinstance(imp.how, ImpactAssign):
+                                v = imp.how.v
+                                if isinstance(v, IntVal):
+                                    val = v.v
+                                elif isinstance(v, RealVal):
+                                    val = v.v
+                                else:
+                                    self.solver.add(False)
+                                    continue
+
+                                if imp.when == "pre":
+                                    if t.kind == TaskKind.OPTIONAL:
+                                        value_expr = If(And(self.optional_included[t.id], zi1 == s), val, value_expr)
+                                    else:
+                                        value_expr = If(zi1 == s, val, value_expr)
+                                elif imp.when == "post":
+                                    if t.kind == TaskKind.OPTIONAL:
+                                        value_expr = If(And(self.optional_included[t.id], zi1 == e), val, value_expr)
+                                    else:
+                                        value_expr = If(zi1 == e, val, value_expr)
+                                # MAINT not allowed for value assignments on rate timelines
+
+                    self.solver.add(value_vars[i + 1] == value_expr)
 
     def _encode_timeline_ranges(self):
         """
@@ -1055,9 +1258,16 @@ class TaskNetSMT:
                     _, _, vars_z = self.numeric_tl_zone[tl.id]
                     v_start = model[vars_z[j]]
                     v_end   = model[vars_z[j + 1]]
+
+                    # Get rate during this zone (use left boundary j)
+                    # The rate at z_j is what integrates over interval (z_j, z_{j+1}]
+                    rate_vars = self.rate_tl_rate_zone[tl.id]
+                    rate = model[rate_vars[j]]
+
                     print(
                         f"    {tl.id:14s} = "
-                        f"{v_start.as_decimal(6)} -> {v_end.as_decimal(6)}"
+                        f"{v_start.as_decimal(6)} -> {v_end.as_decimal(6)} "
+                        f"(rate: {rate.as_decimal(6)})"
                     )
 
 class TaskNetTL(TaskNetSMT):

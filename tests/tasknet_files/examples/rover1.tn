@@ -30,7 +30,7 @@ tasknet Rover1 {
 
     impacts {
       maint {
-        battery +~ -1.5;  
+        battery -~ 1.5;  
       }
       post {
         location = target;

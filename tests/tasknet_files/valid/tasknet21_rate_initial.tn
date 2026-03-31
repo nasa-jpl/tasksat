@@ -1,0 +1,57 @@
+# Test: Rate timeline with initial_rate showing rate evolution affecting value
+# This tests the new dual tracking feature where:
+# - Rate timelines track both VALUE and RATE
+# - Value evolves as: value[i+1] = value[i] + rate[i] * dt
+# - Initial rate can be specified
+
+tasknet RateInitialTest {
+  end = 100;
+
+  timelines {
+    # Rate timeline with initial value 50.0 and initial rate 1.0
+    # With initial rate 1.0, value should increase by 1.0 per time unit
+    energy : rate [0.0, 200.0] bounds [0.0, 200.0] = 50.0 initial_rate = 1.0;
+  }
+
+  # Task that adds to the rate (cumulative)
+  task boost {
+    id 1;
+    priority 1;
+    start_range [10, 20];
+    duration 20;
+
+    impacts {
+      maint {
+        # Cumulative: adds +0.5 to current rate during task
+        # So rate becomes 1.0 + 0.5 = 1.5 during task
+        energy +~ 0.5;
+      }
+    }
+  }
+
+  # Task that sets the rate to a specific value (assignment)
+  task controlled_charge {
+    id 2;
+    priority 1;
+    start_range [40, 60];
+    duration 20;
+
+    impacts {
+      pre {
+        # Assignment: sets rate to 2.0 at task start
+        energy =~ 2.0;
+      }
+      post {
+        # Assignment: sets rate back to 0.0 at task end
+        energy =~ 0.0;
+      }
+    }
+  }
+
+  # Expected behavior:
+  # [0, 10]:    rate = 1.0, value increases from 50 to 60
+  # [10, 30]:   rate = 1.5 (1.0 + 0.5 boost), value increases from 60 to 90
+  # [30, 40]:   rate = 1.0 (boost ends), value increases from 90 to 100
+  # [40, 60]:   rate = 2.0 (controlled charge), value increases from 100 to 140
+  # [60, 100]:  rate = 0.0 (charge ends), value stays at 140
+}

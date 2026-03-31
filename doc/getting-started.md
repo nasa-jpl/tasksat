@@ -53,7 +53,7 @@ tasknet Rover1 {
 
     impacts {
       maint {
-        battery +~ 2.0; 
+        battery +~ 2.0;  // Cumulative: adds 2.0 to current rate during charging
       }
     }
   }  
@@ -67,7 +67,7 @@ tasknet Rover1 {
 
     impacts {
       maint {
-        battery +~ -1.5;  
+        battery -~ 1.5;  // Cumulative: subtracts 1.5 from current rate during driving
       }
       post {
         location = target;

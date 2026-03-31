@@ -211,33 +211,56 @@ class WellFormednessChecker:
                         f"Task '{task_id}' has 'maint' assignment on state timeline '{imp.id}'. "
                         "Only 'pre' and 'post' are allowed."
                     )
-            elif isinstance(imp.how, (ImpactCumulative, ImpactRate)):
+            elif isinstance(imp.how, (ImpactCumulative, ImpactRateCumulative, ImpactRateAssignment)):
                 self._error(
                     "Impact Type",
                     f"Task '{task_id}' has cumulative/rate impact on state timeline '{imp.id}'. "
                     "Only assignments are allowed."
                 )
 
-        # AtomicTimeline: only ImpactAssign with BoolVal
+        # AtomicTimeline: ImpactAssign (pre/post only) or ImpactCumulative (for MAINT claim/release)
         elif isinstance(tl, AtomicTimeline):
             if isinstance(imp.how, ImpactAssign):
-                if not isinstance(imp.how.v, BoolVal):
+                # Atomic timelines now use Int[0,1]
+                # Accept both IntVal (0/1) and BoolVal (true/false) for backwards compatibility
+                if isinstance(imp.how.v, IntVal):
+                    if imp.how.v.v not in (0, 1):
+                        self._error(
+                            "Impact Value",
+                            f"Task '{task_id}' assigns value {imp.how.v.v} to atomic timeline '{imp.id}' "
+                            "(expected 0 or 1)"
+                        )
+                elif isinstance(imp.how.v, BoolVal):
+                    # BoolVal is allowed for backwards compatibility (true/false syntax)
+                    pass
+                else:
                     self._error(
                         "Impact Type",
-                        f"Task '{task_id}' assigns non-boolean value to atomic timeline '{imp.id}'"
+                        f"Task '{task_id}' assigns non-integer/boolean value to atomic timeline '{imp.id}' "
+                        "(expected 0, 1, true, or false)"
                     )
-                # Check timing: only pre/post allowed
+                # Check timing: only pre/post allowed for assignment
                 if imp.when == "maint":
                     self._error(
                         "Impact Timing",
                         f"Task '{task_id}' has 'maint' assignment on atomic timeline '{imp.id}'. "
-                        "Only 'pre' and 'post' are allowed."
+                        "Only 'pre' and 'post' are allowed for assignment. Use cumulative for MAINT."
                     )
-            elif isinstance(imp.how, (ImpactCumulative, ImpactRate)):
+            elif isinstance(imp.how, ImpactCumulative):
+                # NEW: Allow cumulative impacts for claim/release pattern
+                # Typically +1 (claim) or -1 (release), but validate it's reasonable
+                if imp.how.v not in (-1, 0, 1):
+                    self._error(
+                        "Impact Value",
+                        f"Task '{task_id}' has cumulative impact {imp.how.v} on atomic timeline '{imp.id}'. "
+                        "Expected -1, 0, or 1 (typically 1 for claim)"
+                    )
+            elif isinstance(imp.how, (ImpactRateCumulative, ImpactRateAssignment)):
+                # Rate impacts don't apply to atomic timelines
                 self._error(
                     "Impact Type",
-                    f"Task '{task_id}' has cumulative/rate impact on atomic timeline '{imp.id}'. "
-                    "Only assignments are allowed."
+                    f"Task '{task_id}' has rate impact on atomic timeline '{imp.id}'. "
+                    "Rate impacts are not allowed on atomic timelines."
                 )
 
         # ClaimableTimeline: only ImpactCumulative with 'maint' timing
@@ -249,7 +272,7 @@ class WellFormednessChecker:
                         f"Task '{task_id}' has '{imp.when}' cumulative impact on claimable timeline '{imp.id}'. "
                         "Only 'maint' is allowed for claimable timelines."
                     )
-            elif isinstance(imp.how, ImpactRate):
+            elif isinstance(imp.how, (ImpactRateCumulative, ImpactRateAssignment)):
                 self._error(
                     "Impact Type",
                     f"Task '{task_id}' has rate impact on claimable timeline '{imp.id}'. "
@@ -264,7 +287,7 @@ class WellFormednessChecker:
 
         # CumulativeTimeline: no rate impacts; assignments allowed (pre/post only)
         elif isinstance(tl, CumulativeTimeline):
-            if isinstance(imp.how, ImpactRate):
+            if isinstance(imp.how, (ImpactRateCumulative, ImpactRateAssignment)):
                 self._error(
                     "Impact Type",
                     f"Task '{task_id}' has rate impact on cumulative timeline '{imp.id}'. "
@@ -301,6 +324,16 @@ class WellFormednessChecker:
                         f"Task '{task_id}' has 'maint' assignment on rate timeline '{imp.id}'. "
                         "Only 'pre' and 'post' assignments are allowed."
                     )
+            elif isinstance(imp.how, ImpactRateAssignment):
+                # MAINT with rate assignment cannot restore correctly in zone-based model
+                # Only allow pre/post for assignment
+                if imp.when == "maint":
+                    self._error(
+                        "Impact Timing",
+                        f"Task '{task_id}' has 'maint' rate assignment on rate timeline '{imp.id}'. "
+                        "MAINT is only supported for cumulative rate impacts (use +~ not =~)."
+                    )
+            # ImpactRateCumulative is allowed for all timings (pre/maint/post)
 
     # ========== Condition Type Checks ==========
 

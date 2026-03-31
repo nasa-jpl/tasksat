@@ -1,0 +1,49 @@
+# Test: Atomic timeline with MAINT cumulative impacts (claim/release pattern)
+# This tests the new feature where atomic timelines use Int[0,1] and support
+# cumulative MAINT impacts for mutual exclusion.
+
+tasknet AtomicMaintTest {
+  end = 200;
+
+  timelines {
+    # Atomic timeline representing a resource that can be claimed/released
+    # Defaults to 0 (unclaimed) initially
+    resource : atomic;
+  }
+
+  # Task that claims the resource during execution
+  task task1 {
+    id 1;
+    priority 1;
+    start_range [10, 50];
+    duration_range [20, 30];
+
+    impacts {
+      maint {
+        # Cumulative: +1 at start (claim), -1 at end (release)
+        resource += 1;
+      }
+    }
+  }
+
+  # Another task that also needs the resource
+  task task2 {
+    id 2;
+    priority 1;
+    start_range [10, 50];
+    duration_range [20, 30];
+
+    impacts {
+      maint {
+        # This task also tries to claim the resource
+        resource += 1;
+      }
+    }
+  }
+
+  # Expected behavior:
+  # - Both tasks cannot overlap (mutual exclusion)
+  # - task1 runs [10,30]: resource goes 0→1→0
+  # - task2 must run after task1 ends, e.g., [30,50]
+  # - If tasks try to overlap, solver rejects (resource would exceed 1)
+}

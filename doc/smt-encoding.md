@@ -48,13 +48,13 @@ Timelines represent **state variables** that evolve over time as tasks execute. 
 
 1. **State Timeline**: $\sigma \in L_{\mathtt{state}}$ with finite value set $\Sigma$ and optional initial value $v_0 \in \Sigma$
 
-2. **Atomic Timeline**: $\alpha \in L_{\mathtt{atomic}}$ with boolean values $\{\mathtt{true}, \mathtt{false}\}$ and optional initial value $v_0 \in \{\mathtt{true}, \mathtt{false}\}$
+2. **Atomic Timeline**: $\alpha \in L_{\mathtt{atomic}}$ with boolean values $\{\mathtt{true}, \mathtt{false}\}$ (internally represented as integers $\{0, 1\}$ to support cumulative MAINT impacts for claim/release patterns) and optional initial value $v_0 \in \{\mathtt{true}, \mathtt{false}\}$
 
 3. **Claimable Timeline**: $\kappa \in L_{\text{claim}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
 
 4. **Cumulative Timeline**: $\gamma \in L_{\text{cumul}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
 
-5. **Rate Timeline**: $\rho \in L_{\text{rate}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
+5. **Rate Timeline**: $\rho \in L_{\text{rate}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, bounds $[b_{\min}, b_{\max}]$, optional initial value $v_0 \in \mathbb{R}$, and optional initial rate $r_0 \in \mathbb{R}$. Rate timelines track both VALUE and RATE, with value evolving as the integral of rate over time.
 
 We have $L = L_{\mathtt{state}} \cup L_{\mathtt{atomic}} \cup L_{\text{claim}} \cup L_{\text{cumul}} \cup L_{\text{rate}}$.
 
@@ -74,16 +74,21 @@ Tasks modify timelines through **impacts**. An impact is a tuple $(t, \ell, w, \
 
 **Definition 2.3 (Impact Operations).**
 
-1. **Assignment** ($=$): Set timeline to value $v$
+1. **Assignment** ($=$): Set timeline value to $v$
    - Permitted on state/atomic timelines at $\mathtt{pre}$ and $\mathtt{post}$
    - Permitted on numeric timelines at $\mathtt{pre}$ and $\mathtt{post}$
 
-2. **Delta** ($\delta$, written `+=` or `-=` in syntax): Instantaneous change by $v$
+2. **Delta** ($\delta$, written `+=` or `-=` in syntax): Instantaneous change to value by $v$
+   - Permitted on atomic timelines at $\mathtt{pre}$, $\mathtt{maint}$, $\mathtt{post}$ (for claim/release)
    - Permitted on claimable timelines only at $\mathtt{maint}$
    - Permitted on cumulative/rate timelines at $\mathtt{pre}$, $\mathtt{maint}$, $\mathtt{post}$
 
-3. **Rate** ($\sim$, written `+~` or `-~` in syntax): Continuous change at rate $v$
+3. **Cumulative Rate** ($\delta_r$, written `+~` or `-~` in syntax): Instantaneous change to rate by $v$
    - Permitted only on rate timelines at $\mathtt{pre}$, $\mathtt{maint}$, $\mathtt{post}$
+   - For $\mathtt{maint}$: automatically restores ($+v$ at start, $-v$ at end)
+
+4. **Rate Assignment** ($\sim_a$, written `=~` in syntax): Set rate to value $v$
+   - Permitted only on rate timelines at $\mathtt{pre}$ and $\mathtt{post}$ (not $\mathtt{maint}$)
 
 ### 2.4 Constraints and Properties
 
@@ -153,8 +158,10 @@ We consider five timeline types, each with distinct semantics:
 **State Timelines:** Discrete enumerated values from a finite set $\Sigma$.
 - Variables: $\sigma^{\ell}[j] \in \{0, \ldots, |\Sigma|-1\}$ for timeline $\ell$ at zone $j$
 
-**Atomic Timelines:** Boolean values.
-- Variables: $\alpha^{\ell}[j] \in \{\mathtt{true}, \mathtt{false}\}$ for timeline $\ell$ at zone $j$
+**Atomic Timelines:** Boolean values (implemented as integers for mutual exclusion).
+- Variables: $\alpha^{\ell}[j] \in \{0, 1\}$ for timeline $\ell$ at zone $j$ (internally Int, not Bool)
+- Supports cumulative MAINT impacts (claim/release pattern): $\delta = +1$ at task start, $\delta = -1$ at task end
+- Range constraint $0 \leq \alpha^{\ell}[j] \leq 1$ enforces mutual exclusion (overlapping claims would violate bounds)
 
 **Numeric Timelines:** Real-valued timelines with range $[r_{\min}, r_{\max}]$ and bounds $[b_{\min}, b_{\max}]$.
 - **Claimable:** Resources that can be claimed/released (delta impacts only during maintenance)
@@ -283,6 +290,8 @@ $$\mathtt{active}(t, \mathtt{maint}, i) = \begin{cases}
 $$\mathtt{active}(t, \mathtt{post}, i) = \begin{cases} 1 & \text{if } z_i = e_t \\ 0 & \text{otherwise} \end{cases}$$
 
 ### 6.4 Numeric Timelines: Rate Integration
+
+**Note:** The formulas below describe a simplified model where rate impacts directly affect value evolution. The actual implementation uses **dual tracking**: rate timelines maintain separate RATE and VALUE variables. The RATE variable is modified by cumulative rate impacts ($+\sim$, $-\sim$) and rate assignments ($=\sim$), while the VALUE evolves as the integral of RATE over time. Cumulative rate impacts on MAINT automatically restore (e.g., $+r$ at task start, $-r$ at task end). Rate assignments ($=\sim$) are only permitted on PRE and POST (not MAINT) due to restoration complexity.
 
 For rate timeline $\nu^{\ell}$ over zone $i$ with duration $\Delta t_i = z_{i+1} - z_i$, define the rate contribution:
 

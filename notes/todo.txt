@@ -1,34 +1,32 @@
 
 TODO
 
+FOR SUPPORTING TRANSLATION FROM MEXEC TASKNET
+
+-> rate timelines can have an initial rate (MEXEC TASKNET HAS THIS)
+-> two kinds of rate impacts: CUMULATIVE_RATE (value is added) and ASSIGNMENT_RATE (value is assigned)
+-> MEXEC allows maint updates for atomic timelines
+
+- Priority: order in which it tries to schedule, Bigger number means higher priority
+- Requests: maximal
+
 SHORT TERM
 
 - Unsat core
 - Colors for results
 - Store results in a JSON file
-- rate timelines can have an initial rate (MEXEC TASKNET HAS THIS)
-- two kinds of rate impacts: CUMULATIVE_RATE (value is added) and ASSIGNMENT_RATE (value is assigned)
-- MEXEC allows maint updates for atomic timelines
 - // comments
-- Priority: order in which it tries to schedule
-  Bigger number means higher priority
-- Requests: maximal
-- Consider preferred_duration (instead of duration) as keyword, same with stat, end
+- Consider preferred_duration (instead of duration) as keyword, same with start
 - rate keyword causes confusion
 - Pre{ ... cannot be empty ...} etc.
 - Shorthand for overlap constraints
 - Check again effects of soft constraints (priorities, start, end, optional)
 - Visualizing a schedule (e.g. Gant chart)
-- other syntax: implies
+- alternative syntax for ->: implies
 - true and false as temporal formulas
 - tlcons not allowed in temporal formulas (not clean)
 - static check does not check duplicates of constraint names
 - rename optimize to schedule and satisfy to verify
-
-BUGS
-
-- check 'eventually active(drive) in example for paper, Some problem with constraints at some point (maybe it got fixed).
--> Remove examples that do not compile
 
 MID TERM
 
