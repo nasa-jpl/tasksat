@@ -21,6 +21,7 @@ reserved = {
     "task":           "TASK",
     "taskdef":        "TASKDEF",
     "optional":       "OPTIONAL",
+    "request":        "REQUEST",
     "end":            "END",
     "id":             "ID_KW",
     "priority":       "PRIORITY",
@@ -495,30 +496,48 @@ def p_task_def_taskdef(p):
     p[0] = _build_task(p[2], p[4], kind=TaskKind.DEFINITION, definition=None)
 
 def p_task_def_task_with_body(p):
-    "task_def : optional_opt TASK NAME extends_opt LBRACE task_body_items RBRACE"
-    is_optional = p[1]  # True if OPTIONAL was present
+    "task_def : task_modifier_opt TASK NAME extends_opt LBRACE task_body_items RBRACE"
+    modifier = p[1]  # "optional", "request", or None
     name = p[3]
     extends = p[4]  # None or definition name
     items = p[6]
-    kind = TaskKind.OPTIONAL if is_optional else TaskKind.INSTANCE
+
+    if modifier == "optional":
+        kind = TaskKind.OPTIONAL
+    elif modifier == "request":
+        kind = TaskKind.REQUEST
+    else:
+        kind = TaskKind.INSTANCE
+
     p[0] = _build_task(name, items, kind=kind, definition=extends)
 
 def p_task_def_task_no_body(p):
-    "task_def : optional_opt TASK NAME extends_opt SEMI"
-    is_optional = p[1]  # True if OPTIONAL was present
+    "task_def : task_modifier_opt TASK NAME extends_opt SEMI"
+    modifier = p[1]  # "optional", "request", or None
     name = p[3]
     extends = p[4]  # None or definition name
     items = []
-    kind = TaskKind.OPTIONAL if is_optional else TaskKind.INSTANCE
+
+    if modifier == "optional":
+        kind = TaskKind.OPTIONAL
+    elif modifier == "request":
+        kind = TaskKind.REQUEST
+    else:
+        kind = TaskKind.INSTANCE
+
     p[0] = _build_task(name, items, kind=kind, definition=extends)
 
-def p_optional_opt_none(p):
-    "optional_opt : empty"
-    p[0] = False
+def p_task_modifier_opt_none(p):
+    "task_modifier_opt : empty"
+    p[0] = None
 
-def p_optional_opt_some(p):
-    "optional_opt : OPTIONAL"
-    p[0] = True
+def p_task_modifier_opt_optional(p):
+    "task_modifier_opt : OPTIONAL"
+    p[0] = "optional"
+
+def p_task_modifier_opt_request(p):
+    "task_modifier_opt : REQUEST"
+    p[0] = "request"
 
 def p_extends_opt_none(p):
     "extends_opt : empty"

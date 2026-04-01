@@ -46,6 +46,10 @@ tasknet Name {
     ...
   }
 
+  request task request_task {
+    ...
+  }
+
   constraints {
     prop property_name: formula;
     ...
@@ -64,7 +68,8 @@ tasknet Name {
 - `init`: Initial state constraints (optional)
 - `taskdef`: Reusable task definitions (optional)
 - `task`: Task instances and standalone tasks
-- `optional task`: Tasks that may or may not execute
+- `optional task`: Tasks scheduled only if needed (minimize in optimize mode)
+- `request task`: Tasks scheduled if possible (maximize in optimize mode)
 - `constraints`: Temporal properties constraining generated schedules
 - `properties`: Temporal properties checked on generated schedules
 
@@ -416,7 +421,40 @@ properties {
 }
 ```
 
-### Temporal Constaints
+### Task Kinds: Required, Optional, and Request
+
+TaskSAT supports three kinds of tasks:
+
+1. **Required tasks** (default `task` keyword): Must be scheduled
+2. **Optional tasks** (`optional task` keyword): Scheduled only if needed to satisfy constraints. In optimize mode, their inclusion is minimized.
+3. **Request tasks** (`request task` keyword): Scheduled if possible while satisfying constraints. In optimize mode, their inclusion is maximized.
+
+**Satisfy mode**: Optional and request tasks behave identically - they may or may not be scheduled based on constraints.
+
+**Optimize mode**: 
+- Optional tasks: Minimize inclusion (use only if needed)
+- Request tasks: Maximize inclusion (use as many as possible)
+
+**Example**:
+```tasknet
+task required_mission {
+  duration 50;
+}
+
+optional task emergency_backup {
+  # Only scheduled if needed to satisfy constraints
+  duration 30;
+}
+
+request task bonus_objective {
+  # Scheduled if possible, even if not strictly needed
+  duration 20;
+}
+```
+
+Priority values further refine the optimization among optional and request tasks (higher priority = more important).
+
+### Temporal Constraints
 
 Temporal constraints mentioned just above are 
 expressed in a linear temporal logic with future and past time

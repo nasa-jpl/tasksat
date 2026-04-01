@@ -1,0 +1,44 @@
+tasknet RequestTest {
+  end = 100;
+
+  timelines {
+    flag : atomic = false;
+  }
+
+  # Required task
+  task T1 {
+    id 1;
+    duration 10;
+    start_range [0, 20];
+    impacts {
+      pre { flag = true; }
+    }
+  }
+
+  # Optional task (minimize)
+  optional task T2 {
+    id 2;
+    priority 10;
+    duration 10;
+    start_range [30, 50];
+    impacts {
+      pre { flag = false; }
+      post { flag = true; }
+    }
+  }
+
+  # Request tasks (maximize)
+  request task T3 {
+    id 3;
+    priority 20;
+    duration 10;
+    start_range [60, 80];
+  }
+
+  request task T4 {
+    id 4;
+    priority 15;
+    duration 10;
+    start_range [70, 90];
+  }
+}

@@ -45,8 +45,8 @@ class TestVerifier:
         Adds property as a constraint. Now all properties hold again.
         """
         verify_out('tasknet3.tn')(
-            "heating       : start =    1, end =   52",
-            "driving       : start =   53, end =  103",
+            "heating       : start =  156, end =  207",
+            "driving       : start =  208, end =  297",
             "communicating : start =  298, end =  299",
             "[1/3] Checking property 'p1'...",
             "  → VIOLATED!",
@@ -219,4 +219,15 @@ class TestVerifier:
             "[1/1] Checking property 'p1'...",
             "  → HOLDS",
             "Summary: 1 hold, 0 violated, 0 unknown"
+        )
+
+    def test_tasknet23_request(self):
+        """Test with request tasks (maximize inclusion)"""
+        verify_out('tasknet23_request.tn')(
+            "*** NEW SCHEDULE***",
+            "T1            : start =    1, end =   11",
+            "T2            : [OPTIONAL - NOT INCLUDED]",
+            "T3            : start =   72, end =   82",
+            "T4            : start =   70, end =   80",
+            "No temporal properties attached to this TaskNet."
         )

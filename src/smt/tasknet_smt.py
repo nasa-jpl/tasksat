@@ -24,15 +24,21 @@ class TaskNetSMT:
         # === Task categorization ===
         self.required_tasks = [t for t in self.tn.tasks if t.kind == TaskKind.INSTANCE]
         self.optional_tasks = [t for t in self.tn.tasks if t.kind == TaskKind.OPTIONAL]
-        self.all_scheduled_tasks = self.required_tasks + self.optional_tasks
+        self.request_tasks = [t for t in self.tn.tasks if t.kind == TaskKind.REQUEST]
+        self.all_scheduled_tasks = self.required_tasks + self.optional_tasks + self.request_tasks
 
         # === Optional task inclusion variables ===
         self.optional_included: Dict[str, object] = {}
         for t in self.optional_tasks:
             self.optional_included[t.id] = Bool(f"included_{t.id}")
 
-        # Use Optimize if we have optional tasks and optimization is enabled, otherwise use Solver
-        if self.optional_tasks and use_optimization:
+        # === Request task inclusion variables ===
+        self.request_included: Dict[str, object] = {}
+        for t in self.request_tasks:
+            self.request_included[t.id] = Bool(f"included_{t.id}")
+
+        # Use Optimize if we have optional or request tasks and optimization is enabled, otherwise use Solver
+        if (self.optional_tasks or self.request_tasks) and use_optimization:
             self.solver = Optimize()
         else:
             self.solver = Solver()
@@ -207,11 +213,14 @@ class TaskNetSMT:
             s = self.start_vars[t.id]
             e = self.end_vars[t.id]
 
-            # Helper to conditionally add constraint for optional tasks
+            # Helper to conditionally add constraint for optional/request tasks
             def add_constraint(*args):
                 if t.kind == TaskKind.OPTIONAL:
                     # Only apply constraint if task is included
                     self.solver.add(If(self.optional_included[t.id], And(*args), True))
+                elif t.kind == TaskKind.REQUEST:
+                    # Only apply constraint if task is included
+                    self.solver.add(If(self.request_included[t.id], And(*args), True))
                 else:
                     # Required task - always apply constraint
                     self.solver.add(*args)
@@ -304,11 +313,15 @@ class TaskNetSMT:
                 both_included = True
                 if ti.kind == TaskKind.OPTIONAL:
                     both_included = And(both_included, self.optional_included[ti.id])
+                elif ti.kind == TaskKind.REQUEST:
+                    both_included = And(both_included, self.request_included[ti.id])
                 if tj.kind == TaskKind.OPTIONAL:
                     both_included = And(both_included, self.optional_included[tj.id])
+                elif tj.kind == TaskKind.REQUEST:
+                    both_included = And(both_included, self.request_included[tj.id])
 
                 # Only enforce distinctness if both are included
-                if ti.kind == TaskKind.OPTIONAL or tj.kind == TaskKind.OPTIONAL:
+                if ti.kind in (TaskKind.OPTIONAL, TaskKind.REQUEST) or tj.kind in (TaskKind.OPTIONAL, TaskKind.REQUEST):
                     self.solver.add(If(both_included,
                         And(si != sj, ei != ej, si != ej, ei != sj),
                         True))
@@ -530,9 +543,11 @@ class TaskNetSMT:
                     else:
                         continue
 
-                    # Guard with optional_included for optional tasks
+                    # Guard with inclusion for optional/request tasks
                     if t.kind == TaskKind.OPTIONAL:
                         term = If(self.optional_included[t.id], term, 0.0)
+                    elif t.kind == TaskKind.REQUEST:
+                        term = If(self.request_included[t.id], term, 0.0)
                     terms.append(term)
 
                 # RATE: Skip - RateTimeline uses dual tracking in _encode_zone_transitions
@@ -595,11 +610,16 @@ class TaskNetSMT:
                                 if t.kind == TaskKind.OPTIONAL:
                                     # For optional tasks: only apply if task is included
                                     expr = If(And(self.optional_included[t.id], zi == s), idx, expr)
+                                elif t.kind == TaskKind.REQUEST:
+                                    # For request tasks: only apply if task is included
+                                    expr = If(And(self.request_included[t.id], zi == s), idx, expr)
                                 else:
                                     expr = If(zi == s, idx, expr)
                             elif imp.when == "post":
                                 if t.kind == TaskKind.OPTIONAL:
                                     expr = If(And(self.optional_included[t.id], zi == e), idx, expr)
+                                elif t.kind == TaskKind.REQUEST:
+                                    expr = If(And(self.request_included[t.id], zi == e), idx, expr)
                                 else:
                                     expr = If(zi == e, idx, expr)
                             else:
@@ -723,11 +743,15 @@ class TaskNetSMT:
                             if imp.when == "pre":
                                 if t.kind == TaskKind.OPTIONAL:
                                     expr = If(And(self.optional_included[t.id], zi == s), val, expr)
+                                elif t.kind == TaskKind.REQUEST:
+                                    expr = If(And(self.request_included[t.id], zi == s), val, expr)
                                 else:
                                     expr = If(zi == s, val, expr)
                             elif imp.when == "post":
                                 if t.kind == TaskKind.OPTIONAL:
                                     expr = If(And(self.optional_included[t.id], zi == e), val, expr)
+                                elif t.kind == TaskKind.REQUEST:
+                                    expr = If(And(self.request_included[t.id], zi == e), val, expr)
                                 else:
                                     expr = If(zi == e, val, expr)
                             else:
@@ -786,6 +810,8 @@ class TaskNetSMT:
 
                                 if t.kind == TaskKind.OPTIONAL:
                                     term = If(self.optional_included[t.id], term, 0.0)
+                                elif t.kind == TaskKind.REQUEST:
+                                    term = If(self.request_included[t.id], term, 0.0)
                                 rate_delta = rate_delta + term
 
                     # Base rate: cur_rate + cumulative deltas (before assignments)
@@ -808,12 +834,16 @@ class TaskNetSMT:
                                     # Assign when zi+1 == task start
                                     if t.kind == TaskKind.OPTIONAL:
                                         rate_expr = If(And(self.optional_included[t.id], zi1 == s), r, rate_expr)
+                                    elif t.kind == TaskKind.REQUEST:
+                                        rate_expr = If(And(self.request_included[t.id], zi1 == s), r, rate_expr)
                                     else:
                                         rate_expr = If(zi1 == s, r, rate_expr)
                                 elif imp.when == "post":
                                     # Assign when zi+1 == task end
                                     if t.kind == TaskKind.OPTIONAL:
                                         rate_expr = If(And(self.optional_included[t.id], zi1 == e), r, rate_expr)
+                                    elif t.kind == TaskKind.REQUEST:
+                                        rate_expr = If(And(self.request_included[t.id], zi1 == e), r, rate_expr)
                                     else:
                                         rate_expr = If(zi1 == e, r, rate_expr)
                                 elif imp.when == "maint":
@@ -855,6 +885,8 @@ class TaskNetSMT:
 
                                 if t.kind == TaskKind.OPTIONAL:
                                     term = If(self.optional_included[t.id], term, 0.0)
+                                elif t.kind == TaskKind.REQUEST:
+                                    term = If(self.request_included[t.id], term, 0.0)
                                 value_delta = value_delta + term
 
                     raw_value = integrated_value + value_delta
@@ -890,11 +922,15 @@ class TaskNetSMT:
                                 if imp.when == "pre":
                                     if t.kind == TaskKind.OPTIONAL:
                                         value_expr = If(And(self.optional_included[t.id], zi1 == s), val, value_expr)
+                                    elif t.kind == TaskKind.REQUEST:
+                                        value_expr = If(And(self.request_included[t.id], zi1 == s), val, value_expr)
                                     else:
                                         value_expr = If(zi1 == s, val, value_expr)
                                 elif imp.when == "post":
                                     if t.kind == TaskKind.OPTIONAL:
                                         value_expr = If(And(self.optional_included[t.id], zi1 == e), val, value_expr)
+                                    elif t.kind == TaskKind.REQUEST:
+                                        value_expr = If(And(self.request_included[t.id], zi1 == e), val, value_expr)
                                     else:
                                         value_expr = If(zi1 == e, val, value_expr)
                                 # MAINT not allowed for value assignments on rate timelines
@@ -1098,10 +1134,15 @@ class TaskNetSMT:
     def solve(self):
         # Add optimization objectives if using Optimize
         if isinstance(self.solver, Optimize):
-            # 1. Primary objective: minimize the number of included optional tasks
+            # 1a. Primary objective: minimize the number of included optional tasks
             if self.optional_tasks:
                 objective_optional = Sum([If(self.optional_included[t.id], 1, 0) for t in self.optional_tasks])
                 self.solver.minimize(objective_optional)
+
+            # 1b. Primary objective: maximize the number of included request tasks
+            if self.request_tasks:
+                objective_request = Sum([If(self.request_included[t.id], 1, 0) for t in self.request_tasks])
+                self.solver.maximize(objective_request)
 
             # 2. Secondary objective: maximize priority-weighted benefit
             # Higher priority values = higher importance = higher benefit
@@ -1112,6 +1153,9 @@ class TaskNetSMT:
                     if t.kind == TaskKind.OPTIONAL:
                         # For optional tasks, only count if included
                         priority_terms.append(If(self.optional_included[t.id], t.priority, 0))
+                    elif t.kind == TaskKind.REQUEST:
+                        # For request tasks, only count if included
+                        priority_terms.append(If(self.request_included[t.id], t.priority, 0))
                     else:
                         # For required tasks, always count
                         priority_terms.append(t.priority)
@@ -1132,6 +1176,9 @@ class TaskNetSMT:
                     if t.kind == TaskKind.OPTIONAL:
                         # For optional tasks, only count deviation if included
                         start_deviation_terms.append(If(self.optional_included[t.id], diff, 0))
+                    elif t.kind == TaskKind.REQUEST:
+                        # For request tasks, only count deviation if included
+                        start_deviation_terms.append(If(self.request_included[t.id], diff, 0))
                     else:
                         # For required tasks, always count deviation
                         start_deviation_terms.append(diff)
@@ -1154,6 +1201,9 @@ class TaskNetSMT:
                     if t.kind == TaskKind.OPTIONAL:
                         # For optional tasks, only count deviation if included
                         duration_deviation_terms.append(If(self.optional_included[t.id], diff, 0))
+                    elif t.kind == TaskKind.REQUEST:
+                        # For request tasks, only count deviation if included
+                        duration_deviation_terms.append(If(self.request_included[t.id], diff, 0))
                     else:
                         # For required tasks, always count deviation
                         duration_deviation_terms.append(diff)
@@ -1189,11 +1239,16 @@ class TaskNetSMT:
         print(f"Schedule for TaskNet `{self.tn.id}`:")
         sched = self.extract_schedule(model)
         for t in self.all_scheduled_tasks:
-            # Check if optional task is included
+            # Check if optional/request task is included
             if t.kind == TaskKind.OPTIONAL:
                 included = model[self.optional_included[t.id]]
                 if not included:
                     print(f"  {t.id:14s}: [OPTIONAL - NOT INCLUDED]")
+                    continue
+            elif t.kind == TaskKind.REQUEST:
+                included = model[self.request_included[t.id]]
+                if not included:
+                    print(f"  {t.id:14s}: [REQUEST - NOT INCLUDED]")
                     continue
             s, e = sched[t.id]
             print(f"  {t.id:14s}: start = {s:4d}, end = {e:4d}")
@@ -1216,9 +1271,13 @@ class TaskNetSMT:
             # task active in zone j iff start_t ≤ t0 < end_t
             active: List[str] = []
             for t in self.all_scheduled_tasks:
-                # Skip optional tasks that aren't included
+                # Skip optional/request tasks that aren't included
                 if t.kind == TaskKind.OPTIONAL:
                     included = model[self.optional_included[t.id]]
+                    if not included:
+                        continue
+                elif t.kind == TaskKind.REQUEST:
+                    included = model[self.request_included[t.id]]
                     if not included:
                         continue
                 s, e = sched[t.id]

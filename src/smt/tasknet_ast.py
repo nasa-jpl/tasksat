@@ -135,10 +135,11 @@ class TlCon:
 # ----- Tasks -----
 
 class TaskKind(Enum):
-    """Type of task: definition (template), instance (required), or optional (minimized)"""
+    """Type of task: definition, instance (required), optional (minimized), or request (maximized)"""
     DEFINITION = "definition"
     INSTANCE = "instance"
     OPTIONAL = "optional"
+    REQUEST = "request"
 
 @dataclass
 class Task:
