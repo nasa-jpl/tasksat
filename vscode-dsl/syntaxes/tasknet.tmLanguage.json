@@ -40,7 +40,7 @@
       "patterns": [
         {
           "name": "keyword.control.tasknet",
-          "match": "\\b(tasknet|timelines|taskdef|task|optional|end|initial|constraints|properties|prop|pre|inv|post|maint|impacts|after|containedin|start_range|end_range|duration_range|duration|start|priority|id|bounds|in)\\b"
+          "match": "\\b(tasknet|timelines|taskdef|task|optional|request|end|initial|initial_rate|constraints|properties|prop|pre|inv|post|maint|impacts|after|containedin|start_range|end_range|duration_range|duration|start|priority|id|bounds|in)\\b"
         },
 	  
         {
