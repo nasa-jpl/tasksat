@@ -1,0 +1,23 @@
+name: Sync main to jpl-internal
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Merge main into jpl-internal
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+          git checkout jpl-internal
+          git merge main --no-edit
+
+          git push origin jpl-internal
