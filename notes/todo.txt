@@ -3,11 +3,12 @@ TODO
 
 FOR SUPPORTING TRANSLATION FROM MEXEC TASKNET
 
--> Requests: maximal
+-> Translator from XML to TaskSAT
+- Translator from TaskSAT to XML
+- Unsat core
 
 SHORT TERM
 
-- Unsat core
 - Colors for results
 - Store results in a JSON file
 - // comments
@@ -43,10 +44,11 @@ LONG TERM
 
 MEXEC:
 
-- Tyoes
+- Types
 - Timeline and task ids are used for reference
 - Instances might not even be scheduled.
 - MEXEC uses completion timelines for chaining
 - parameters, such as tc.SOC_TYPE, tc.SOC_INITIAL, tc.SOC_BACKGROUND, local to tasks, numbered (MEXEC TASKNET HAS THIS)
 - They distinguish between atomic and Boolean timelines.
 - TILs: environment updates to timelines.
+- Task decompositions
