@@ -40,10 +40,12 @@ class TaskNetSMT:
         # Use Optimize if we have optional or request tasks and optimization is enabled, otherwise use Solver
         if (self.optional_tasks or self.request_tasks) and use_optimization:
             self.solver = Optimize()
+            print(f"DEBUG: Using Optimize mode")
         else:
             self.solver = Solver()
             # Enable unsat core tracking for Solver (not available for Optimize)
             self.solver.set(unsat_core=True)
+            print(f"DEBUG: Using Solver mode with unsat_core=True")
 
         # === Schedule variables ===
         self.start_vars: Dict[str, object] = {}
@@ -81,6 +83,9 @@ class TaskNetSMT:
         if isinstance(self.solver, Solver):
             # Use assert_and_track for Solver (supports unsat cores)
             self.solver.assert_and_track(constraint, label)
+            if not hasattr(self, '_tracked_count'):
+                self._tracked_count = 0
+            self._tracked_count += 1
         else:
             # Optimize doesn't support assert_and_track
             self.solver.add(constraint)
@@ -592,7 +597,10 @@ class TaskNetSMT:
                         self.solver.add(constraint)
 
             # Start/end within global horizon and ordered
-            add_constraint(s >= 0, s <= e, e <= n)
+            if use_tracking:
+                add_constraint(s >= 0, s <= e, e <= n, label=f"task_timing: task '{t.id}' must have 0 <= start <= end <= {n}")
+            else:
+                add_constraint(s >= 0, s <= e, e <= n)
 
             # start,end within given ranges
             if t.startrng is not None:
@@ -604,7 +612,10 @@ class TaskNetSMT:
                 else:
                     add_constraint(s >= t.startrng.low, s <= t.startrng.high)
             if t.endrng is not None:
-                add_constraint(e >= t.endrng.low, e <= t.endrng.high)
+                if use_tracking:
+                    add_constraint(e >= t.endrng.low, e <= t.endrng.high, label=f"task_end_range: task '{t.id}' end must be in [{t.endrng.low},{t.endrng.high}]")
+                else:
+                    add_constraint(e >= t.endrng.low, e <= t.endrng.high)
 
             # duration range constraint
             if t.durrng is not None:
@@ -698,15 +709,13 @@ class TaskNetSMT:
 
                 # Only enforce distinctness if both are included
                 if ti.kind in (TaskKind.OPTIONAL, TaskKind.REQUEST) or tj.kind in (TaskKind.OPTIONAL, TaskKind.REQUEST):
-                    self.solver.add(If(both_included,
+                    self.add_tracked(If(both_included,
                         And(si != sj, ei != ej, si != ej, ei != sj),
-                        True))
+                        True), f"task_distinctness: tasks '{ti.id}' and '{tj.id}' must have distinct boundaries")
                 else:
                     # Both required - always distinct
-                    self.solver.add(si != sj)
-                    self.solver.add(ei != ej)
-                    self.solver.add(si != ej)
-                    self.solver.add(ei != sj)
+                    self.add_tracked(And(si != sj, ei != ej, si != ej, ei != sj),
+                                   f"task_distinctness: tasks '{ti.id}' and '{tj.id}' must have distinct boundaries")
 
     def _encode_no_simultaneous_assignments(self):
         """
@@ -761,28 +770,28 @@ class TaskNetSMT:
         tasks = self.all_scheduled_tasks
 
         # First / last
-        self.solver.add(z[0] == 0)
-        self.solver.add(z[last] == n)
+        self.add_tracked(z[0] == 0, "zone_boundary: first zone must be 0")
+        self.add_tracked(z[last] == n, f"zone_boundary: last zone must be {n}")
 
         # Strictly increasing
         for i in range(last):
-            self.solver.add(z[i] < z[i + 1])
+            self.add_tracked(z[i] < z[i + 1], f"zone_ordering: zone {i} must be < zone {i+1}")
 
         # Each start/end must be equal to *some* internal zone
         for t in tasks:
             s = self.start_vars[t.id]
             e = self.end_vars[t.id]
-            self.solver.add(Or(*[s == z[j] for j in range(1, last)]))
-            self.solver.add(Or(*[e == z[j] for j in range(1, last)]))
+            self.add_tracked(Or(*[s == z[j] for j in range(1, last)]), f"task_zone_alignment: task '{t.id}' start must align with a zone")
+            self.add_tracked(Or(*[e == z[j] for j in range(1, last)]), f"task_zone_alignment: task '{t.id}' end must align with a zone")
 
         # Each internal zone must be equal to *some* start or end
         for j in range(1, last):
-            self.solver.add(
+            self.add_tracked(
                 Or(*[
                     Or(self.start_vars[t.id] == z[j],
                        self.end_vars[t.id] == z[j])
                     for t in tasks
-                ])
+                ]), f"zone_bijection: zone {j} must equal some task start or end"
             )
 
     # ------------------------------
@@ -872,11 +881,19 @@ class TaskNetSMT:
         for tl in self.tn.timelines:
             if isinstance(tl, (CumulativeTimeline, RateTimeline)) and tl.bounds is not None:
                 _, bounds, vars_z = self.numeric_tl_zone[tl.id]
-                self.solver.add(vars_z[0] >= bounds.low, vars_z[0] <= bounds.high)
+                if isinstance(self.solver, Solver):
+                    self.add_tracked(vars_z[0] >= bounds.low, f"initial_timeline_bounds: timeline '{tl.id}' initial value >= {bounds.low}")
+                    self.add_tracked(vars_z[0] <= bounds.high, f"initial_timeline_bounds: timeline '{tl.id}' initial value <= {bounds.high}")
+                else:
+                    self.solver.add(vars_z[0] >= bounds.low, vars_z[0] <= bounds.high)
 
     def _encode_init_predicate(self):
         # init constraints apply at zone 0
-        self.solver.add(self._conds_holds_zone(self.tn.initial_constraints, 0))
+        init_constraint = self._conds_holds_zone(self.tn.initial_constraints, 0)
+        if isinstance(self.solver, Solver) and self.tn.initial_constraints:
+            self.add_tracked(init_constraint, "initial_constraints: initial conditions must hold at start")
+        else:
+            self.solver.add(init_constraint)
 
     # ------------------------------
     # Impact semantics over zones
@@ -1001,7 +1018,11 @@ class TaskNetSMT:
                             else:
                                 # maint+assign disallowed
                                 self.solver.add(False)
-                    self.solver.add(vars_z[i + 1] == expr)
+                    # Track state timeline evolution
+                    if isinstance(self.solver, Solver):
+                        self.add_tracked(vars_z[i + 1] == expr, f"state_timeline_evolution: timeline '{tl.id}' zone {i}->{i+1}")
+                    else:
+                        self.solver.add(vars_z[i + 1] == expr)
 
             elif isinstance(tl, AtomicTimeline):
                 vars_z = self.atomic_tl_zone[tl.id]
@@ -1066,7 +1087,11 @@ class TaskNetSMT:
                                 else:  # maint
                                     self.solver.add(False)  # Still reject maint+assign for atomic
 
-                    self.solver.add(vars_z[i + 1] == expr)
+                    # Track atomic timeline evolution
+                    if isinstance(self.solver, Solver):
+                        self.add_tracked(vars_z[i + 1] == expr, f"atomic_timeline_evolution: timeline '{tl.id}' zone {i}->{i+1}")
+                    else:
+                        self.solver.add(vars_z[i + 1] == expr)
 
         # Numeric timelines (Claimable and Cumulative): deltas + clamping by bounds
         # RateTimeline handled separately below due to dual tracking
@@ -1134,7 +1159,12 @@ class TaskNetSMT:
                                 # maint+assign disallowed for numeric timelines
                                 self.solver.add(False)
 
-                    self.solver.add(vars_z[i + 1] == expr)
+                    # Track numeric timeline evolution
+                    if isinstance(self.solver, Solver):
+                        timeline_type = "claimable" if isinstance(tl, ClaimableTimeline) else "cumulative"
+                        self.add_tracked(vars_z[i + 1] == expr, f"{timeline_type}_timeline_evolution: timeline '{tl.id}' zone {i}->{i+1}")
+                    else:
+                        self.solver.add(vars_z[i + 1] == expr)
 
         # Rate timelines: dual tracking of VALUE and RATE
         for tl in self.tn.timelines:
@@ -1227,7 +1257,11 @@ class TaskNetSMT:
                                     # Already checked in wellformedness
                                     self.solver.add(False)
 
-                    self.solver.add(rate_vars[i + 1] == rate_expr)
+                    # Track rate timeline rate evolution
+                    if isinstance(self.solver, Solver):
+                        self.add_tracked(rate_vars[i + 1] == rate_expr, f"rate_timeline_rate_evolution: timeline '{tl.id}' zone {i}->{i+1}")
+                    else:
+                        self.solver.add(rate_vars[i + 1] == rate_expr)
 
                     # ===== Update VALUE variable =====
                     # Compute value[i+1] from value[i]
@@ -1311,7 +1345,11 @@ class TaskNetSMT:
                                         value_expr = If(zi1 == e, val, value_expr)
                                 # MAINT not allowed for value assignments on rate timelines
 
-                    self.solver.add(value_vars[i + 1] == value_expr)
+                    # Track rate timeline value evolution
+                    if isinstance(self.solver, Solver):
+                        self.add_tracked(value_vars[i + 1] == value_expr, f"rate_timeline_value_evolution: timeline '{tl.id}' zone {i}->{i+1}")
+                    else:
+                        self.solver.add(value_vars[i + 1] == value_expr)
 
     def _encode_timeline_ranges(self):
         """
@@ -1636,6 +1674,11 @@ class TaskNetSMT:
             # If using Solver (not Optimize), retrieve and display unsat core
             if isinstance(self.solver, Solver):
                 core = self.solver.unsat_core()
+                tracked_count = getattr(self, '_tracked_count', 0)
+                total_assertions = len(self.solver.assertions())
+                print(f"\nDEBUG: Solver type: {type(self.solver).__name__}, Core size: {len(core)}, Tracked constraints: {tracked_count}, Total assertions: {total_assertions}")
+                if len(core) > 0:
+                    print(f"DEBUG: First 5 core items: {[str(c) for c in list(core)[:5]]}")
                 if len(core) == 0:
                     print("\nUNSAT CORE: Empty (constraints not tracked)")
                     print("Hint: The conflict involves untracked constraints.")
