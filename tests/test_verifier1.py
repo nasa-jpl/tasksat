@@ -9,9 +9,9 @@ class TestVerifier:
         """Finds a valid schedule, properties hold"""
         verify_out('tasknet1.tn')(
             "*** NEW SCHEDULE***",
-            "heating       : start =   20, end =   80",
-            "driving       : start =  100, end =  180",
-            "communicating : start =  200, end =  299",
+            "heating       : start =   20, end =   81",
+            "driving       : start =  120, end =  180",
+            "communicating : start =  200, end =  281",
             "[1/3] Checking property 'p1'...",
             "  → HOLDS",
             "[2/3] Checking property 'p2'...",

@@ -1,0 +1,33 @@
+# Test: Fixed start time conflict
+# Two tasks both need atomic resource and have overlapping time windows
+# Expected: Detailed diagnostics showing task_start_range and atomic capacity conflict
+
+tasknet TimingConflict {
+  end = 100;
+
+  timelines {
+    resource : atomic;
+  }
+
+  task t1 {
+    id 1;
+    start_range [10, 10];  # Fixed at 10
+    duration_range [50, 50];
+    impacts {
+      maint {
+        resource += 1;
+      }
+    }
+  }
+
+  task t2 {
+    id 2;
+    start_range [10, 10];  # Also fixed at 10
+    duration_range [50, 50];
+    impacts {
+      maint {
+        resource += 1;
+      }
+    }
+  }
+}

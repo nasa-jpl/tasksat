@@ -1,0 +1,19 @@
+# Test: Duration range conflicts with dependencies
+# Task t1 needs 80 time units, t2 needs 80 time units
+# t2 must come after t1, total time horizon is only 100
+# Expected: Detailed diagnostics showing duration_range conflict
+
+tasknet DurationConflict {
+  end = 100;
+
+  task t1 {
+    id 1;
+    duration_range [80, 80];  # Needs 80 time units
+  }
+
+  task t2 {
+    id 2;
+    duration_range [80, 80];  # Needs 80 time units
+    after t1;
+  }
+}
