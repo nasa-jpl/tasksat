@@ -1,0 +1,18 @@
+[project]
+name = "tasksat"
+version = "0.1.0"
+description = "Task scheduling verification with SMT-based automated reasoning"
+authors = [
+    { name = "Klaus Havelund", email = "havelund@gmail.com" }
+]
+dependencies = [
+    "lark==1.3.1",
+    "ply==3.11",
+    "z3-solver==4.15.4.0",
+    "matplotlib",
+    "pytest"
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
