@@ -1,0 +1,33 @@
+# Test: Two overlapping tasks requiring mutual exclusion on atomic timeline
+# Expected: UNSAT because both tasks try to claim the resource simultaneously
+# and cannot overlap due to start_range constraints forcing them into the same time window
+
+tasknet OverlapTest {
+  end = 100;
+
+  timelines {
+    resource : atomic;
+  }
+
+  task t1 {
+    id 1;
+    start_range [0, 10];
+    duration_range [50, 50];
+    impacts {
+      maint {
+        resource += 1;
+      }
+    }
+  }
+
+  task t2 {
+    id 2;
+    start_range [0, 10];
+    duration_range [50, 50];
+    impacts {
+      maint {
+        resource += 1;
+      }
+    }
+  }
+}

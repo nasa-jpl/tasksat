@@ -1,0 +1,20 @@
+# Test: Task that requires timeline value outside of valid range
+# Expected: UNSAT because the PRE condition requires battery >= 150
+# but the valid range is [0, 100] and initial value is 50
+
+tasknet CapacityTest {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0, 100] bounds [0, 100] = 50;
+  }
+
+  task charge {
+    id 1;
+    start_range [10, 20];
+    duration_range [10, 10];
+    pre {
+      battery in [150, 200];  # Impossible: valid range is [0, 100], init is 50
+    }
+  }
+}

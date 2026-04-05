@@ -76,6 +76,269 @@ class TaskNetSMT:
         self._encode_timeline_ranges()
         self._encode_pre_inv_post_zones()
 
+    def add_tracked(self, constraint, label: str):
+        """Add a constraint with tracking for unsat core analysis."""
+        if isinstance(self.solver, Solver):
+            # Use assert_and_track for Solver (supports unsat cores)
+            self.solver.assert_and_track(constraint, label)
+        else:
+            # Optimize doesn't support assert_and_track
+            self.solver.add(constraint)
+
+    def _format_conditions(self, conds: List[TlCon]) -> str:
+        """Format timeline conditions for display in unsat core."""
+        if not conds:
+            return "no conditions"
+        parts = []
+        for tlcon in conds:
+            tl_id = tlcon.id
+            con_strs = []
+            for con in tlcon.cons:
+                if isinstance(con, ConVal):
+                    con_strs.append(f"{con.v}")
+                elif isinstance(con, ConIntRange):
+                    con_strs.append(f"in [{con.r.low},{con.r.high}]")
+                elif isinstance(con, ConRealRange):
+                    con_strs.append(f"in [{con.r.low},{con.r.high}]")
+            if con_strs:
+                parts.append(f"{tl_id} {', '.join(con_strs)}")
+        return "; ".join(parts) if parts else "conditions"
+
+    def _analyze_unsat_core(self, by_category: dict):
+        """Provide detailed analysis of unsat core constraints."""
+        print("\nDetailed Analysis:")
+
+        # Analyze atomic capacity violations
+        if 'atomic_capacity' in by_category:
+            # Extract timeline name from first constraint
+            first_label = by_category['atomic_capacity'][0]
+            # Parse: "atomic_capacity: timeline 'resource' must stay in [0,1] at zone 2"
+            if "timeline '" in first_label:
+                tl_name = first_label.split("timeline '")[1].split("'")[0]
+
+                # Find all tasks that impact this timeline
+                impacting_tasks = []
+                for t in self.all_scheduled_tasks:
+                    if t.impacts:
+                        for imp in t.impacts:
+                            if imp.id == tl_name:
+                                impact_type = "maint" if imp.when == "maint" else imp.when
+                                if isinstance(imp.how, ImpactCumulative):
+                                    delta = imp.how.v
+                                    impacting_tasks.append({
+                                        'id': t.id,
+                                        'type': impact_type,
+                                        'delta': delta,
+                                        'start_range': f"[{t.startrng.low},{t.startrng.high}]" if t.startrng else "any",
+                                        'duration_range': f"[{t.durrng.low},{t.durrng.high}]" if t.durrng else "any"
+                                    })
+                                    break  # Only report first impact per task
+
+                if impacting_tasks:
+                    print(f"  Timeline '{tl_name}' (atomic, valid range [0,1]) is impacted by {len(impacting_tasks)} task(s):")
+                    for task_info in impacting_tasks:
+                        print(f"    • Task '{task_info['id']}': {task_info['type']} impact {task_info['delta']:+.0f}, "
+                              f"start {task_info['start_range']}, duration {task_info['duration_range']}")
+
+                    # Check for overlapping tasks
+                    if len(impacting_tasks) >= 2:
+                        print(f"\n  ⚠️  Conflict: {len(impacting_tasks)} tasks claim the same atomic resource.")
+                        print(f"      Since their time ranges overlap, they would simultaneously claim the resource,")
+                        print(f"      causing the value to exceed 1 (mutual exclusion violated).")
+
+        # Analyze timeline range violations (numeric timelines)
+        if 'timeline_range' in by_category:
+            first_label = by_category['timeline_range'][0]
+            # Parse: "timeline_range: timeline 'battery' must stay in [0.0,100.0] at zone 3"
+            if "timeline '" in first_label:
+                tl_name = first_label.split("timeline '")[1].split("'")[0]
+                range_part = first_label.split("must stay in ")[1].split(" at zone")[0]
+
+                # Find all tasks that impact this timeline
+                impacting_tasks = []
+                for t in self.all_scheduled_tasks:
+                    if t.impacts:
+                        for imp in t.impacts:
+                            if imp.id == tl_name:
+                                impact_type = imp.when
+                                if isinstance(imp.how, ImpactCumulative):
+                                    delta = imp.how.v
+                                    impacting_tasks.append({
+                                        'id': t.id,
+                                        'type': impact_type,
+                                        'delta': delta,
+                                        'start_range': f"[{t.startrng.low},{t.startrng.high}]" if t.startrng else "any",
+                                        'duration_range': f"[{t.durrng.low},{t.durrng.high}]" if t.durrng else "any"
+                                    })
+                                    break
+
+                # Get timeline details
+                tl_initial = None
+                for tl in self.tn.timelines:
+                    if tl.id == tl_name:
+                        if hasattr(tl, 'initial'):
+                            tl_initial = tl.initial
+                        break
+
+                if impacting_tasks:
+                    print(f"  Timeline '{tl_name}' must stay in range {range_part}")
+                    if tl_initial is not None:
+                        print(f"  Initial value: {tl_initial}")
+                    print(f"  Impacted by {len(impacting_tasks)} task(s):")
+                    for task_info in impacting_tasks:
+                        print(f"    • Task '{task_info['id']}': {task_info['type']} impact {task_info['delta']:+.0f}, "
+                              f"start {task_info['start_range']}, duration {task_info['duration_range']}")
+
+                    print(f"\n  ⚠️  Conflict: The combined impacts push the timeline outside its valid range.")
+                    print(f"      Adjust task impacts, timing, or increase the timeline range.")
+
+        # Analyze precondition violations
+        if 'precondition' in by_category:
+            first_label = by_category['precondition'][0]
+            # Parse: "precondition: task 'charge' requires battery in [150.0,200.0] at start (zone 1)"
+            if "task '" in first_label and "requires " in first_label:
+                task_name = first_label.split("task '")[1].split("'")[0]
+                condition_part = first_label.split("requires ")[1].split(" at start")[0]
+
+                # Find the timeline being constrained
+                tl_name = condition_part.split()[0]
+
+                # Find the timeline definition to get its valid range
+                tl_range = None
+                for tl in self.tn.timelines:
+                    if tl.id == tl_name:
+                        if isinstance(tl, CumulativeTimeline):
+                            if hasattr(tl, 'range'):
+                                tl_range = f"[{tl.range.low},{tl.range.high}]"
+                            if hasattr(tl, 'initial'):
+                                initial = tl.initial
+                        break
+
+                print(f"  Task '{task_name}' requires {condition_part}")
+                if tl_range:
+                    print(f"  However, timeline '{tl_name}' has valid range {tl_range}")
+                    if hasattr(tl, 'initial'):
+                        print(f"  and initial value {initial}")
+                print(f"\n  ⚠️  Conflict: The required range is outside the timeline's valid range.")
+                print(f"      This precondition can never be satisfied.")
+
+        # Analyze postcondition violations
+        if 'postcondition' in by_category:
+            first_label = by_category['postcondition'][0]
+            # Parse: "postcondition: task 'drain' requires battery in [10.0,20.0] at end (zone 3)"
+            if "task '" in first_label and "requires " in first_label:
+                task_name = first_label.split("task '")[1].split("'")[0]
+                condition_part = first_label.split("requires ")[1].split(" at end")[0]
+
+                # Find the timeline being constrained
+                tl_name = condition_part.split()[0]
+
+                # Find the timeline definition
+                tl_range = None
+                for tl in self.tn.timelines:
+                    if tl.id == tl_name:
+                        if isinstance(tl, CumulativeTimeline):
+                            if hasattr(tl, 'range'):
+                                tl_range = f"[{tl.range.low},{tl.range.high}]"
+                            if hasattr(tl, 'initial'):
+                                initial = tl.initial
+                        break
+
+                print(f"  Task '{task_name}' requires {condition_part} at end")
+                if tl_range:
+                    print(f"  However, timeline '{tl_name}' has valid range {tl_range}")
+                    if hasattr(tl, 'initial'):
+                        print(f"  and initial value {initial}")
+                print(f"\n  ⚠️  Conflict: The postcondition cannot be satisfied given timeline dynamics.")
+                print(f"      Check task impacts and whether the timeline can reach the required value.")
+
+        # Analyze invariant violations
+        if 'invariant' in by_category:
+            first_label = by_category['invariant'][0]
+            # Parse: "invariant: task 'maintain' requires power in [50.0,100.0] during execution (zone 3)"
+            if "task '" in first_label and "requires " in first_label:
+                task_name = first_label.split("task '")[1].split("'")[0]
+                condition_part = first_label.split("requires ")[1].split(" during execution")[0]
+
+                # Find the timeline being constrained
+                tl_name = condition_part.split()[0]
+
+                # Find the timeline definition
+                tl_range = None
+                for tl in self.tn.timelines:
+                    if tl.id == tl_name:
+                        if isinstance(tl, CumulativeTimeline):
+                            if hasattr(tl, 'range'):
+                                tl_range = f"[{tl.range.low},{tl.range.high}]"
+                        break
+
+                print(f"  Task '{task_name}' requires {condition_part} throughout its execution")
+                if tl_range:
+                    print(f"  Timeline '{tl_name}' has valid range {tl_range}")
+                print(f"\n  ⚠️  Conflict: The invariant cannot be maintained during task execution.")
+                print(f"      Check timeline state and task impacts that might violate the invariant.")
+
+        # Analyze containment dependency violations
+        if 'dependency_containedin' in by_category:
+            labels = by_category['dependency_containedin']
+            # Parse: "dependency_containedin: task 'child' must be contained within task 'parent'"
+            print(f"  ⚠️  Containment constraint violation:")
+            for label in labels:
+                if "task '" in label:
+                    parts = label.split("task '")
+                    if len(parts) >= 3:
+                        child_task = parts[1].split("'")[0]
+                        parent_task = parts[2].split("'")[0]
+                        print(f"      • Task '{child_task}' must be contained within '{parent_task}'")
+
+                        # Find task time ranges
+                        child_info = parent_info = None
+                        for t in self.all_scheduled_tasks:
+                            if t.id == child_task:
+                                child_info = {
+                                    'start': f"[{t.startrng.low},{t.startrng.high}]" if t.startrng else "any",
+                                    'duration': f"[{t.durrng.low},{t.durrng.high}]" if t.durrng else "any"
+                                }
+                            if t.id == parent_task:
+                                parent_info = {
+                                    'start': f"[{t.startrng.low},{t.startrng.high}]" if t.startrng else "any",
+                                    'duration': f"[{t.durrng.low},{t.durrng.high}]" if t.durrng else "any"
+                                }
+
+                        if child_info and parent_info:
+                            print(f"        Child:  start {child_info['start']}, duration {child_info['duration']}")
+                            print(f"        Parent: start {parent_info['start']}, duration {parent_info['duration']}")
+
+            print(f"\n      The time ranges don't allow the child task(s) to fit within the parent(s).")
+            print(f"      Adjust start/end ranges or durations to make containment possible.")
+
+        # Analyze dependency cycles
+        if 'dependency_after' in by_category:
+            # Check if it's a circular dependency
+            labels = by_category['dependency_after']
+            if len(labels) >= 2:
+                # Parse task IDs from labels
+                tasks_involved = set()
+                for label in labels:
+                    if "task '" in label:
+                        parts = label.split("task '")
+                        if len(parts) >= 3:
+                            task1 = parts[1].split("'")[0]
+                            task2 = parts[2].split("'")[0]
+                            tasks_involved.add(task1)
+                            tasks_involved.add(task2)
+
+                if len(tasks_involved) == len(labels):
+                    print(f"  ⚠️  Circular dependency detected among {len(tasks_involved)} task(s):")
+                    for label in labels:
+                        if "task '" in label:
+                            parts = label.split("task '")
+                            if len(parts) >= 3:
+                                task1 = parts[1].split("'")[0]
+                                task2 = parts[2].split("'")[0]
+                                print(f"      • '{task1}' must come after '{task2}'")
+                    print(f"\n      This creates an impossible ordering - no valid schedule exists.")
+
     # -------------------
     # Resolving task definitions
     # -------------------
@@ -176,14 +439,12 @@ class TaskNetSMT:
             elif isinstance(tl, CumulativeTimeline):
                 if getattr(tl, "range", None) is None:
                     tl.range = RealRange(MIN_REAL, MAX_REAL)
-                if getattr(tl, "bounds", None) is None:
-                    tl.bounds = RealRange(tl.range.low, tl.range.high)
+                # Don't set default bounds - bounds should be None unless explicitly specified
 
             elif isinstance(tl, RateTimeline):
                 if getattr(tl, "range", None) is None:
                     tl.range = RealRange(MIN_REAL, MAX_REAL)
-                if getattr(tl, "bounds", None) is None:
-                    tl.bounds = RealRange(tl.range.low, tl.range.high)
+                # Don't set default bounds - bounds should be None unless explicitly specified
 
         for t in tn.tasks:
             if getattr(t, "startrng", None) is None:
@@ -214,16 +475,28 @@ class TaskNetSMT:
             e = self.end_vars[t.id]
 
             # Helper to conditionally add constraint for optional/request tasks
-            def add_constraint(*args):
+            def add_constraint(*args, label=None):
+                constraint = And(*args) if len(args) > 1 else args[0]
                 if t.kind == TaskKind.OPTIONAL:
                     # Only apply constraint if task is included
-                    self.solver.add(If(self.optional_included[t.id], And(*args), True))
+                    wrapped = If(self.optional_included[t.id], constraint, True)
+                    if label:
+                        self.add_tracked(wrapped, label)
+                    else:
+                        self.solver.add(wrapped)
                 elif t.kind == TaskKind.REQUEST:
                     # Only apply constraint if task is included
-                    self.solver.add(If(self.request_included[t.id], And(*args), True))
+                    wrapped = If(self.request_included[t.id], constraint, True)
+                    if label:
+                        self.add_tracked(wrapped, label)
+                    else:
+                        self.solver.add(wrapped)
                 else:
                     # Required task - always apply constraint
-                    self.solver.add(*args)
+                    if label:
+                        self.add_tracked(constraint, label)
+                    else:
+                        self.solver.add(constraint)
 
             # Start/end within global horizon and ordered
             add_constraint(s >= 0, s <= e, e <= n)
@@ -250,7 +523,7 @@ class TaskNetSMT:
                         # ill-formed TaskNet — forbid
                         self.solver.add(False)
                     else:
-                        add_constraint(self.end_vars[bid] <= s)
+                        add_constraint(self.end_vars[bid] <= s, label=f"dependency_after: task '{t.id}' must start after task '{bid}' ends")
 
             # Type-level after dependencies (definition IDs with OR semantics)
             if t.after_definitions is not None:
@@ -266,7 +539,7 @@ class TaskNetSMT:
                         # At least one instance must complete before this task starts
                         # Encoding: OR over all instances: (end(inst1) <= s) OR (end(inst2) <= s) OR ...
                         constraints = [self.end_vars[inst.id] <= s for inst in def_instances]
-                        add_constraint(Or(*constraints))
+                        add_constraint(Or(*constraints), label=f"dependency_after: task '{t.id}' must start after some instance of '{def_id}'")
 
             # Instance-level containedin dependencies (specific task IDs)
             if t.containedin_instances is not None:
@@ -277,7 +550,8 @@ class TaskNetSMT:
                     else:
                         # parent task must be active during this task's execution
                         # parent_start <= this_start AND this_end <= parent_end
-                        add_constraint(self.start_vars[pid] <= s, e <= self.end_vars[pid])
+                        add_constraint(self.start_vars[pid] <= s, e <= self.end_vars[pid],
+                                     label=f"dependency_containedin: task '{t.id}' must be contained within task '{pid}'")
 
             # Type-level containedin dependencies (definition IDs with OR semantics)
             if t.containedin_definitions is not None:
@@ -296,7 +570,7 @@ class TaskNetSMT:
                         #   (parent2.start <= s AND e <= parent2.end) OR ...
                         constraints = [And(self.start_vars[inst.id] <= s, e <= self.end_vars[inst.id])
                                       for inst in def_instances]
-                        add_constraint(Or(*constraints))
+                        add_constraint(Or(*constraints), label=f"dependency_containedin: task '{t.id}' must be contained within some instance of '{def_id}'")
 
         # --- All task boundaries are pairwise distinct ---
         # Only for included tasks
@@ -432,8 +706,8 @@ class TaskNetSMT:
                 vars_z = [Int(f"{tl.id}_z{j}") for j in range(Z)]
                 self.atomic_tl_zone[tl.id] = vars_z
                 # Add range constraints [0,1] for all zones
-                for v in vars_z:
-                    self.solver.add(v >= 0, v <= 1)
+                for i, v in enumerate(vars_z):
+                    self.add_tracked(And(v >= 0, v <= 1), f"atomic_capacity: timeline '{tl.id}' must stay in [0,1] at zone {i}")
 
             elif isinstance(tl, ClaimableTimeline):
                 vars_z = [Real(f"{tl.id}_z{j}") for j in range(Z)]
@@ -945,8 +1219,8 @@ class TaskNetSMT:
         """
         for tl_id, (range_r, _bounds, vars_z) in self.numeric_tl_zone.items():
             lo, hi = range_r.low, range_r.high
-            for v in vars_z:
-                self.solver.add(v >= lo, v <= hi)
+            for i, v in enumerate(vars_z):
+                self.add_tracked(And(v >= lo, v <= hi), f"timeline_range: timeline '{tl_id}' must stay in [{lo},{hi}] at zone {i}")
 
     # ------------------------------
     # pre / inv / post (zone-based)
@@ -1096,36 +1370,77 @@ class TaskNetSMT:
                 if t.kind == TaskKind.OPTIONAL:
                     # Only enforce constraints if task is included
                     # PRE at start: either not included, or zone != start, or pre holds
-                    self.solver.add(Or(Not(self.optional_included[t.id]), zj != s, pre_formula))
+                    if t.pre:  # Only track if pre condition exists
+                        pre_desc = self._format_conditions(t.pre)
+                        self.add_tracked(Or(Not(self.optional_included[t.id]), zj != s, pre_formula),
+                                       f"precondition: task '{t.id}' requires {pre_desc} at start (zone {j})")
+                    else:
+                        self.solver.add(Or(Not(self.optional_included[t.id]), zj != s, pre_formula))
 
                     # POST at end: either not included, or zone != end, or post holds
-                    self.solver.add(Or(Not(self.optional_included[t.id]), zj != e, post_formula))
+                    if t.post:  # Only track if post condition exists
+                        post_desc = self._format_conditions(t.post)
+                        self.add_tracked(Or(Not(self.optional_included[t.id]), zj != e, post_formula),
+                                       f"postcondition: task '{t.id}' requires {post_desc} at end (zone {j})")
+                    else:
+                        self.solver.add(Or(Not(self.optional_included[t.id]), zj != e, post_formula))
 
                     # INV whenever active: either not included, or zone outside [start, end], or inv holds
-                    self.solver.add(
-                        Or(
-                            Not(self.optional_included[t.id]),
-                            zj < s,
-                            zj > e,
-                            inv_formula
+                    if t.inv:  # Only track if inv condition exists
+                        inv_desc = self._format_conditions(t.inv)
+                        self.add_tracked(
+                            Or(
+                                Not(self.optional_included[t.id]),
+                                zj < s,
+                                zj > e,
+                                inv_formula
+                            ),
+                            f"invariant: task '{t.id}' requires {inv_desc} during execution (zone {j})"
                         )
-                    )
+                    else:
+                        self.solver.add(
+                            Or(
+                                Not(self.optional_included[t.id]),
+                                zj < s,
+                                zj > e,
+                                inv_formula
+                            )
+                        )
                 else:
                     # Required task - always enforce constraints
                     # PRE at start
-                    self.solver.add(Or(zj != s, pre_formula))
+                    if t.pre:  # Only track if pre condition exists
+                        pre_desc = self._format_conditions(t.pre)
+                        self.add_tracked(Or(zj != s, pre_formula), f"precondition: task '{t.id}' requires {pre_desc} at start (zone {j})")
+                    else:
+                        self.solver.add(Or(zj != s, pre_formula))
 
                     # POST at end
-                    self.solver.add(Or(zj != e, post_formula))
+                    if t.post:  # Only track if post condition exists
+                        post_desc = self._format_conditions(t.post)
+                        self.add_tracked(Or(zj != e, post_formula), f"postcondition: task '{t.id}' requires {post_desc} at end (zone {j})")
+                    else:
+                        self.solver.add(Or(zj != e, post_formula))
 
                     # INV whenever active (inclusive bounds)
-                    self.solver.add(
-                        Or(
-                            zj < s,
-                            zj > e,
-                            inv_formula
+                    if t.inv:  # Only track if inv condition exists
+                        inv_desc = self._format_conditions(t.inv)
+                        self.add_tracked(
+                            Or(
+                                zj < s,
+                                zj > e,
+                                inv_formula
+                            ),
+                            f"invariant: task '{t.id}' requires {inv_desc} during execution (zone {j})"
                         )
-                    )
+                    else:
+                        self.solver.add(
+                            Or(
+                                zj < s,
+                                zj > e,
+                                inv_formula
+                            )
+                        )
 
     # ------------------------------
     # Solving + pretty-printing
@@ -1219,9 +1534,48 @@ class TaskNetSMT:
             # If using Solver (not Optimize), retrieve and display unsat core
             if isinstance(self.solver, Solver):
                 core = self.solver.unsat_core()
-                print(f"\nUNSAT CORE ({len(core)} constraints):")
-                for i, constraint in enumerate(core, 1):
-                    print(f"  {i}. {constraint}")
+                if len(core) == 0:
+                    print("\nUNSAT CORE: Empty (constraints not tracked)")
+                    print("Hint: The conflict involves untracked constraints.")
+                else:
+                    print(f"\nUNSAT CORE ({len(core)} conflicting constraints)")
+
+                    # Group by category
+                    by_category = {}
+                    for constraint in core:
+                        label = str(constraint)
+                        # Extract category from label (e.g., "dependency_after: ..." -> "dependency_after")
+                        if ':' in label:
+                            category = label.split(':', 1)[0].strip()
+                        elif '_' in label:
+                            parts = label.split('_')
+                            if len(parts) >= 2:
+                                category = f"{parts[0]}_{parts[1]}"
+                            else:
+                                category = parts[0]
+                        else:
+                            category = 'other'
+                        by_category.setdefault(category, []).append(label)
+
+                    # Provide detailed analysis
+                    self._analyze_unsat_core(by_category)
+
+                    # Suggest actions
+                    print("\nSuggestions:")
+                    if any('dependency' in cat for cat in by_category):
+                        print("  • Check task start/end ranges for conflicts")
+                        print("  • Review task ordering constraints (after, containedin)")
+                    if any(cat in by_category for cat in ['atomic_capacity', 'timeline_range']):
+                        print("  • Check timeline capacity and resource bounds")
+                        print("  • Verify tasks don't exceed timeline limits")
+                    if any('precondition' in cat or 'postcondition' in cat or 'invariant' in cat for cat in by_category):
+                        print("  • Review task pre/post/inv conditions")
+                        print("  • Check if timeline values can satisfy required conditions")
+
+                    # Show raw Z3 unsat core for advanced debugging
+                    print(f"\n--- Raw Z3 Unsat Core ({len(core)} formulas) ---")
+                    for i, constraint in enumerate(core, 1):
+                        print(f"{i}. {constraint}")
 
             return None
         return self.solver.model()

@@ -1,0 +1,24 @@
+# Test: Invariant violation - task requires timeline to maintain value during execution
+# Expected: UNSAT because task drains battery but invariant requires it to stay high
+
+tasknet InvariantTest {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0, 100] bounds [0, 100] = 80;
+  }
+
+  task drain {
+    id 1;
+    start_range [10, 20];
+    duration_range [30, 30];
+    impacts {
+      maint {
+        battery += -50;  # Drains battery during execution
+      }
+    }
+    inv {
+      battery in [70, 100];  # Impossible: battery drops to 30 during execution
+    }
+  }
+}

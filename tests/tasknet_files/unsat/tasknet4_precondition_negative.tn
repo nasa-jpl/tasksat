@@ -1,0 +1,19 @@
+# Test: Precondition requiring negative value
+# Expected: UNSAT because pre requires battery < 0, but valid range is [0, 100]
+
+tasknet PreconditionNegativeTest {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0, 100] = 50;
+  }
+
+  task impossible {
+    id 1;
+    start_range [10, 20];
+    duration_range [10, 10];
+    pre {
+      battery in [-10, -5];  # Requires negative value, but range is [0, 100]
+    }
+  }
+}

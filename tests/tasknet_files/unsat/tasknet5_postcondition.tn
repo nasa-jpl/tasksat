@@ -1,0 +1,24 @@
+# Test: Postcondition violation - task requires timeline value at end that's impossible
+# Expected: UNSAT because postcondition requires battery >= 90 but we start at 50
+
+tasknet PostconditionTest {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0, 100] bounds [0, 100] = 50;
+  }
+
+  task charge {
+    id 1;
+    start_range [10, 20];
+    duration_range [10, 10];
+    impacts {
+      maint {
+        battery += 10;  # Only adds 10, so ends at 60
+      }
+    }
+    post {
+      battery in [90, 100];  # Impossible: would need +40 but only adds +10
+    }
+  }
+}

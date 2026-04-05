@@ -696,6 +696,35 @@ This verification capability goes beyond what traditional planners can do.
 - Satisfy mode: Finds any valid schedule in Step 1
 - **Important**: The mode flag only controls Step 1 (main schedule generation). Step 2 (property verification) always uses Solver mode for faster counterexample finding, regardless of the `--mode` flag. This is an optimization since counterexamples don't need to be optimal.
 
+## Understanding UNSAT Diagnostics
+
+When TaskSAT cannot find a valid schedule, it provides diagnostics showing which constraints conflict:
+
+```
+UNSAT CORE (N conflicting constraints)
+
+Detailed Analysis:
+  [Explanation of the conflict with specific tasks/timelines/values]
+
+Suggestions:
+  [Concrete recommendations to fix the issue]
+
+Raw Z3 Unsat Core:
+  [Technical constraint labels for advanced debugging]
+```
+
+### Common Issues
+
+**Atomic capacity violations**: Multiple tasks need exclusive access to the same resource at overlapping times. Fix by adding temporal ordering constraints (`after`/`before`) or widening time windows.
+
+**Impossible preconditions**: Task requires timeline values outside the valid range. Fix by adjusting the precondition range or increasing the timeline range.
+
+**Circular dependencies**: Task A depends on B, and B depends on A. Fix by removing one dependency or changing direction.
+
+**Timeline range violations**: Task impacts push values outside the timeline's range without a bounds clause. Fix by reducing impacts, increasing the range, or adding an explicit `bounds` clause for clamping.
+
+**RANGE vs BOUNDS**: `range` is a hard constraint (violations cause UNSAT), while `bounds` clamps values (always SAT). Use explicit `bounds` clauses when you want clamping behavior.
+
 ## Visualizing Tasknets
 
 For complex tasknets with many tasks and timelines, it can be helpful to visualize the structure of the model. TaskSAT includes two visualization tools that generate graph diagrams showing task dependencies and timeline interactions.

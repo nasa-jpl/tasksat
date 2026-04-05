@@ -1,0 +1,19 @@
+# Test: Containment constraint violation - child task can't fit within parent
+# Expected: UNSAT because child duration (50) exceeds parent duration (30)
+
+tasknet ContainmentTest {
+  end = 100;
+
+  task parent {
+    id 1;
+    start_range [0, 10];
+    duration_range [30, 30];
+  }
+
+  task child {
+    id 2;
+    start_range [0, 50];
+    duration_range [50, 50];  # Too long to fit in parent
+    containedin parent;
+  }
+}
