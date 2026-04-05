@@ -339,6 +339,96 @@ class TaskNetSMT:
                                 print(f"      • '{task1}' must come after '{task2}'")
                     print(f"\n      This creates an impossible ordering - no valid schedule exists.")
 
+        # Analyze task timing conflicts (start/end/duration ranges)
+        if any(cat in by_category for cat in ['task_start_range', 'task_end_range', 'task_duration_range', 'task_timing']):
+            print(f"\n  TASK TIMING CONSTRAINT CONFLICT:")
+            print(f"  The following tasks have timing constraints that cannot be satisfied:\n")
+
+            # Collect all tasks mentioned in timing constraints
+            timing_tasks = {}
+            for cat in ['task_start_range', 'task_end_range', 'task_duration_range', 'task_timing']:
+                if cat in by_category:
+                    for label in by_category[cat]:
+                        if "task '" in label:
+                            task_id = label.split("task '")[1].split("'")[0]
+                            if task_id not in timing_tasks:
+                                timing_tasks[task_id] = {'start': None, 'end': None, 'duration': None}
+
+                            if 'start must be in [' in label:
+                                range_str = label.split('[')[1].split(']')[0]
+                                timing_tasks[task_id]['start'] = range_str
+                            elif 'end must be in [' in label:
+                                range_str = label.split('[')[1].split(']')[0]
+                                timing_tasks[task_id]['end'] = range_str
+                            elif 'duration must be in [' in label:
+                                range_str = label.split('[')[1].split(']')[0]
+                                timing_tasks[task_id]['duration'] = range_str
+
+            for task_id, ranges in timing_tasks.items():
+                print(f"    Task '{task_id}':")
+                if ranges['start']:
+                    print(f"      • Start range: [{ranges['start']}]")
+                if ranges['end']:
+                    print(f"      • End range: [{ranges['end']}]")
+                if ranges['duration']:
+                    print(f"      • Duration range: [{ranges['duration']}]")
+
+            print(f"\n      ⚠️  Conflict: These timing constraints cannot be satisfied simultaneously.")
+            print(f"      Common causes:")
+            print(f"        • Multiple tasks with overlapping fixed start times need the same resource")
+            print(f"        • Task dependencies create impossible ordering with fixed start times")
+            print(f"        • Duration too long to fit within allowed time window")
+            print(f"\n      Suggestions:")
+            print(f"        • Widen start_range to allow more scheduling flexibility")
+            print(f"        • Adjust duration_range if tasks are overconstrained")
+            print(f"        • Review task dependencies and resource requirements")
+
+        # Analyze zone ordering conflicts
+        if 'zone_ordering' in by_category:
+            print(f"\n  ZONE ORDERING CONFLICT:")
+            zone_conflicts = []
+            for label in by_category['zone_ordering']:
+                if 'zone ' in label and ' must be < zone ' in label:
+                    parts = label.split('zone ')
+                    if len(parts) >= 3:
+                        zone1 = parts[1].split(' ')[0]
+                        zone2 = parts[2].split(' ')[0]
+                        zone_conflicts.append((zone1, zone2))
+
+            print(f"  The zone-based encoding requires zones to be strictly increasing in time:")
+            for z1, z2 in zone_conflicts[:5]:  # Show first 5
+                print(f"    • Zone {z1} must be < Zone {z2}")
+            if len(zone_conflicts) > 5:
+                print(f"    ... and {len(zone_conflicts) - 5} more zone ordering constraints")
+
+            print(f"\n      ⚠️  Conflict: Task timing constraints make it impossible to maintain zone ordering.")
+            print(f"      This typically indicates overconstrained task start/end/duration ranges.")
+            print(f"\n      Suggestions:")
+            print(f"        • Review task start_range and duration_range constraints")
+            print(f"        • Look for tasks with fixed times that conflict with dependencies")
+            print(f"        • Consider increasing the global time horizon (end value)")
+
+        # Analyze task-zone alignment conflicts
+        if 'task_zone_alignment' in by_category:
+            print(f"\n  TASK-ZONE ALIGNMENT CONFLICT:")
+            alignment_tasks = set()
+            for label in by_category['task_zone_alignment']:
+                if "task '" in label:
+                    task_id = label.split("task '")[1].split("'")[0]
+                    alignment_tasks.add(task_id)
+
+            print(f"  The following tasks cannot align with zone boundaries:")
+            for task_id in alignment_tasks:
+                print(f"    • Task '{task_id}'")
+
+            print(f"\n      ⚠️  Conflict: Task start/end times must align with zone boundaries,")
+            print(f"      but the timing constraints make this impossible.")
+            print(f"      This typically indicates overconstrained or conflicting timing requirements.")
+            print(f"\n      Suggestions:")
+            print(f"        • Relax fixed start/end time constraints")
+            print(f"        • Review duration ranges for flexibility")
+            print(f"        • Check for circular dependencies or impossible ordering")
+
     # -------------------
     # Resolving task definitions
     # -------------------
@@ -469,6 +559,9 @@ class TaskNetSMT:
         n = self.tn.endTime
         tasks = self.all_scheduled_tasks
 
+        # Check solver type once at the beginning
+        use_tracking = isinstance(self.solver, Solver)
+
         # Basic constraints for each task
         for t in tasks:
             s = self.start_vars[t.id]
@@ -503,13 +596,22 @@ class TaskNetSMT:
 
             # start,end within given ranges
             if t.startrng is not None:
-                add_constraint(s >= t.startrng.low, s <= t.startrng.high)
+                # Only track non-default ranges to avoid affecting optimization heuristics
+                MAX_INT = 10**9
+                is_default = (t.startrng.low == 0 and t.startrng.high == MAX_INT)
+                if use_tracking and not is_default:
+                    add_constraint(s >= t.startrng.low, s <= t.startrng.high, label=f"task_start_range: task '{t.id}' start must be in [{t.startrng.low},{t.startrng.high}]")
+                else:
+                    add_constraint(s >= t.startrng.low, s <= t.startrng.high)
             if t.endrng is not None:
                 add_constraint(e >= t.endrng.low, e <= t.endrng.high)
 
             # duration range constraint
             if t.durrng is not None:
-                add_constraint(e - s >= t.durrng.low, e - s <= t.durrng.high)
+                if use_tracking:
+                    add_constraint(e - s >= t.durrng.low, e - s <= t.durrng.high, label=f"task_duration_range: task '{t.id}' duration must be in [{t.durrng.low},{t.durrng.high}]")
+                else:
+                    add_constraint(e - s >= t.durrng.low, e - s <= t.durrng.high)
 
             # duration (now treated as preferred duration, not a hard constraint)
             # This will be handled in the optimization objective instead
@@ -1571,6 +1673,14 @@ class TaskNetSMT:
                     if any('precondition' in cat or 'postcondition' in cat or 'invariant' in cat for cat in by_category):
                         print("  • Review task pre/post/inv conditions")
                         print("  • Check if timeline values can satisfy required conditions")
+                    if any(cat in by_category for cat in ['task_start_range', 'task_end_range', 'task_duration_range', 'task_timing']):
+                        print("  • Widen start_range constraints to allow more flexibility")
+                        print("  • Adjust duration_range if tasks are overconstrained")
+                        print("  • Look for fixed start times that conflict with dependencies")
+                    if 'zone_ordering' in by_category or 'task_zone_alignment' in by_category:
+                        print("  • Review task timing constraints (start/duration ranges)")
+                        print("  • Check for impossible combinations of fixed times and dependencies")
+                        print("  • Consider increasing the time horizon (end value)")
 
                     # Show raw Z3 unsat core for advanced debugging
                     print(f"\n--- Raw Z3 Unsat Core ({len(core)} formulas) ---")
