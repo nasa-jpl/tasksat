@@ -1,0 +1,22 @@
+# Test: Timeline range exceeded without bounds clause
+# Expected: UNSAT because battery would reach 110, exceeding range [0, 80]
+# This tests that RANGE is enforced as a hard constraint (not clamped)
+
+tasknet TimelineRangeExceededTest {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0, 80] = 50;  # Range [0, 80], NO bounds clause
+  }
+
+  task charge {
+    id 1;
+    start_range [10, 20];
+    duration_range [10, 10];
+    impacts {
+      maint {
+        battery += 60;  # 50 + 60 = 110, exceeds range [0, 80]
+      }
+    }
+  }
+}

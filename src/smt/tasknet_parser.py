@@ -440,17 +440,15 @@ def p_timeline_kind_cumul(p):
     else:
         r_lo, r_hi = rng
 
-    if bnds is None:
-        b_lo, b_hi = r_lo, r_hi
-    else:
-        b_lo, b_hi = bnds
+    # Don't default bounds to range - they should be independent
+    bounds_val = None if bnds is None else RealRange(bnds[0], bnds[1])
 
     init_val = None if init is None else float(init)
 
     p[0] = CumulativeTimeline(
         id=None,
         range=RealRange(r_lo, r_hi),
-        bounds=RealRange(b_lo, b_hi),
+        bounds=bounds_val,  # None unless explicitly specified
         initial=init_val,          # <-- None means unconstrained
     )
 
@@ -467,10 +465,8 @@ def p_timeline_kind_rate(p):
     else:
         r_lo, r_hi = rng
 
-    if bnds is None:
-        b_lo, b_hi = r_lo, r_hi
-    else:
-        b_lo, b_hi = bnds
+    # Don't default bounds to range - they should be independent
+    bounds_val = None if bnds is None else RealRange(bnds[0], bnds[1])
 
     init_val = None if init is None else float(init)
     init_rate_val = None if init_rate is None else float(init_rate)
@@ -478,7 +474,7 @@ def p_timeline_kind_rate(p):
     p[0] = RateTimeline(
         id=None,
         range=RealRange(r_lo, r_hi),
-        bounds=RealRange(b_lo, b_hi),
+        bounds=bounds_val,  # None unless explicitly specified
         initial=init_val,          # <-- None means unconstrained
         initial_rate=init_rate_val,
     )

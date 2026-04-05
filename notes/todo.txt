@@ -3,9 +3,8 @@ TODO
 
 FOR SUPPORTING TRANSLATION FROM MEXEC TASKNET
 
--> Translator from XML to TaskSAT
+-> Unsat core
 - Translator from TaskSAT to XML
-- Unsat core
 
 SHORT TERM
 

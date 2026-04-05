@@ -1,0 +1,19 @@
+# Test: Circular task dependencies
+# Expected: UNSAT because t1 must come after t2, but t2 must come after t1
+# This creates an impossible circular constraint
+
+tasknet CircularTest {
+  end = 100;
+
+  task t1 {
+    id 1;
+    duration_range [20, 20];
+    after t2;  # t1 must start after t2 ends
+  }
+
+  task t2 {
+    id 2;
+    duration_range [20, 20];
+    after t1;  # t2 must start after t1 ends - circular!
+  }
+}
