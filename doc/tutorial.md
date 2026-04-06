@@ -715,6 +715,22 @@ Raw Z3 Unsat Core:
 
 ### Common Issues
 
+**Missing dependency targets**: A task has a dependency (`after` or `containedin`) on a task definition that has no instances in the tasknet. TaskSAT validates dependencies at initialization and reports clear errors:
+```
+DEPENDENCY VALIDATION ERRORS
+======================================================================
+
+The following tasks have unresolvable dependencies:
+
+1. Task 'downlink_task' has 'after preheat' dependency, 
+   but no instances of 'preheat' exist in the tasknet.
+2. Task 'downlink_task' has 'containedin maintainheat' dependency, 
+   but no instances of 'maintainheat' exist in the tasknet.
+
+Please add the missing task instances or remove the dependencies.
+```
+Fix by either: (a) adding instances of the required task definitions, or (b) removing the invalid dependencies from the task definition.
+
 **Atomic capacity violations**: Multiple tasks need exclusive access to the same resource at overlapping times. Fix by adding temporal ordering constraints (`after`/`before`) or widening time windows.
 
 **Impossible preconditions**: Task requires timeline values outside the valid range. Fix by adjusting the precondition range or increasing the timeline range.

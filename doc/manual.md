@@ -357,11 +357,13 @@ All task fields are optional unless marked as required.
 **after**
 - Task ordering: this task must start after other tasks end
 - Example: `after` warmup, calibrate;
+- Note: When referencing a task definition name, at least one instance of that definition must exist in the tasknet. TaskSAT validates this at initialization and reports an error if no instances are found.
 
 **containedin**
 - Hierarchical constraint: this task must execute entirely within another task.
   This task's start >= parent's start AND this task's end <= parent's end
 - Example: `containedin` daylight, communication_window;
+- Note: When referencing a task definition name, at least one instance of that definition must exist in the tasknet. TaskSAT validates this at initialization and reports an error if no instances are found.
 
 **optional** 
 - Marks task as optional, it may only be scheduled if needed
