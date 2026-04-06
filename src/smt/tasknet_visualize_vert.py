@@ -155,8 +155,8 @@ def build_dependency_graph(tasknet: TaskNet, show_definitions: bool = False) -> 
         # After dependencies (temporal)
         # Arrow shows: dependent_task -> prerequisite (dependency direction)
         # This means if B is after A, arrow goes B -> A
-        if task.after:
-            for prerequisite in task.after:
+        if task.after_definitions:
+            for prerequisite in task.after_definitions:
                 if prerequisite in nodes:
                     edges.append(TaskEdge(
                         from_id=task.id,
@@ -168,8 +168,8 @@ def build_dependency_graph(tasknet: TaskNet, show_definitions: bool = False) -> 
                     ))
 
         # Containment relationships
-        if task.containedin:
-            for container in task.containedin:
+        if task.containedin_definitions:
+            for container in task.containedin_definitions:
                 if container in nodes:
                     nodes[task.id].container = container
                     edges.append(TaskEdge(
