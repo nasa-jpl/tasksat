@@ -40,12 +40,10 @@ class TaskNetSMT:
         # Use Optimize if we have optional or request tasks and optimization is enabled, otherwise use Solver
         if (self.optional_tasks or self.request_tasks) and use_optimization:
             self.solver = Optimize()
-            print(f"DEBUG: Using Optimize mode")
         else:
             self.solver = Solver()
             # Enable unsat core tracking for Solver (not available for Optimize)
             self.solver.set(unsat_core=True)
-            print(f"DEBUG: Using Solver mode with unsat_core=True")
 
         # === Schedule variables ===
         self.start_vars: Dict[str, object] = {}
@@ -1770,11 +1768,6 @@ class TaskNetSMT:
             # If using Solver (not Optimize), retrieve and display unsat core
             if isinstance(self.solver, Solver):
                 core = self.solver.unsat_core()
-                tracked_count = getattr(self, '_tracked_count', 0)
-                total_assertions = len(self.solver.assertions())
-                print(f"\nDEBUG: Solver type: {type(self.solver).__name__}, Core size: {len(core)}, Tracked constraints: {tracked_count}, Total assertions: {total_assertions}")
-                if len(core) > 0:
-                    print(f"DEBUG: First 5 core items: {[str(c) for c in list(core)[:5]]}")
                 if len(core) == 0:
                     print("\nUNSAT CORE: Empty (constraints not tracked)")
                     print("Hint: The conflict involves untracked constraints.")

@@ -185,3 +185,6 @@ visualizations/
 
 # Paper drafts
 doc/papers/uppaal30/
+
+# Test artifacts
+jpl/mexec/test/debug/
