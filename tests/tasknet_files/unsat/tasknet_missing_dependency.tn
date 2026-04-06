@@ -1,0 +1,22 @@
+# Test: Missing dependency target
+# Child task has dependency on parent taskdef, but no parent instances exist
+# Expected: Validation error with clear message
+
+tasknet MissingDep {
+  end = 100;
+
+  taskdef parent {
+    id 1;
+    duration_range [10, 20];
+  }
+
+  taskdef child {
+    id 2;
+    duration_range [5, 10];
+    after parent;  # parent has no instances!
+  }
+
+  task c1 : child {
+    id 10;
+  }
+}

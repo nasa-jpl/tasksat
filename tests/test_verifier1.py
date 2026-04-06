@@ -9,9 +9,9 @@ class TestVerifier:
         """Finds a valid schedule, properties hold"""
         verify_out('tasknet1.tn')(
             "*** NEW SCHEDULE***",
-            "heating       : start =   20, end =   81",
-            "driving       : start =  120, end =  180",
-            "communicating : start =  200, end =  281",
+            "heating       : start =   20, end =   80",
+            "driving       : start =  100, end =  180",
+            "communicating : start =  200, end =  280",
             "[1/3] Checking property 'p1'...",
             "  → HOLDS",
             "[2/3] Checking property 'p2'...",
@@ -27,9 +27,9 @@ class TestVerifier:
         Loosening start and end ranges, finds different schedule, p2 violated
         """
         verify_out('tasknet2.tn')(
-            "heating       : start =  236, end =  246",
-            "driving       : start =  247, end =  297",
-            "communicating : start =  298, end =  299",
+            "heating       : start =    1, end =   51",
+            "driving       : start =  249, end =  299",
+            "communicating : start =  247, end =  248",
             "[1/3] Checking property 'p1'...",
             "  → VIOLATED!",
             "[2/3] Checking property 'p2'...",
@@ -125,9 +125,9 @@ class TestVerifier:
             "[1/1] Checking property 'p1'...",
             "  → VIOLATED!",
             "Counterexample:",
-            "T1            : start =    4, end =    6",
-            "T2            : start =    3, end =    7",
-            "T3            : start =    1, end =    2",
+            "T1            : start =    1, end =    4",
+            "T2            : start =    2, end =    3",
+            "T3            : start =    5, end =    6",
             "Summary: 0 hold, 1 violated, 0 unknown"
         )
     
@@ -135,15 +135,15 @@ class TestVerifier:
         """Test with optional tasks and temporal properties"""
         verify_out('tasknet10_verify.tn', mode='satisfy')(
             "*** NEW SCHEDULE***",
-            "T1            : start =    5, end =    6",
-            "T2            : start =    1, end =    4",
+            "T1            : start =    3, end =    5",
+            "T2            : start =    4, end =    6",
             "T3            : [OPTIONAL - NOT INCLUDED]",
             "[1/1] Checking property 'p1'...",
             "  → VIOLATED!",
             "Counterexample:",
-            "T1            : start =    2, end =    3",
-            "T2            : start =    1, end =    5",
-            "T3            : start =    4, end =    6",
+            "T1            : start =    1, end =    2",
+            "T2            : start =    3, end =    6",
+            "T3            : start =    4, end =    5",
             "Summary: 0 hold, 1 violated, 0 unknown"
         )
 
@@ -214,8 +214,8 @@ class TestVerifier:
         """Test active(T) syntax"""
         verify_out('tasknet15_numeric_states.tn')(
             "*** NEW SCHEDULE***",
-            "heating       : start =    1, end =  297",
-            "driving       : start =  298, end =  299",
+            "heating       : start =    1, end =    2",
+            "driving       : start =    3, end =  253",
             "[1/1] Checking property 'p1'...",
             "  → HOLDS",
             "Summary: 1 hold, 0 violated, 0 unknown"

@@ -51,6 +51,7 @@ class TaskNetSMT:
         self.start_vars: Dict[str, object] = {}
         self.end_vars: Dict[str, object] = {}
         self._mk_schedule_vars()
+        self._validate_dependencies()
         self._encode_start_end_times_ok()
         self._encode_no_simultaneous_assignments()
 
@@ -77,6 +78,66 @@ class TaskNetSMT:
         self._encode_zone_transitions()
         self._encode_timeline_ranges()
         self._encode_pre_inv_post_zones()
+
+    def _validate_dependencies(self):
+        """
+        Validate that all task dependencies can be resolved.
+        Reports clear error messages for missing dependency targets.
+        """
+        errors = []
+        tasks = self.all_scheduled_tasks
+
+        for t in tasks:
+            # Check after dependencies
+            if t.after_definitions is not None:
+                for def_id in t.after_definitions:
+                    def_instances = [inst for inst in tasks
+                                    if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
+                    if not def_instances:
+                        errors.append(
+                            f"Task '{t.id}' has 'after {def_id}' dependency, "
+                            f"but no instances of '{def_id}' exist in the tasknet."
+                        )
+
+            # Check containedin dependencies
+            if t.containedin_definitions is not None:
+                for def_id in t.containedin_definitions:
+                    def_instances = [inst for inst in tasks
+                                    if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
+                    if not def_instances:
+                        errors.append(
+                            f"Task '{t.id}' has 'containedin {def_id}' dependency, "
+                            f"but no instances of '{def_id}' exist in the tasknet."
+                        )
+
+            # Check instance-level dependencies
+            if t.after_instances is not None:
+                for tid in t.after_instances:
+                    if tid not in self.start_vars:
+                        errors.append(
+                            f"Task '{t.id}' has 'after {tid}' dependency, "
+                            f"but task '{tid}' does not exist."
+                        )
+
+            if t.containedin_instances is not None:
+                for tid in t.containedin_instances:
+                    if tid not in self.start_vars:
+                        errors.append(
+                            f"Task '{t.id}' has 'containedin {tid}' dependency, "
+                            f"but task '{tid}' does not exist."
+                        )
+
+        if errors:
+            error_msg = "\n\n" + "=" * 70 + "\n"
+            error_msg += "DEPENDENCY VALIDATION ERRORS\n"
+            error_msg += "=" * 70 + "\n\n"
+            error_msg += "The following tasks have unresolvable dependencies:\n\n"
+            for i, err in enumerate(errors, 1):
+                error_msg += f"{i}. {err}\n"
+            error_msg += "\n" + "=" * 70 + "\n"
+            error_msg += "\nPlease add the missing task instances or remove the dependencies.\n"
+            error_msg += "=" * 70 + "\n"
+            raise ValueError(error_msg)
 
     def add_tracked(self, constraint, label: str):
         """Add a constraint with tracking for unsat core analysis."""
@@ -434,6 +495,35 @@ class TaskNetSMT:
             print(f"        • Review duration ranges for flexibility")
             print(f"        • Check for circular dependencies or impossible ordering")
 
+        # Analyze missing dependency errors
+        if any(cat.startswith('missing_dependency') for cat in by_category):
+            print(f"\n  MISSING DEPENDENCY ERROR:")
+            print(f"  The following tasks have dependencies on task definitions that don't exist:\n")
+
+            for cat in ['missing_dependency_after', 'missing_dependency_containedin']:
+                if cat in by_category:
+                    for label in by_category[cat]:
+                        # Parse: "missing_dependency_after: task 'X' requires 'Y' but no instances exist"
+                        if "task '" in label and "requires '" in label:
+                            parts = label.split("task '")
+                            if len(parts) >= 2:
+                                task_id = parts[1].split("'")[0]
+                                req_parts = label.split("requires '")
+                                if len(req_parts) >= 2:
+                                    required = req_parts[1].split("'")[0]
+                                    dep_type = "after" if "after" in cat else "containedin"
+                                    print(f"    • Task '{task_id}' has '{dep_type} {required}' but no instances of '{required}' exist")
+
+            print(f"\n      ⚠️  Critical Error: Dependencies reference non-existent task definitions.")
+            print(f"      This usually indicates:")
+            print(f"        • Missing task instances in the tasknet definition")
+            print(f"        • Incorrect dependency specification")
+            print(f"        • Tasks were removed but dependencies were not updated")
+            print(f"\n      Solutions:")
+            print(f"        • Add instances of the required task definitions")
+            print(f"        • Remove the dependencies if they're no longer needed")
+            print(f"        • Check the source XML/tasknet file for errors")
+
     # -------------------
     # Resolving task definitions
     # -------------------
@@ -647,7 +737,10 @@ class TaskNetSMT:
 
                     if not def_instances:
                         # No instances of required definition - constraint cannot be satisfied
-                        self.solver.add(False)
+                        if isinstance(self.solver, Solver):
+                            self.add_tracked(False, f"missing_dependency_after: task '{t.id}' requires '{def_id}' but no instances exist")
+                        else:
+                            self.solver.add(False)
                     else:
                         # At least one instance must complete before this task starts
                         # Encoding: OR over all instances: (end(inst1) <= s) OR (end(inst2) <= s) OR ...
@@ -675,7 +768,10 @@ class TaskNetSMT:
 
                     if not def_instances:
                         # No instances of required definition - constraint cannot be satisfied
-                        self.solver.add(False)
+                        if isinstance(self.solver, Solver):
+                            self.add_tracked(False, f"missing_dependency_containedin: task '{t.id}' requires '{def_id}' but no instances exist")
+                        else:
+                            self.solver.add(False)
                     else:
                         # Must be contained within at least one instance
                         # Encoding: OR over all instances:
