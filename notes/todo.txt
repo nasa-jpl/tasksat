@@ -3,8 +3,7 @@ TODO
 
 FOR SUPPORTING TRANSLATION FROM MEXEC TASKNET
 
--> Unsat core
-- Translator from TaskSAT to XML
+- Translate real tasknet
 
 SHORT TERM
 
@@ -26,6 +25,7 @@ SHORT TERM
 MID TERM
 
 - min/max instances of optional tasks (MEXEC TASKNET HAS THIS)
+- instatiate tasks from task definitions if needed (~optional)
 - Allow option to only run safety check (they can be faster)
 - Include temporal properties as constraint in scheduling phase
 - Python API to the tool.
