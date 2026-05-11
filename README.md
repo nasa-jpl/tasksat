@@ -84,7 +84,7 @@ TaskSAT was created in order to explore an alternative method for analysing and 
 
 ## Alternative Approach: LLM-Based Scheduler
 
-For large tasknets (> 20 tasks) where TaskSAT may timeout, we provide an **LLM-based scheduler** that uses a generate-and-test loop. See **[README-LLM.md](README-LLM.md)** for complete details.
+For large tasknets (> 20 tasks) where TaskSAT may timeout, we provide an **LLM-based scheduler** that uses a generate-and-test loop. See **[README-LLM.md](jpl/doc/README-LLM.md)** for complete details.
 
 **Quick overview:**
 - Uses Claude (via JPL GenAI API) to generate candidate schedules
