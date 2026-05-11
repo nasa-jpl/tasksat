@@ -181,7 +181,7 @@ def scheduleJson (tn : TaskNet) (sch : Schedule) : Json :=
   jobj
     [ ("tasknetId", jstr tn.id)
     , ("endTime",   toJson tn.endTime)
-    , ("valid",     jbool (Admissible tn sch))
+    , ("valid",     jbool (Admissible tn sch ∅))  -- empty set: all tasks are required
     , ("steps",     jarr (ks.map (stepJson tn sch σ)))
     ]
 

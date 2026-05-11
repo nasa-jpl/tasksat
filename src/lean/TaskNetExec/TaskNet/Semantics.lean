@@ -32,9 +32,20 @@ abbrev TimeInterval := Time × Time
 abbrev Schedule    := Std.HashMap TaskName TimeInterval
 abbrev State       := Std.HashMap TimeLineName Value
 abbrev Trace       := List State
+abbrev SparseTrace := List (Time × State)
 abbrev IntervalMap := Std.HashMap TimeLineName Interval
 abbrev Change      := Option Value × Option Float
 abbrev ChangeMap   := Std.HashMap TimeLineName Change
+
+structure Violation where
+  time     : Time
+  task     : String
+  kind     : String  -- "pre", "inv", "post", "range", "timing"
+  timeline : String
+  message  : String
+deriving Repr
+
+abbrev ValidationResult := Bool × List Violation
 
 -------------------------
 -- Auxiliary Functions --
@@ -62,7 +73,12 @@ def addValues (v : Value) (δ : Float) : Option Value :=
   | .intVal i  => some (.realVal (Float.ofInt i + δ))
   | .realVal r => some (.realVal (r + δ))
   | .strVal _  => none
-  | .boolVal _ => none
+  | .boolVal b =>
+      -- For atomic timelines: treat false as 0, true as 1, then add delta
+      -- Result is non-zero (> 0.5) means true, otherwise false
+      let val := if b then 1.0 else 0.0
+      let result := val + δ
+      some (.boolVal (result > 0.5))
 
 def clamp (x low high : Float) : Float :=
   if x < low then low else if x > high then high else x
@@ -146,29 +162,158 @@ def TimeLineRangesOk (tls : List Timeline) (state : State) : Bool :=
   | tl :: ts => TimeLineRangeOk tl state ∧ TimeLineRangesOk ts state
 
 def PreInvPostAt (tsk : TaskDef) (sch : Schedule)
-  (cur next : State) (k : Time) : Bool :=
+  (prev cur next : State) (k : Time) : Bool :=
   match sch.get? tsk.id with
   | none => false
   | some (st, en) =>
-      let preOk  := if k = st                 then TimeLineConditions tsk.pre  cur  else true
-      let invOk  := if st ≤ k ∧ k ≤ en        then TimeLineConditions tsk.inv  cur  else true
-      let postOk := if k = en                 then TimeLineConditions tsk.post next else true
+      let preOk  := if k = st then TimeLineConditions tsk.pre prev else true
+      -- At k=en, check INV against prev (before MAINT reverse); at other times use cur
+      let invOk  := if st < k ∧ k ≤ en then
+                      let state := if k = en then prev else cur
+                      TimeLineConditions tsk.inv state
+                    else true
+      let postOk := if k = en then TimeLineConditions tsk.post cur else true
       preOk && invOk && postOk
 
 def ObligationsHold (tn : TaskNet) (sch : Schedule) (σ : Trace) : Bool :=
   let len := σ.length
   let rec loop (k : Nat) : Bool :=
     if k < len then
+      let prev := if k > 0 then σ[k-1]! else σ[k]!
       let cur  := σ[k]!
       let next := if k + 1 < len then σ[k+1]! else cur
       let ok1  := TimeLineRangesOk tn.timelines cur
       let ok2  :=
         match tn.tasks with
         | []       => true
-        | _        => tn.tasks.all (fun t => PreInvPostAt t sch cur next k)
+        | _        => tn.tasks.all (fun t => PreInvPostAt t sch prev cur next k)
       if ok1 && ok2 then loop (k+1) else false
     else true
   loop 0
+
+/-- Sparse version of ObligationsHold - only checks at boundary times. -/
+def ObligationsHoldSparse (tn : TaskNet) (sch : Schedule) (σs : SparseTrace) : Bool :=
+  let rec loop (trace : SparseTrace) (prev : State) : Bool :=
+    match trace with
+    | [] => true
+    | (k, cur) :: rest =>
+        let next := match rest with
+                    | [] => cur
+                    | (_, s) :: _ => s
+        let ok1 := TimeLineRangesOk tn.timelines cur
+        let ok2 :=
+          match tn.tasks with
+          | [] => true
+          | _  => tn.tasks.all (fun t => PreInvPostAt t sch prev cur next k)
+        if ok1 && ok2 then loop rest cur else false
+  match σs with
+  | [] => true
+  | (_, σ0) :: rest => loop rest σ0
+
+-- Violation collection versions
+
+def checkTimeLineCondition (cond : TlCon) (state : State) (taskId : String) (k : Time) (kind : String) : List Violation :=
+  match state.get? cond.id with
+  | some v =>
+      if Cons cond.cons v then []
+      else [{
+        time := k,
+        task := taskId,
+        kind := kind,
+        timeline := cond.id,
+        message := s!"{kind} condition failed for timeline {cond.id}"
+      }]
+  | none => [{
+      time := k,
+      task := taskId,
+      kind := kind,
+      timeline := cond.id,
+      message := s!"Timeline {cond.id} not found in state"
+    }]
+
+def checkTimeLineConditions (conds : List TlCon) (state : State) (taskId : String) (k : Time) (kind : String) : List Violation :=
+  conds.flatMap (fun cond => checkTimeLineCondition cond state taskId k kind)
+
+def checkPreInvPostAt (tsk : TaskDef) (sch : Schedule) (prev cur next : State) (k : Time) : List Violation :=
+  match sch.get? tsk.id with
+  | none => []
+  | some (st, en) =>
+      let preViolations  := if k = st then checkTimeLineConditions tsk.pre prev tsk.id k "pre" else []
+      -- At k=en, check INV against prev (before MAINT reverse); at other times use cur
+      let invViolations  := if st < k ∧ k ≤ en then
+                              let state := if k = en then prev else cur
+                              checkTimeLineConditions tsk.inv state tsk.id k "inv"
+                            else []
+      let postViolations := if k = en then checkTimeLineConditions tsk.post cur tsk.id k "post" else []
+      preViolations ++ invViolations ++ postViolations
+
+def checkTimeLineRangeOk (tl : Timeline) (state : State) (k : Time) : List Violation :=
+  match tl with
+  | .stateTimeline _ _ _ => []
+  | .atomicTimeline _    => []
+  | .claimableTimeline id range _ =>
+      match state.get? id with
+      | some v =>
+          match valueToReal? v with
+          | some r =>
+              if range.low ≤ r ∧ r ≤ range.high then []
+              else [{
+                time := k,
+                task := "",
+                kind := "range",
+                timeline := id,
+                message := s!"Timeline {id} value {r} outside range [{range.low}, {range.high}]"
+              }]
+          | none => []
+      | none => []
+  | .cumulativeTimeline id range _ _ =>
+      match state.get? id with
+      | some v =>
+          match valueToReal? v with
+          | some r =>
+              if range.low ≤ r ∧ r ≤ range.high then []
+              else [{
+                time := k,
+                task := "",
+                kind := "range",
+                timeline := id,
+                message := s!"Timeline {id} value {r} outside range [{range.low}, {range.high}]"
+              }]
+          | none => []
+      | none => []
+  | .rateTimeline id range _ _ =>
+      match state.get? id with
+      | some v =>
+          match valueToReal? v with
+          | some r =>
+              if range.low ≤ r ∧ r ≤ range.high then []
+              else [{
+                time := k,
+                task := "",
+                kind := "range",
+                timeline := id,
+                message := s!"Timeline {id} value {r} outside range [{range.low}, {range.high}]"
+              }]
+          | none => []
+      | none => []
+
+def checkTimeLineRangesOk (tls : List Timeline) (state : State) (k : Time) : List Violation :=
+  tls.flatMap (fun tl => checkTimeLineRangeOk tl state k)
+
+def collectObligationViolations (tn : TaskNet) (sch : Schedule) (σs : SparseTrace) : List Violation :=
+  let rec loop (trace : SparseTrace) (prev : State) (acc : List Violation) : List Violation :=
+    match trace with
+    | [] => acc
+    | (k, cur) :: rest =>
+        let next := match rest with
+                    | [] => cur
+                    | (_, s) :: _ => s
+        let rangeViolations := checkTimeLineRangesOk tn.timelines cur k
+        let taskViolations := tn.tasks.flatMap (fun t => checkPreInvPostAt t sch prev cur next k)
+        loop rest cur (acc ++ rangeViolations ++ taskViolations)
+  match σs with
+  | [] => []
+  | (_, σ0) :: rest => loop rest σ0 []
 
 -- Impacts
 
@@ -278,29 +423,222 @@ def Assignments (tsks : List TaskDef) (sch : Schedule) : List (TimeLineName × T
         let (x₂, t₂) := asgns[j]!
         if x₁ == x₂ then t₁ ≠ t₂ else true))
 
-def StartEndTimesOkTask(tsk : TaskDef) (sch : Schedule) (n : Time) : Bool :=
+-- Helper: Check if task matches a definition name (by extracting prefix before numbers)
+def taskMatchesDefinition (taskId : String) (defName : String) : Bool :=
+  -- Simple heuristic: task "downlink_all1" matches definition "downlink_all"
+  -- More robust: check if taskId starts with defName (may have suffix like "_1", "1", "__1")
+  taskId.startsWith defName
+
+-- Check type-level "after" constraint (existential)
+def checkAfterDefinitions (tsk : TaskDef) (sch : Schedule) (allTasks : List TaskDef) : Bool :=
+  tsk.after_definitions.all (fun defName =>
+    -- ∃ dep : TaskDef such that dep matches defName and dep ends before tsk starts
+    allTasks.any (fun dep =>
+      taskMatchesDefinition dep.id defName &&
+      match sch.get? dep.id, sch.get? tsk.id with
+      | some (_, dep_end), some (tsk_start, _) => dep_end ≤ tsk_start
+      | _, _ => false
+    )
+  )
+
+-- Check type-level "containedin" constraint (existential)
+def checkContainedinDefinitions (tsk : TaskDef) (sch : Schedule) (allTasks : List TaskDef) : Bool :=
+  tsk.containedin_definitions.all (fun defName =>
+    -- ∃ container : TaskDef such that container matches defName and tsk is contained within it
+    allTasks.any (fun container =>
+      taskMatchesDefinition container.id defName &&
+      match sch.get? container.id, sch.get? tsk.id with
+      | some (c_start, c_end), some (tsk_start, tsk_end) =>
+          c_start ≤ tsk_start ∧ tsk_end ≤ c_end
+      | _, _ => false
+    )
+  )
+
+def StartEndTimesOkTask(tsk : TaskDef) (sch : Schedule) (allTasks : List TaskDef) (n : Time) : Bool :=
   match sch.get? tsk.id with
   | some (st, en) =>
+      let duration := en - st
       en ≤ n ∧
       inIntRange tsk.startrng st ∧
       inIntRange tsk.endrng   en ∧
-      en - st = tsk.dur ∧
+      inIntRange tsk.durrng   duration ∧
       tsk.after.all (fun bid =>
         match sch.get? bid with
         | some (_, ben) => ben ≤ st
-        | none => false)
+        | none => false) ∧
+      tsk.containedin.all (fun cid =>
+        match sch.get? cid with
+        | some (cst, cen) => cst ≤ st ∧ en ≤ cen
+        | none => false) ∧
+      checkAfterDefinitions tsk sch allTasks ∧
+      checkContainedinDefinitions tsk sch allTasks
   | none => false
 
-def StartEndTimesOkTasks (tsks : List TaskDef) (sch : Schedule) (n : Time) : Bool :=
+-- Helper: find taskdef by name
+def findTaskdef (taskdefs : List TaskDef) (name : String) : Option TaskDef :=
+  taskdefs.find? (fun td => td.id == name)
+
+def checkStartEndTimesOkTask (tsk : TaskDef) (sch : Schedule) (allTasks : List TaskDef) (taskdefs : List TaskDef) (n : Time) : List Violation :=
+  match sch.get? tsk.id with
+  | some (st, en) =>
+      let duration := en - st
+
+      let v1 := if ¬(en ≤ n) then [{
+          time := en,
+          task := tsk.id,
+          kind := "timing",
+          timeline := "",
+          message := s!"Task {tsk.id} ends at {en} after endTime {n}"
+        }] else []
+
+      let v2 := if ¬(inIntRange tsk.startrng st) then [{
+          time := st,
+          task := tsk.id,
+          kind := "timing",
+          timeline := "",
+          message := s!"Task {tsk.id} starts at {st} outside range [{tsk.startrng.low}, {tsk.startrng.high}]"
+        }] else []
+
+      let v3 := if ¬(inIntRange tsk.endrng en) then [{
+          time := en,
+          task := tsk.id,
+          kind := "timing",
+          timeline := "",
+          message := s!"Task {tsk.id} ends at {en} outside range [{tsk.endrng.low}, {tsk.endrng.high}]"
+        }] else []
+
+      let v4 := if ¬(inIntRange tsk.durrng duration) then [{
+          time := st,
+          task := tsk.id,
+          kind := "timing",
+          timeline := "",
+          message := s!"Task {tsk.id} duration {duration} outside range [{tsk.durrng.low}, {tsk.durrng.high}]"
+        }] else []
+
+      let v5 := tsk.after.flatMap (fun bid =>
+        match sch.get? bid with
+        | some (_, ben) =>
+            if ¬(ben ≤ st) then [{
+              time := st,
+              task := tsk.id,
+              kind := "timing",
+              timeline := "",
+              message := s!"Task {tsk.id} violates 'after {bid}' constraint (starts at {st}, {bid} ends at {ben})"
+            }] else []
+        | none => [{
+            time := st,
+            task := tsk.id,
+            kind := "timing",
+            timeline := "",
+            message := s!"Task {tsk.id} references unknown task {bid} in 'after' constraint"
+          }])
+
+      let v6 := tsk.containedin.flatMap (fun cid =>
+        match sch.get? cid with
+        | some (cst, cen) =>
+            if ¬(cst ≤ st ∧ en ≤ cen) then [{
+              time := st,
+              task := tsk.id,
+              kind := "timing",
+              timeline := "",
+              message := s!"Task {tsk.id} not contained in {cid} ([{st},{en}] not in [{cst},{cen}])"
+            }] else []
+        | none => [{
+            time := st,
+            task := tsk.id,
+            kind := "timing",
+            timeline := "",
+            message := s!"Task {tsk.id} references unknown task {cid} in 'containedin' constraint"
+          }])
+
+      let v7 := tsk.after_definitions.flatMap (fun defName =>
+        let matchingTasks := allTasks.filter (fun dep => taskMatchesDefinition dep.id defName)
+        if matchingTasks.isEmpty then
+          match findTaskdef taskdefs defName with
+          | some taskdef =>
+              let constraintInfo := s!"(durrng=[{taskdef.durrng.low},{taskdef.durrng.high}], pre={taskdef.pre.length} conds, inv={taskdef.inv.length} conds)"
+              [{
+                time := st,
+                task := tsk.id,
+                kind := "timing",
+                timeline := "",
+                message := s!"Task {tsk.id} requires 'after {defName}' but no instances exist. Need {defName} instance {constraintInfo}"
+              }]
+          | none => [{
+              time := st,
+              task := tsk.id,
+              kind := "timing",
+              timeline := "",
+              message := s!"Task {tsk.id} requires 'after {defName}' but no instances exist (taskdef not found)"
+            }]
+        else
+          let satisfied := matchingTasks.any (fun dep =>
+            match sch.get? dep.id with
+            | some (_, dep_end) => dep_end ≤ st
+            | none => false)
+          if ¬satisfied then [{
+            time := st,
+            task := tsk.id,
+            kind := "timing",
+            timeline := "",
+            message := s!"Task {tsk.id} violates 'after {defName}' constraint: no instance of {defName} ends before {st}"
+          }] else [])
+
+      let v8 := tsk.containedin_definitions.flatMap (fun defName =>
+        let matchingTasks := allTasks.filter (fun container => taskMatchesDefinition container.id defName)
+        if matchingTasks.isEmpty then
+          match findTaskdef taskdefs defName with
+          | some taskdef =>
+              let constraintInfo := s!"(durrng=[{taskdef.durrng.low},{taskdef.durrng.high}], pre={taskdef.pre.length} conds, inv={taskdef.inv.length} conds)"
+              [{
+                time := st,
+                task := tsk.id,
+                kind := "timing",
+                timeline := "",
+                message := s!"Task {tsk.id} requires 'containedin {defName}' but no instances exist. Need {defName} instance {constraintInfo}"
+              }]
+          | none => [{
+              time := st,
+              task := tsk.id,
+              kind := "timing",
+              timeline := "",
+              message := s!"Task {tsk.id} requires 'containedin {defName}' but no instances exist (taskdef not found)"
+            }]
+        else
+          let satisfied := matchingTasks.any (fun container =>
+            match sch.get? container.id with
+            | some (c_start, c_end) => c_start ≤ st ∧ en ≤ c_end
+            | none => false)
+          if ¬satisfied then [{
+            time := st,
+            task := tsk.id,
+            kind := "timing",
+            timeline := "",
+            message := s!"Task {tsk.id} violates 'containedin {defName}' constraint: no instance of {defName} contains [{st},{en}]"
+          }] else [])
+
+      v1 ++ v2 ++ v3 ++ v4 ++ v5 ++ v6 ++ v7 ++ v8
+  | none => [{
+      time := 0,
+      task := tsk.id,
+      kind := "timing",
+      timeline := "",
+      message := s!"Task {tsk.id} not found in schedule"
+    }]
+
+def collectStartEndTimesViolations (tsks : List TaskDef) (allTasks : List TaskDef) (taskdefs : List TaskDef) (sch : Schedule) (n : Time) : List Violation :=
+  tsks.flatMap (fun t => checkStartEndTimesOkTask t sch allTasks taskdefs n)
+
+def StartEndTimesOkTasks (tsks : List TaskDef) (allTasks : List TaskDef) (sch : Schedule) (n : Time) : Bool :=
   match tsks with
   | []       => True
-  | t :: ts  => StartEndTimesOkTask t sch n ∧ StartEndTimesOkTasks ts sch n
+  | t :: ts  => StartEndTimesOkTask t sch allTasks n ∧ StartEndTimesOkTasks ts allTasks sch n
 
 def StartEndTimesOk (tn : TaskNet) (sch : Schedule) : Bool :=
   let ids    := TaskNamesOf tn.tasks
   let domOk  := hashSetEq (dom sch) ids
   let noSim  := NoSimultaneousAssignments tn.tasks sch
-  let timeOk := StartEndTimesOkTasks tn.tasks sch tn.endTime
+  let timeOk := StartEndTimesOkTasks tn.tasks tn.tasks sch tn.endTime
   domOk && noSim && timeOk
 
 -- Task networks
@@ -341,21 +679,81 @@ def applyChanges (oldState : State) (changeMap : ChangeMap) (bnds : IntervalMap)
       | none => resultV
     acc.insert tl finalV)
 
-/-- Execute the schedule to produce the unique trace (length = endTime + 1). -/
-def Execute (tn : TaskNet) (sch : Schedule) : Trace :=
+/-- Collect all task boundary times (start and end times) from schedule. -/
+def boundaryTimes (sch : Schedule) : List Time :=
+  let times := sch.fold (init := []) (fun acc _ (st, en) => st :: en :: acc)
+  let withZero := 0 :: times
+  let unique := withZero.eraseDups
+  unique.mergeSort (· ≤ ·)
+
+/-- Look up state at given time in a sparse trace (returns state from most recent boundary). -/
+def stateAtTime (σ : SparseTrace) (t : Time) (default : State) : State :=
+  match σ with
+  | [] => default
+  | (t', s) :: rest =>
+      if t' ≤ t then
+        match rest with
+        | [] => s  -- Last boundary
+        | (t'', _) :: _ =>
+            if t < t'' then s  -- Before next boundary
+            else stateAtTime rest t default
+      else default
+
+/-- Execute schedule using zone-based computation (sparse trace with only boundary states).
+    Much more efficient than tick-by-tick for large endTime. -/
+def ExecuteSparse (tn : TaskNet) (sch : Schedule) : SparseTrace :=
   let bnds := Bounds tn.timelines
   let σ0   := initialState tn.timelines
-  let rec go (r : Nat) (k : Nat) (cur : State) (acc : List State) : List State :=
-    match r with
-    | 0      => (cur :: acc).reverse
-    | r'+1   =>
-        let cm  := ComputeChanges tn.tasks sch k
+  let boundaries := boundaryTimes sch
+  -- Compute states at each boundary
+  let rec go (times : List Time) (cur : State) (acc : SparseTrace) : SparseTrace :=
+    match times with
+    | [] => acc.reverse
+    | t :: rest =>
+        let cm  := ComputeChanges tn.tasks sch t
         let nxt := applyChanges cur cm bnds
-        go r' (k+1) nxt (cur :: acc)
-  go tn.endTime 0 σ0 []
+        go rest nxt ((t, nxt) :: acc)
+  go boundaries σ0 [(0, σ0)]
 
-def Admissible (tn : TaskNet) (sch : Schedule) : Bool :=
-  let σ := Execute tn sch
-  StartEndTimesOk tn sch && ObligationsHold tn sch σ
+/-- Legacy Execute for backwards compatibility (builds full trace). -/
+def Execute (tn : TaskNet) (sch : Schedule) : Trace :=
+  let σs := ExecuteSparse tn sch
+  let rec expand (k : Nat) (acc : List State) : List State :=
+    if k > tn.endTime then
+      acc.reverse
+    else
+      let σ := stateAtTime σs k (initialState tn.timelines)
+      expand (k+1) (σ :: acc)
+  termination_by tn.endTime + 1 - k
+  expand 0 []
+
+/-- Efficient validation with detailed violation reporting. -/
+def AdmissibleWithViolations (tn : TaskNet) (sch : Schedule) (included : HashSet TaskName) : ValidationResult :=
+  -- Filter tasks by what's included in schedule
+  let activeTasks := tn.tasks.filter (fun t =>
+    match t.kind with
+    | .required => true
+    | .optional => included.contains t.id
+    | .request  => included.contains t.id)
+  -- Create modified tasknet with only active tasks
+  let tn' := { tn with tasks := activeTasks }
+  let σs := ExecuteSparse tn' sch
+
+  -- Collect all violations
+  -- Use tn.tasks (full list) for dependency checking, but only validate active tasks
+  let timingViolations := collectStartEndTimesViolations tn'.tasks tn.tasks tn.taskdefs sch tn'.endTime
+  let obligationViolations := collectObligationViolations tn' sch σs
+  let allViolations := timingViolations ++ obligationViolations
+
+  (allViolations.isEmpty, allViolations)
+
+/-- Efficient sparse version of Admissible (recommended for large endTime). -/
+def AdmissibleSparse (tn : TaskNet) (sch : Schedule) (included : HashSet TaskName) : Bool :=
+  let (valid, _) := AdmissibleWithViolations tn sch included
+  valid
+
+/-- Legacy Admissible (builds full trace, slow for large endTime). -/
+def Admissible (tn : TaskNet) (sch : Schedule) (included : HashSet TaskName) : Bool :=
+  AdmissibleSparse tn sch included
 
 end TaskNet

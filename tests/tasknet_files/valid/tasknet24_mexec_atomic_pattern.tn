@@ -1,0 +1,32 @@
+# Test: MEXEC atomic timeline pattern
+# Pattern: PRE=false, MAINT_IMPACT+=1, INV=true
+# This pattern requires invariant to be checked AFTER impacts take effect
+# Used in MEXEC XML for atomic timeline resource claiming
+
+tasknet MexecAtomicPattern {
+  end = 200;
+
+  timelines {
+    resource : atomic = false;
+  }
+
+  task claim_resource {
+    id 1;
+    start_range [10, 50];
+    duration_range [30, 50];
+
+    pre {
+      resource = false;  # Resource must be free before task starts
+    }
+
+    inv {
+      resource = true;  # Resource must be claimed during execution
+    }
+
+    impacts {
+      maint {
+        resource += 1;  # Claim at start (+1), release at end (-1)
+      }
+    }
+  }
+}

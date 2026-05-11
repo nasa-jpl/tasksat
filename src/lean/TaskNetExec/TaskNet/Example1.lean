@@ -35,9 +35,12 @@ def tasknet : TaskNet :=
         priority := 1,
         startrng := {low := 0, high := 20},
         endrng   := {low := 80, high := 100},
+        durrng   := {low := 70, high := 90},
         dur := 80,
         start := 10,
         after := [],
+        containedin := [],
+        kind := TaskKind.required,
         pre := [
           {id := "driving", cons := [Con.val (Value.strVal "off")]},
           {id := "communicating", cons := [Con.val (Value.strVal "off")]},
@@ -63,9 +66,12 @@ def tasknet : TaskNet :=
           priority := 1,
           startrng := {low := 100, high := 120},
           endrng   := {low := 180, high := 200},
+          durrng   := {low := 70, high := 90},
           dur := 80,
           start := 110,
           after := ["heating"],
+          containedin := [],
+          kind := TaskKind.required,
           pre := [
             {id := "communicating", cons := [Con.val (Value.strVal "off")]},
             {id := "distance", cons := [Con.r_rng {low := 5.0, high := 100.0}]},
@@ -93,9 +99,12 @@ def tasknet : TaskNet :=
           priority := 1,
           startrng := {low := 200, high := 220},
           endrng   := {low := 280, high := 300},
+          durrng   := {low := 70, high := 90},
           dur := 80,
           start := 210,
           after := [],
+          containedin := [],
+          kind := TaskKind.required,
           pre := [
             {id := "driving", cons := [Con.val (Value.strVal "off")]},
             {id := "radio", cons := [Con.val (Value.boolVal false)]},
@@ -160,7 +169,7 @@ def Prop6: TPred :=
 def Props : TPred :=
   Prop1 ∧ Prop2 ∧ Prop3 ∧ Prop4 ∧ Prop5 ∧ Prop6
 
-#eval Admissible tasknet sch
+#eval Admissible tasknet sch ∅  -- empty set: all tasks are required
 #eval TemporalHolds tasknet sch Props
 -- Admmissible and TemporalHolds should both be true:
 #eval Satisfactory tasknet sch Props
