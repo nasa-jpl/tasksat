@@ -36,7 +36,7 @@ The bottleneck is NOT the boolean search space (optional/request tasks) but the 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ 1. Convert .tn → Lean JSON                              │
-│    (tools/lean_converter.py)                            │
+│    (jpl/tools/lean_converter.py)                            │
 └─────────────────────┬───────────────────────────────────┘
                       │
                       ▼
@@ -103,13 +103,13 @@ uv run genai_api token
 ### Basic Command
 
 ```bash
-python3 tools/llm_scheduler.py <tasknet.tn>
+python3 jpl/tools/llm_scheduler.py <tasknet.tn>
 ```
 
 ### With Options
 
 ```bash
-python3 tools/llm_scheduler.py <tasknet.tn> \
+python3 jpl/tools/llm_scheduler.py <tasknet.tn> \
   --guidance <guidance-file.txt> \
   --max-attempts <number> \
   --model <model-id> \
@@ -127,18 +127,18 @@ python3 tools/llm_scheduler.py <tasknet.tn> \
 
 **1. Simple 10-task MEXEC:**
 ```bash
-python3 tools/llm_scheduler.py test_mexec_10tasks.tn
+python3 jpl/tools/llm_scheduler.py test_mexec_10tasks.tn
 ```
 
 **2. Large 50-task MEXEC with guidance:**
 ```bash
-python3 tools/llm_scheduler.py ./jpl/mexec/xml/tasknet.tn \
+python3 jpl/tools/llm_scheduler.py ./jpl/mexec/xml/tasknet.tn \
   --guidance jpl/mexec/mexec_guidance.txt
 ```
 
 **3. With more attempts:**
 ```bash
-python3 tools/llm_scheduler.py tasknet.tn --max-attempts 15
+python3 jpl/tools/llm_scheduler.py tasknet.tn --max-attempts 15
 ```
 
 ## Output
@@ -183,10 +183,10 @@ Visualization is **enabled by default** and creates grouped Gantt charts during 
 
 ```bash
 # Automatic visualization (default)
-python3 tools/llm_scheduler.py tasknet.tn --guidance guidance.txt
+python3 jpl/tools/llm_scheduler.py tasknet.tn --guidance guidance.txt
 
 # Disable visualization if not needed
-python3 tools/llm_scheduler.py tasknet.tn --no-visualize
+python3 jpl/tools/llm_scheduler.py tasknet.tn --no-visualize
 ```
 
 **What happens:**
@@ -225,10 +225,10 @@ After generating a schedule, you can also create custom visualizations:
 
 ```bash
 # Basic Gantt chart (one line per task)
-python3 tools/visualize_schedule.py schedule.json
+python3 jpl/tools/visualize_schedule.py schedule.json
 
 # Grouped view (tasks of same type on one line) - recommended
-python3 tools/visualize_schedule.py schedule.json --grouped --output gantt.png
+python3 jpl/tools/visualize_schedule.py schedule.json --grouped --output gantt.png
 ```
 
 **Features:**
@@ -419,7 +419,7 @@ This tells the LLM:
 
 **Under the hood:**
 
-1. **Converter** ([tools/lean_converter.py](../../tools/lean_converter.py)): Separates taskdefs from instances, outputs both to JSON
+1. **Converter** ([jpl/tools/lean_converter.py](../../jpl/tools/lean_converter.py)): Separates taskdefs from instances, outputs both to JSON
 2. **LLM prompt**: Includes MEXEC rule explaining dynamic instantiation (see [SEMANTIC-RULES.md §2.4](SEMANTIC-RULES.md#L85))
 3. **Schedule generation**: LLM creates instances in schedule JSON with names matching taskdefs
 4. **Validation**: Before calling Lean, `augment_tasknet_with_dynamic_instances()` finds schedule tasks that don't exist in tasknet, matches them to taskdefs by prefix, and instantiates them
@@ -518,7 +518,7 @@ cd ~/Desktop/genai_api
 uv run python3 examples/example.py | grep "Available models"
 
 # Use a specific model
-python3 tools/llm_scheduler.py tasknet.tn --model <model-id>
+python3 jpl/tools/llm_scheduler.py tasknet.tn --model <model-id>
 ```
 
 ## Performance
@@ -575,7 +575,7 @@ The LLM scheduler comes with several supporting tools:
 Main tool for generating schedules:
 
 ```bash
-python3 tools/llm_scheduler.py tasknet.tn \
+python3 jpl/tools/llm_scheduler.py tasknet.tn \
   --guidance guidance.txt \
   --max-attempts 10
 ```
@@ -590,7 +590,7 @@ python3 tools/llm_scheduler.py tasknet.tn \
 Creates Gantt charts from schedules:
 
 ```bash
-python3 tools/visualize_schedule.py schedule.json --grouped -o gantt.png
+python3 jpl/tools/visualize_schedule.py schedule.json --grouped -o gantt.png
 ```
 
 **Features:**
@@ -613,7 +613,7 @@ python3 tools/visualize_schedule.py schedule.json --grouped -o gantt.png
 Converts .tn files to Lean JSON format:
 
 ```bash
-python3 tools/lean_converter.py tasknet.tn output.json
+python3 jpl/tools/lean_converter.py tasknet.tn output.json
 ```
 
 **Used internally by llm_scheduler.py**, but can be run standalone for inspection.
@@ -633,14 +633,14 @@ lake exe tasknet-validate --tasknet tasknet.json --schedule schedule.json
 
 ```bash
 # 1. Generate schedule with guidance
-python3 tools/llm_scheduler.py ./jpl/mexec/xml/tasknet.tn \
+python3 jpl/tools/llm_scheduler.py ./jpl/mexec/xml/tasknet.tn \
   --guidance jpl/mexec/mexec_guidance.txt \
   --max-attempts 10
 
 # Output: ./jpl/mexec/xml/tasknet_schedule.json
 
 # 2. Visualize the schedule
-python3 tools/visualize_schedule.py ./jpl/mexec/xml/tasknet_schedule.json \
+python3 jpl/tools/visualize_schedule.py ./jpl/mexec/xml/tasknet_schedule.json \
   --grouped \
   --output mexec_schedule_gantt.png
 
@@ -648,7 +648,7 @@ python3 tools/visualize_schedule.py ./jpl/mexec/xml/tasknet_schedule.json \
 open mexec_schedule_gantt.png
 
 # 4. (Optional) Manually validate with Lean
-python3 tools/lean_converter.py ./jpl/mexec/xml/tasknet.tn /tmp/tasknet.json
+python3 jpl/tools/lean_converter.py ./jpl/mexec/xml/tasknet.tn /tmp/tasknet.json
 cd src/lean/TaskNetExec
 lake exe tasknet-validate \
   --tasknet /tmp/tasknet.json \

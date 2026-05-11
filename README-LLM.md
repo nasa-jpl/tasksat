@@ -77,16 +77,16 @@ The LLM approach uses Claude (via JPL's GenAI API) to generate candidate schedul
 
 ```bash
 # Simple usage (automatic visualization)
-python3 tools/llm_scheduler.py tasknet.tn
+python3 jpl/tools/llm_scheduler.py tasknet.tn
 
 # With mission-specific guidance
-python3 tools/llm_scheduler.py tasknet.tn --guidance guidance.txt
+python3 jpl/tools/llm_scheduler.py tasknet.tn --guidance guidance.txt
 
 # Without visualization
-python3 tools/llm_scheduler.py tasknet.tn --no-visualize
+python3 jpl/tools/llm_scheduler.py tasknet.tn --no-visualize
 
 # With more attempts
-python3 tools/llm_scheduler.py tasknet.tn --max-attempts 15
+python3 jpl/tools/llm_scheduler.py tasknet.tn --max-attempts 15
 ```
 
 **Output**: 
@@ -96,7 +96,7 @@ python3 tools/llm_scheduler.py tasknet.tn --max-attempts 15
 ### Example Session
 
 ```bash
-$ python3 tools/llm_scheduler.py test_mexec_10tasks.tn
+$ python3 jpl/tools/llm_scheduler.py test_mexec_10tasks.tn
 
 🔐 Authenticating with JPL GenAI API...
    Connected to: https://gov.genai-api.jpl.nasa.gov
@@ -124,7 +124,7 @@ After generating a schedule, visualize it as a Gantt chart:
 
 ```bash
 # Grouped view (recommended)
-python3 tools/visualize_schedule.py test_mexec_10tasks_schedule.json --grouped
+python3 jpl/tools/visualize_schedule.py test_mexec_10tasks_schedule.json --grouped
 
 # Open the chart
 open gantt.png
@@ -220,7 +220,7 @@ See [mexec_guidance.txt](jpl/mexec/mexec_guidance.txt) for the complete guidance
 ### LLM Scheduler
 
 ```bash
-python3 tools/llm_scheduler.py <tasknet.tn> \
+python3 jpl/tools/llm_scheduler.py <tasknet.tn> \
   [--guidance <file.txt>] \
   [--max-attempts <N>] \
   [--model <model-id>] \
@@ -236,7 +236,7 @@ python3 tools/llm_scheduler.py <tasknet.tn> \
 ### Schedule Visualization
 
 ```bash
-python3 tools/visualize_schedule.py <schedule.json> \
+python3 jpl/tools/visualize_schedule.py <schedule.json> \
   [--output <file.png>] \
   [--grouped]
 ```
@@ -248,10 +248,10 @@ python3 tools/visualize_schedule.py <schedule.json> \
 **Example workflow:**
 ```bash
 # Generate schedule
-python3 tools/llm_scheduler.py tasknet.tn --guidance guidance.txt
+python3 jpl/tools/llm_scheduler.py tasknet.tn --guidance guidance.txt
 
 # Visualize it
-python3 tools/visualize_schedule.py tasknet_schedule.json --grouped -o schedule_gantt.png
+python3 jpl/tools/visualize_schedule.py tasknet_schedule.json --grouped -o schedule_gantt.png
 
 # View
 open schedule_gantt.png
@@ -261,7 +261,7 @@ open schedule_gantt.png
 
 ```bash
 # Convert tasknet to Lean JSON format
-python3 tools/lean_converter.py tasknet.tn output.json
+python3 jpl/tools/lean_converter.py tasknet.tn output.json
 
 # Validate schedule directly with Lean
 cd src/lean/TaskNetExec
@@ -313,5 +313,5 @@ The LLM scheduler provides a practical alternative to SMT-based scheduling for l
 
 **Try it now:**
 ```bash
-python3 tools/llm_scheduler.py test_mexec_10tasks.tn
+python3 jpl/tools/llm_scheduler.py test_mexec_10tasks.tn
 ```

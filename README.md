@@ -96,10 +96,10 @@ For large tasknets (> 20 tasks) where TaskSAT may timeout, we provide an **LLM-b
 **Try it:**
 ```bash
 # Generate schedule
-python3 tools/llm_scheduler.py tasknet.tn
+python3 jpl/tools/llm_scheduler.py tasknet.tn
 
 # Visualize as Gantt chart
-python3 tools/visualize_schedule.py tasknet_schedule.json --grouped
+python3 jpl/tools/visualize_schedule.py tasknet_schedule.json --grouped
 ```
 
 ## License, Copyright, Permissions, Disclaimer

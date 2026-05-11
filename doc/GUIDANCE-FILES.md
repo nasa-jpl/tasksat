@@ -205,7 +205,7 @@ Downlink scheduling:
 ### Command Line
 
 ```bash
-python3 tools/llm_scheduler.py tasknet.tn --guidance my_guidance.txt
+python3 jpl/tools/llm_scheduler.py tasknet.tn --guidance my_guidance.txt
 ```
 
 ### Multiple Guidance Files
@@ -214,7 +214,7 @@ Combine multiple guidance files:
 
 ```bash
 cat thermal.txt power.txt comm.txt > combined_guidance.txt
-python3 tools/llm_scheduler.py tasknet.tn --guidance combined_guidance.txt
+python3 jpl/tools/llm_scheduler.py tasknet.tn --guidance combined_guidance.txt
 ```
 
 ### Iterative Refinement
