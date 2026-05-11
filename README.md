@@ -82,6 +82,26 @@ TaskSAT was created in order to explore an alternative method for analysing and 
 - **[Manual](doc/manual.md)** - A language reference 
 - **[Theory](doc/smt-encoding.md)** - Theory behind SMT encoding
 
+## Alternative Approach: LLM-Based Scheduler
+
+For large tasknets (> 20 tasks) where TaskSAT may timeout, we provide an **LLM-based scheduler** that uses a generate-and-test loop. See **[jpl/doc/README.md](jpl/doc/README.md)** for complete details.
+
+**Quick overview:**
+- Uses Claude (via JPL GenAI API) to generate candidate schedules
+- Validates with Lean semantics (polynomial time)
+- Scales to 50+ task tasknets where TaskSAT times out
+- Supports mission-specific guidance files
+- Includes Gantt chart visualization tool
+
+**Try it:**
+```bash
+# Generate schedule
+python3 jpl/tools/llm_scheduler.py tasknet.tn
+
+# Visualize as Gantt chart
+python3 jpl/tools/visualize_schedule.py tasknet_schedule.json --grouped
+```
+
 ## License, Copyright, Permissions, Disclaimer
 
 APACHE LICENSE, VERSION 2.0: https://www.apache.org/licenses/LICENSE-2.0.txt

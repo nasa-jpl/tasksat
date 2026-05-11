@@ -5,8 +5,15 @@ FOR SUPPORTING TRANSLATION FROM MEXEC TASKNET
 
 - Translate real tasknet
 
+ISSUES
+
+- atomic: B or N
+- mexec/xml: preferred-duration not translated 
+- mexec/xml: pre-condition 0 is translated to false
+
 SHORT TERM
 
+- Check for non-existence of plan in any initial state (negation like for properties)
 - Colors for results
 - Store results in a JSON file
 - // comments
