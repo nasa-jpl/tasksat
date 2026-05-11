@@ -188,3 +188,11 @@ doc/papers/uppaal30/
 
 # Test artifacts
 jpl/mexec/test/debug/
+
+# Generated schedule outputs
+*_schedule.json
+*_schedule.png
+
+# Backup files
+*.tn~
+*.tn.old
