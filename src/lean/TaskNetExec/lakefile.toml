@@ -1,10 +1,10 @@
 name = "TaskNet"
 version = "0.1.0"
-defaultTargets = ["tasknet"]
+defaultTargets = ["tasknet-validate"]
 
 [[lean_lib]]
 name = "TaskNet"
 
 [[lean_exe]]
-name = "tasknet"
+name = "tasknet-validate"
 root = "Main"

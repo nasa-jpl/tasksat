@@ -99,19 +99,28 @@ deriving Repr, BEq
 -- Tasks --
 -----------
 
+inductive TaskKind where
+  | required | optional | request
+deriving Repr, BEq
+
 structure TaskDef where
-  id        : TaskName
-  ident     : TaskId
-  priority  : Nat
-  startrng  : IntRange
-  endrng    : IntRange
-  dur       : Nat
-  start     : Nat
-  after     : List Ident
-  pre       : List TlCon
-  inv       : List TlCon
-  post      : List TlCon
-  impacts   : List Impact
+  id         : TaskName
+  ident      : TaskId
+  priority   : Nat
+  startrng   : IntRange
+  endrng     : IntRange
+  durrng     : IntRange      -- duration range
+  dur        : Nat           -- preferred duration
+  start      : Nat
+  after      : List Ident    -- instance-level: specific task IDs
+  containedin: List Ident    -- instance-level: specific task IDs
+  after_definitions      : List String  -- type-level: taskdef names
+  containedin_definitions: List String  -- type-level: taskdef names
+  kind       : TaskKind      -- required/optional/request
+  pre        : List TlCon
+  inv        : List TlCon
+  post       : List TlCon
+  impacts    : List Impact
 deriving Repr, BEq
 
 ------------------
@@ -121,7 +130,8 @@ deriving Repr, BEq
 structure TaskNet where
   id        : TaskNetName
   timelines : List Timeline
-  tasks     : List TaskDef
+  tasks     : List TaskDef       -- Task instances
+  taskdefs  : List TaskDef       -- Task definitions (templates)
   endTime   : Nat
 deriving Repr, BEq
 

@@ -1500,7 +1500,7 @@ class TaskNetSMT:
                 if kind != "atomic":
                     self.solver.add(False)
                     return False
-                return expr == v.v
+                return expr == (1 if v.v else 0)
 
             if isinstance(v, IntVal):
                 # Check if it's a state timeline with numeric states
@@ -1584,7 +1584,11 @@ class TaskNetSMT:
 
           - INV:
               For each zone index j:
-                (z_j in [start_t, end_t]) -> inv holds at zone j.
+                (z_j in (start_t, end_t]) -> inv holds at zone j.
+
+              NOTE: Invariant is checked at zones AFTER start_t (i.e., start_t+1 through end_t).
+              This allows PRE and MAINT impacts to take effect before the invariant is checked,
+              matching MEXEC semantics where MAINT constraints are evaluated after MAINT impacts.
         """
         Z = self.zone_count
         z = self.zones
@@ -1619,13 +1623,15 @@ class TaskNetSMT:
                     else:
                         self.solver.add(Or(Not(self.optional_included[t.id]), zj != e, post_formula))
 
-                    # INV whenever active: either not included, or zone outside [start, end], or inv holds
+                    # INV whenever active: either not included, or zone outside (start, end], or inv holds
+                    # NOTE: Invariant is checked at zones (s+1) through e, NOT including zone s
+                    # This allows PRE/MAINT impacts to take effect before invariant is checked
                     if t.inv:  # Only track if inv condition exists
                         inv_desc = self._format_conditions(t.inv)
                         self.add_tracked(
                             Or(
                                 Not(self.optional_included[t.id]),
-                                zj < s,
+                                zj <= s,
                                 zj > e,
                                 inv_formula
                             ),
@@ -1635,7 +1641,7 @@ class TaskNetSMT:
                         self.solver.add(
                             Or(
                                 Not(self.optional_included[t.id]),
-                                zj < s,
+                                zj <= s,
                                 zj > e,
                                 inv_formula
                             )
@@ -1656,12 +1662,14 @@ class TaskNetSMT:
                     else:
                         self.solver.add(Or(zj != e, post_formula))
 
-                    # INV whenever active (inclusive bounds)
+                    # INV whenever active: checked at zones (s+1, e]
+                    # NOTE: Invariant is checked at zones (s+1) through e, NOT including zone s
+                    # This allows PRE/MAINT impacts to take effect before invariant is checked
                     if t.inv:  # Only track if inv condition exists
                         inv_desc = self._format_conditions(t.inv)
                         self.add_tracked(
                             Or(
-                                zj < s,
+                                zj <= s,
                                 zj > e,
                                 inv_formula
                             ),
@@ -1670,7 +1678,7 @@ class TaskNetSMT:
                     else:
                         self.solver.add(
                             Or(
-                                zj < s,
+                                zj <= s,
                                 zj > e,
                                 inv_formula
                             )

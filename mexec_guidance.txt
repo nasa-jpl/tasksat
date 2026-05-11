@@ -1,0 +1,32 @@
+MEXEC Mission-Specific Scheduling Guidance
+
+## Thermal Management Pattern
+
+Each downlink window MUST have its own dedicated preheat and maintainheat sequence:
+
+1. **Preheat Phase**: Schedule a comm_preheat__N instance to start exactly 100 time units before the corresponding orbiter_available_N window opens. This allows the communication hardware to warm up to operational temperature.
+
+2. **Maintainheat Phase**: Schedule a comm_maintainheat__N instance that spans the entire orbiter_available_N window (same start and end times). This maintains thermal stability during communication operations.
+
+3. **Pattern**: For each downlink_allN task, there should be:
+   - comm_preheat__N ending when orbiter_available_N starts
+   - comm_maintainheat__N spanning the orbiter_available_N window
+   - downlink_allN contained within comm_maintainheat__N
+
+DO NOT reuse a single preheat instance for multiple downlinks. Each downlink window requires its own thermal preparation cycle.
+
+## Example Pattern
+
+For downlink_all1 at orbiter window [360, 660]:
+- comm_preheat__1: [260, 360]  (100 units before window)
+- comm_maintainheat__1: [360, 660]  (spans the window)
+- downlink_all1: [400, 500]  (contained within maintainheat)
+
+Repeat this pattern for all 10 downlink windows.
+
+## Request Tasks
+
+For request tasks (global_localization_request_0, battery_recharge_request_0, route_segment_request_request_0):
+- Schedule them at reasonable times (not all at time 0)
+- Include their preheat/maintainheat dependencies if specified
+- Space them out to avoid resource conflicts

@@ -222,9 +222,11 @@ $$s_{t'} \leq s_t \land e_t \leq e_{t'}$$
 
 $$\bigwedge_{j=0}^{Z-1} (z_j = s_t) \rightarrow \mathtt{eval}(\mathtt{pre}_t, j)$$
 
-**Invariants:** For each zone $j$, if $s_t \leq z_j \leq e_t$ then invariants $\mathtt{inv}_t$ hold at zone $j$:
+**Invariants:** For each zone $j$, if $s_t < z_j \leq e_t$ then invariants $\mathtt{inv}_t$ hold at zone $j$:
 
-$$\bigwedge_{j=0}^{Z-1} (s_t \leq z_j \leq e_t) \rightarrow \mathtt{eval}(\mathtt{inv}_t, j)$$
+$$\bigwedge_{j=0}^{Z-1} (s_t < z_j \leq e_t) \rightarrow \mathtt{eval}(\mathtt{inv}_t, j)$$
+
+*Note: Invariants are checked at zones after the start to allow PRE/MAINT impacts to take effect first.*
 
 **Postconditions:** For each zone $j$, if $z_j = e_t$ then postconditions $\mathtt{post}_t$ hold at zone $j$:
 
