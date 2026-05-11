@@ -213,7 +213,7 @@ The LLM scheduler successfully generates valid schedules for MEXEC tasknets with
 - Valid and operationally realistic
 - Generated in 1 attempt (~30 seconds)
 
-See [mexec_guidance.txt](mexec_guidance.txt) for the complete guidance file used.
+See [mexec_guidance.txt](jpl/mexec/mexec_guidance.txt) for the complete guidance file used.
 
 ## Command Line Reference
 

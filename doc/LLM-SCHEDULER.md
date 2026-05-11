@@ -133,7 +133,7 @@ python3 tools/llm_scheduler.py test_mexec_10tasks.tn
 **2. Large 50-task MEXEC with guidance:**
 ```bash
 python3 tools/llm_scheduler.py ./jpl/mexec/xml/tasknet.tn \
-  --guidance mexec_guidance.txt
+  --guidance jpl/mexec/mexec_guidance.txt
 ```
 
 **3. With more attempts:**
@@ -275,7 +275,7 @@ Guidance files allow you to specify **mission-specific requirements** that aren'
 
 Guidance files are plain text with natural language instructions:
 
-**Example: `mexec_guidance.txt`**
+**Example: `jpl/mexec/mexec_guidance.txt`**
 
 ```
 MEXEC Mission-Specific Scheduling Guidance
@@ -395,7 +395,7 @@ This feature is **automatic** - no special flags or configuration needed. The LL
 
 ### Guidance for Dynamic Instances
 
-User guidance files (like `mexec_guidance.txt`) help the LLM make good planning decisions:
+User guidance files (like `jpl/mexec/mexec_guidance.txt`) help the LLM make good planning decisions:
 
 ```
 MEXEC Mission-Specific Scheduling Guidance
@@ -634,7 +634,7 @@ lake exe tasknet-validate --tasknet tasknet.json --schedule schedule.json
 ```bash
 # 1. Generate schedule with guidance
 python3 tools/llm_scheduler.py ./jpl/mexec/xml/tasknet.tn \
-  --guidance mexec_guidance.txt \
+  --guidance jpl/mexec/mexec_guidance.txt \
   --max-attempts 10
 
 # Output: ./jpl/mexec/xml/tasknet_schedule.json
@@ -691,4 +691,4 @@ Combine them: `cat doc/guidance/*.txt > my_guidance.txt`
 - **Semantic rules**: [SEMANTIC-RULES.md](SEMANTIC-RULES.md)
 - **Lean validator**: [src/lean/TaskNetExec/](../src/lean/TaskNetExec/)
 - **TaskSAT comparison**: [SMT encoding docs](smt-encoding.md)
-- **Example guidance**: [mexec_guidance.txt](../mexec_guidance.txt)
+- **Example guidance**: [jpl/mexec/mexec_guidance.txt](../jpl/mexec/mexec_guidance.txt)

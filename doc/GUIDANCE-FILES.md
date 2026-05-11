@@ -369,7 +369,7 @@ Example for window 1 at [360, 660]:
 
 ## Examples
 
-See [mexec_guidance.txt](../mexec_guidance.txt) for a complete real-world example used with the 50-task MEXEC tasknet.
+See [mexec_guidance.txt](../jpl/mexec/mexec_guidance.txt) for a complete real-world example used with the 50-task MEXEC tasknet.
 
 ## Summary
 
