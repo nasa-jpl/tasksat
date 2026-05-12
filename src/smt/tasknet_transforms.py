@@ -348,10 +348,12 @@ def instantiate_from_definitions(tn: TaskNet) -> TaskNet:
     Automatically create task instances from taskdefs when needed by type-level
     dependencies (after/containedin).
 
-    For each task instance with type-level dependencies:
-    - If after_definitions references taskdef T and no instance of T exists
-    - Create a new instance from T with kind=INSTANCE (required)
-    - The instance is required because the constraint must be satisfied
+    MEXEC-like behavior: For each task with a type-level dependency, create
+    one instance of the referenced taskdef. This allows multiple tasks to each
+    get their own instance.
+
+    Only auto-instantiate if the user provided ZERO instances of that taskdef.
+    If user provided any instances (≥1), assume user is managing instances manually.
 
     This only instantiates DIRECT dependencies. If the auto-created instance
     has its own type-level dependencies, those are NOT instantiated (no cascade).
@@ -359,9 +361,10 @@ def instantiate_from_definitions(tn: TaskNet) -> TaskNet:
 
     Example:
         taskdef preheat { ... }
-        task downlink { after preheat; }
+        task downlink1 { after preheat; }
+        task downlink2 { after preheat; }
 
-        → Creates instance preheat_auto_0 from taskdef preheat
+        → Creates: preheat_auto_0 (for downlink1), preheat_auto_1 (for downlink2)
 
     Args:
         tn: The TaskNet AST
@@ -373,103 +376,106 @@ def instantiate_from_definitions(tn: TaskNet) -> TaskNet:
     taskdefs = {t.id: t for t in tn.tasks if t.kind == TaskKind.DEFINITION}
     instances = [t for t in tn.tasks if t.kind != TaskKind.DEFINITION]
 
-    # Collect taskdef IDs that need instances
-    needed_taskdefs = set()
+    # Check which taskdefs already have user-provided instances
+    taskdefs_with_instances = {t.definition for t in instances if t.definition}
+
+    # Collect dependencies: list of (dependent_task_id, required_taskdef_id) pairs
+    dependencies = []
 
     for task in instances:
+        # Collect all taskdef IDs this task depends on
+        needed_taskdefs = []
+
         # Check instance's direct constraints
         if task.after_definitions:
-            for def_id in task.after_definitions:
-                if def_id in taskdefs:
-                    needed_taskdefs.add(def_id)
+            needed_taskdefs.extend(task.after_definitions)
 
         if task.containedin_definitions:
-            for def_id in task.containedin_definitions:
-                if def_id in taskdefs:
-                    needed_taskdefs.add(def_id)
+            needed_taskdefs.extend(task.containedin_definitions)
 
         # Check inherited constraints from taskdef
         if task.definition and task.definition in taskdefs:
             taskdef = taskdefs[task.definition]
 
-            # Inherit after_definitions from taskdef
             if taskdef.after_definitions:
-                for def_id in taskdef.after_definitions:
-                    if def_id in taskdefs:
-                        needed_taskdefs.add(def_id)
+                needed_taskdefs.extend(taskdef.after_definitions)
 
-            # Inherit containedin_definitions from taskdef
             if taskdef.containedin_definitions:
-                for def_id in taskdef.containedin_definitions:
-                    if def_id in taskdefs:
-                        needed_taskdefs.add(def_id)
+                needed_taskdefs.extend(taskdef.containedin_definitions)
 
-    # Check which taskdefs already have instances
-    existing_instances = {t.definition for t in instances if t.definition}
+        # For each needed taskdef, record the dependency
+        for def_id in needed_taskdefs:
+            if def_id in taskdefs:
+                dependencies.append((task.id, def_id))
 
-    # Instantiate missing taskdefs
+    # Group dependencies by taskdef
+    from collections import defaultdict
+    taskdef_dependencies = defaultdict(list)
+    for task_id, def_id in dependencies:
+        taskdef_dependencies[def_id].append(task_id)
+
+    # Instantiate one instance per dependency
     new_instances = []
     next_ident = max((t.ident for t in tn.tasks), default=0) + 1
+    existing_ids = {t.id for t in tn.tasks}
 
-    for def_id in needed_taskdefs:
-        # Skip if instance already exists
-        if def_id in existing_instances:
+    for def_id, dependent_tasks in taskdef_dependencies.items():
+        # Skip if user provided ANY instances of this taskdef
+        if def_id in taskdefs_with_instances:
             continue
 
         taskdef = taskdefs[def_id]
 
-        # Create instance from taskdef
-        # Use naming pattern: {taskdef_id}_auto_0
-        instance_id = f"{def_id}_auto_0"
+        # Create one instance per dependent task
+        for idx, dependent_task_id in enumerate(dependent_tasks):
+            # Use naming pattern: {taskdef_id}_auto_N
+            instance_id = f"{def_id}_auto_{idx}"
 
-        # Check for name collision
-        while any(t.id == instance_id for t in tn.tasks):
-            # Extract number and increment
-            parts = instance_id.rsplit('_', 1)
-            if len(parts) == 2 and parts[1].isdigit():
-                num = int(parts[1]) + 1
-                base = instance_id[:-(len(parts[1]) + 1)]  # Remove _N
-                instance_id = f"{base}_{num}"
-            else:
-                instance_id = f"{instance_id}_1"
+            # Ensure unique ID
+            counter = idx
+            while instance_id in existing_ids:
+                counter += 1
+                instance_id = f"{def_id}_auto_{counter}"
 
-        # Deep copy lists to avoid shared references
-        def deep_copy_tlcons(tlcons):
-            if not tlcons:
-                return None
-            return [TlCon(tc.id, tc.cons.copy()) for tc in tlcons]
+            existing_ids.add(instance_id)
 
-        def deep_copy_impacts(impacts):
-            if not impacts:
-                return None
-            return [Impact(imp.id, imp.when, imp.how) for imp in impacts]
+            # Deep copy lists to avoid shared references
+            def deep_copy_tlcons(tlcons):
+                if not tlcons:
+                    return None
+                return [TlCon(tc.id, tc.cons.copy()) for tc in tlcons]
 
-        new_instance = Task(
-            id=instance_id,
-            ident=next_ident,
-            kind=TaskKind.INSTANCE,  # Required (dependency must be satisfied)
-            definition=def_id,       # Reference to taskdef
-            priority=taskdef.priority,
-            startrng=taskdef.startrng,
-            endrng=taskdef.endrng,
-            durrng=taskdef.durrng,
-            dur=taskdef.dur,
-            start=taskdef.start,
-            # Copy instance-level constraints from taskdef
-            after_instances=taskdef.after_instances.copy() if taskdef.after_instances else None,
-            containedin_instances=taskdef.containedin_instances.copy() if taskdef.containedin_instances else None,
-            # DO NOT copy type-level constraints (no cascade)
-            after_definitions=None,
-            containedin_definitions=None,
-            # Copy conditions and impacts
-            pre=deep_copy_tlcons(taskdef.pre),
-            inv=deep_copy_tlcons(taskdef.inv),
-            post=deep_copy_tlcons(taskdef.post),
-            impacts=deep_copy_impacts(taskdef.impacts),
-        )
+            def deep_copy_impacts(impacts):
+                if not impacts:
+                    return None
+                return [Impact(imp.id, imp.when, imp.how) for imp in impacts]
 
-        new_instances.append(new_instance)
-        next_ident += 1
+            new_instance = Task(
+                id=instance_id,
+                ident=next_ident,
+                kind=TaskKind.INSTANCE,  # Required (dependency must be satisfied)
+                definition=def_id,       # Reference to taskdef
+                priority=taskdef.priority,
+                startrng=taskdef.startrng,
+                endrng=taskdef.endrng,
+                durrng=taskdef.durrng,
+                dur=taskdef.dur,
+                start=taskdef.start,
+                # Copy instance-level constraints from taskdef
+                after_instances=taskdef.after_instances.copy() if taskdef.after_instances else None,
+                containedin_instances=taskdef.containedin_instances.copy() if taskdef.containedin_instances else None,
+                # DO NOT copy type-level constraints (no cascade)
+                after_definitions=None,
+                containedin_definitions=None,
+                # Copy conditions and impacts
+                pre=deep_copy_tlcons(taskdef.pre),
+                inv=deep_copy_tlcons(taskdef.inv),
+                post=deep_copy_tlcons(taskdef.post),
+                impacts=deep_copy_impacts(taskdef.impacts),
+            )
+
+            new_instances.append(new_instance)
+            next_ident += 1
 
     # Add new instances to tasknet
     if new_instances:
