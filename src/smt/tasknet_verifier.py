@@ -20,7 +20,42 @@ from tasknet_transforms import apply_transforms
 from tasknet_smt import TaskNetSMT, TaskNetTL
 from tasknet_wellformedness import check_wellformedness
 
-def main(path: str, mode: str = 'optimize'):
+def write_transformed_tasknet(tn, output_path: str):
+    """Write the transformed tasknet to a file for inspection."""
+    import json
+    from pathlib import Path
+
+    def task_to_dict(t):
+        """Convert Task to dict."""
+        return {
+            'id': t.id,
+            'ident': t.ident,
+            'kind': t.kind.value,
+            'definition': t.definition,
+            'priority': t.priority,
+            'startrng': [t.startrng.low, t.startrng.high] if t.startrng else None,
+            'endrng': [t.endrng.low, t.endrng.high] if t.endrng else None,
+            'durrng': [t.durrng.low, t.durrng.high] if t.durrng else None,
+            'dur': t.dur,
+            'start': t.start,
+            'after_instances': t.after_instances,
+            'containedin_instances': t.containedin_instances,
+            'after_definitions': t.after_definitions,
+            'containedin_definitions': t.containedin_definitions,
+        }
+
+    output = {
+        'tasknet_id': tn.id,
+        'endTime': tn.endTime,
+        'tasks': [task_to_dict(t) for t in tn.tasks],
+    }
+
+    with open(output_path, 'w') as f:
+        json.dump(output, f, indent=2)
+
+    print(f"📄 Transformed tasknet written to: {output_path}\n")
+
+def main(path: str, mode: str = 'optimize', write_transformed: str = None):
     print('\n\n\n\n\n\n\n*** NEW SCHEDULE***\n')
 
     start_time = time.time()
@@ -29,6 +64,10 @@ def main(path: str, mode: str = 'optimize'):
 
     # Apply AST transformations (desugar derived constructs)
     tn = apply_transforms(tn)
+
+    # Optionally write transformed tasknet
+    if write_transformed:
+        write_transformed_tasknet(tn, write_transformed)
 
     # Check well-formedness before solving
     if not check_wellformedness(tn):
@@ -75,7 +114,9 @@ if __name__ == "__main__":
     parser.add_argument('tasknet_file', help='Path to .tn file')
     parser.add_argument('--mode', choices=['optimize', 'satisfy'], default='optimize',
                         help='Mode for main schedule generation: optimize (use Optimize solver for best schedule) or satisfy (use Solver for any valid schedule). Property verification always uses Solver for faster counterexample finding.')
+    parser.add_argument('--write-transformed', metavar='FILE',
+                        help='Write transformed tasknet (after auto-instantiation) to JSON file for inspection')
     args = parser.parse_args()
-    main(args.tasknet_file, args.mode)
+    main(args.tasknet_file, args.mode, args.write_transformed)
 
 
