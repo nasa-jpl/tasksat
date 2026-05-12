@@ -34,6 +34,15 @@ def apply_transforms(tn: TaskNet) -> TaskNet:
     # (This must come after Pass 1 so it sees the desugared __T_active references)
     tn = inject_task_state_timelines(tn)
 
+    # Pass 3: Reclassify constraints based on what they reference
+    # (Parser puts all constraints in *_instances based on container type, but
+    #  we need to categorize based on whether referenced ID is taskdef or instance)
+    tn = reclassify_constraints(tn)
+
+    # Pass 4: Instantiate taskdefs for type-level dependencies
+    # (Must come after reclassification so we know which taskdefs are referenced)
+    tn = instantiate_from_definitions(tn)
+
     # Future passes can be added here:
     # tn = expand_macros(tn)              # Hypothetical: expand task templates
     # tn = inline_definitions(tn)         # Hypothetical: inline task definitions
@@ -241,6 +250,236 @@ def _extract_task_name_from_timeline_id(timeline_id: str) -> Optional[str]:
         # Strip __ prefix and _active suffix
         return timeline_id[2:-7]
     return None
+
+
+# ==============================================================================
+# Transformation Pass 3: Reclassify Constraints
+# ==============================================================================
+
+def reclassify_constraints(tn: TaskNet) -> TaskNet:
+    """
+    Reclassify after/containedin constraints based on what they reference.
+
+    The parser categorizes constraints based on the container task's kind:
+    - If parsing a taskdef, constraints go to after_definitions/containedin_definitions
+    - If parsing an instance, constraints go to after_instances/containedin_instances
+
+    But this is wrong! The categorization should be based on whether the
+    referenced ID is a taskdef or an instance:
+    - If reference points to a taskdef → should be in *_definitions
+    - If reference points to an instance → should be in *_instances
+
+    This pass fixes the categorization by:
+    1. Building a set of all taskdef IDs
+    2. For each task, checking its constraints
+    3. Moving taskdef references from *_instances to *_definitions
+    4. Moving instance references from *_definitions to *_instances
+
+    Args:
+        tn: The TaskNet AST
+
+    Returns:
+        TaskNet with constraints properly categorized
+    """
+    # Build set of taskdef IDs
+    taskdef_ids = {t.id for t in tn.tasks if t.kind == TaskKind.DEFINITION}
+
+    # Reclassify constraints for each task
+    for task in tn.tasks:
+        # Process after constraints
+        if task.after_instances or task.after_definitions:
+            # Start with empty lists
+            instances = []
+            definitions = []
+
+            # Collect from both sources
+            if task.after_instances:
+                for ref_id in task.after_instances:
+                    if ref_id in taskdef_ids:
+                        definitions.append(ref_id)
+                    else:
+                        instances.append(ref_id)
+
+            if task.after_definitions:
+                for ref_id in task.after_definitions:
+                    if ref_id in taskdef_ids:
+                        definitions.append(ref_id)
+                    else:
+                        instances.append(ref_id)
+
+            # Update task
+            task.after_instances = instances if instances else None
+            task.after_definitions = definitions if definitions else None
+
+        # Process containedin constraints
+        if task.containedin_instances or task.containedin_definitions:
+            # Start with empty lists
+            instances = []
+            definitions = []
+
+            # Collect from both sources
+            if task.containedin_instances:
+                for ref_id in task.containedin_instances:
+                    if ref_id in taskdef_ids:
+                        definitions.append(ref_id)
+                    else:
+                        instances.append(ref_id)
+
+            if task.containedin_definitions:
+                for ref_id in task.containedin_definitions:
+                    if ref_id in taskdef_ids:
+                        definitions.append(ref_id)
+                    else:
+                        instances.append(ref_id)
+
+            # Update task
+            task.containedin_instances = instances if instances else None
+            task.containedin_definitions = definitions if definitions else None
+
+    return tn
+
+
+# ==============================================================================
+# Transformation Pass 4: Taskdef Instantiation for Type-Level Dependencies
+# ==============================================================================
+
+def instantiate_from_definitions(tn: TaskNet) -> TaskNet:
+    """
+    Automatically create task instances from taskdefs when needed by type-level
+    dependencies (after/containedin).
+
+    For each task instance with type-level dependencies:
+    - If after_definitions references taskdef T and no instance of T exists
+    - Create a new instance from T with kind=INSTANCE (required)
+    - The instance is required because the constraint must be satisfied
+
+    This only instantiates DIRECT dependencies. If the auto-created instance
+    has its own type-level dependencies, those are NOT instantiated (no cascade).
+    The SMT encoder will error on unsatisfied dependencies of auto-created instances.
+
+    Example:
+        taskdef preheat { ... }
+        task downlink { after preheat; }
+
+        → Creates instance preheat_auto_0 from taskdef preheat
+
+    Args:
+        tn: The TaskNet AST
+
+    Returns:
+        TaskNet with taskdef instances created for type-level dependencies
+    """
+    # Separate definitions from instances
+    taskdefs = {t.id: t for t in tn.tasks if t.kind == TaskKind.DEFINITION}
+    instances = [t for t in tn.tasks if t.kind != TaskKind.DEFINITION]
+
+    # Collect taskdef IDs that need instances
+    needed_taskdefs = set()
+
+    for task in instances:
+        # Check instance's direct constraints
+        if task.after_definitions:
+            for def_id in task.after_definitions:
+                if def_id in taskdefs:
+                    needed_taskdefs.add(def_id)
+
+        if task.containedin_definitions:
+            for def_id in task.containedin_definitions:
+                if def_id in taskdefs:
+                    needed_taskdefs.add(def_id)
+
+        # Check inherited constraints from taskdef
+        if task.definition and task.definition in taskdefs:
+            taskdef = taskdefs[task.definition]
+
+            # Inherit after_definitions from taskdef
+            if taskdef.after_definitions:
+                for def_id in taskdef.after_definitions:
+                    if def_id in taskdefs:
+                        needed_taskdefs.add(def_id)
+
+            # Inherit containedin_definitions from taskdef
+            if taskdef.containedin_definitions:
+                for def_id in taskdef.containedin_definitions:
+                    if def_id in taskdefs:
+                        needed_taskdefs.add(def_id)
+
+    # Check which taskdefs already have instances
+    existing_instances = {t.definition for t in instances if t.definition}
+
+    # Instantiate missing taskdefs
+    new_instances = []
+    next_ident = max((t.ident for t in tn.tasks), default=0) + 1
+
+    for def_id in needed_taskdefs:
+        # Skip if instance already exists
+        if def_id in existing_instances:
+            continue
+
+        taskdef = taskdefs[def_id]
+
+        # Create instance from taskdef
+        # Use naming pattern: {taskdef_id}_auto_0
+        instance_id = f"{def_id}_auto_0"
+
+        # Check for name collision
+        while any(t.id == instance_id for t in tn.tasks):
+            # Extract number and increment
+            parts = instance_id.rsplit('_', 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                num = int(parts[1]) + 1
+                base = instance_id[:-(len(parts[1]) + 1)]  # Remove _N
+                instance_id = f"{base}_{num}"
+            else:
+                instance_id = f"{instance_id}_1"
+
+        # Deep copy lists to avoid shared references
+        def deep_copy_tlcons(tlcons):
+            if not tlcons:
+                return None
+            return [TlCon(tc.id, tc.cons.copy()) for tc in tlcons]
+
+        def deep_copy_impacts(impacts):
+            if not impacts:
+                return None
+            return [Impact(imp.id, imp.when, imp.how) for imp in impacts]
+
+        new_instance = Task(
+            id=instance_id,
+            ident=next_ident,
+            kind=TaskKind.INSTANCE,  # Required (dependency must be satisfied)
+            definition=def_id,       # Reference to taskdef
+            priority=taskdef.priority,
+            startrng=taskdef.startrng,
+            endrng=taskdef.endrng,
+            durrng=taskdef.durrng,
+            dur=taskdef.dur,
+            start=taskdef.start,
+            # Copy instance-level constraints from taskdef
+            after_instances=taskdef.after_instances.copy() if taskdef.after_instances else None,
+            containedin_instances=taskdef.containedin_instances.copy() if taskdef.containedin_instances else None,
+            # DO NOT copy type-level constraints (no cascade)
+            after_definitions=None,
+            containedin_definitions=None,
+            # Copy conditions and impacts
+            pre=deep_copy_tlcons(taskdef.pre),
+            inv=deep_copy_tlcons(taskdef.inv),
+            post=deep_copy_tlcons(taskdef.post),
+            impacts=deep_copy_impacts(taskdef.impacts),
+        )
+
+        new_instances.append(new_instance)
+        next_ident += 1
+
+    # Add new instances to tasknet
+    if new_instances:
+        tn.tasks.extend(new_instances)
+        print(f"\n*** Auto-instantiated {len(new_instances)} task(s) from taskdefs:")
+        for inst in new_instances:
+            print(f"    {inst.id} (from taskdef {inst.definition})")
+        print()
+
+    return tn
 
 
 # ==============================================================================
