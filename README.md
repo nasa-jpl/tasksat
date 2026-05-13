@@ -2,7 +2,16 @@
 
 TaskSAT is a domain-specific language and tool for modeling and verifying task scheduling problems with rich temporal and resource constraints. The system combines a declarative specification language with SMT-based automated reasoning using Z3. TaskSAT supports multiple types of state variables that model discrete states, Boolean flags, and continuous resources with complex dynamics including rate-based evolution. Tasks specify preconditions, invariants, postconditions, and resource impacts (assignments, deltas, cumulative rates, rate assignments) that occur at boundaries or during execution. The verifier encodes specifications into quantifier-free SMT formulas using zone-based time discretization, supporting both satisfiability checking and optimization. Users can express temporal properties using LTL-style operators (always, eventually, until, since) that are verified alongside scheduling constraints.
 
-TaskSAT can be applied to scheduling problems in autonomous systems, such as spacecraft and rover operations, 
+TaskSAT can be applied to scheduling problems in autonomous systems, such as spacecraft and rover operations.
+
+## Key Features
+
+- **Auto-instantiation**: Automatically creates task instances from taskdefs when type-level dependencies exist, reducing manual specification (e.g., 2 downlinks → 6 tasks total with thermal management)
+- **Rich state modeling**: Rate-based continuous resources, discrete states, Boolean flags
+- **Temporal logic**: LTL-style properties (always, eventually, until, since) for verification
+- **Zone-based encoding**: Efficient SMT encoding using time discretization at task boundaries
+- **Optimization**: Find schedules that minimize/maximize objectives (battery usage, priority-weighted completion)
+- **MEXEC semantics**: Based on JPL's MEXEC scheduling system
 
 ## System Architecture
 
@@ -20,6 +29,19 @@ TaskSAT can be applied to scheduling problems in autonomous systems, such as spa
              v
   ┌─────────────────────┐
   │        AST          │  Abstract Syntax Tree
+  └──────────┬──────────┘
+             │
+             v
+  ╔═════════════════════╗
+  ║  Transformations    ║  AST transformations:
+  ║                     ║  - Auto-instantiation
+  ║                     ║  - Desugar syntax
+  ║                     ║  - Inject task state timelines
+  ╚══════════┬══════════╝
+             │
+             v
+  ┌─────────────────────┐
+  │  Transformed AST    │  With auto-generated tasks
   └──────────┬──────────┘
              │
              v
