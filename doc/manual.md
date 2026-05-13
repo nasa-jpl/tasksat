@@ -309,6 +309,54 @@ This creates an instance with all properties inherited from the definition.
 - **Merging**: Instance properties override definition properties
 - **Impacts merge**: If both definition and instance have impacts, they are merged (both apply)
 
+### Auto-Instantiation
+
+When a task has type-level dependencies (references to `taskdef` names in `after` or `containedin` constraints), TaskSAT automatically creates instances of those taskdefs if none exist.
+
+**How it works:**
+
+1. **One instance per dependent task**: Each task that depends on a taskdef gets its own instance (MEXEC semantics)
+2. **Automatic naming**: Auto-created instances are named `{taskdef}_auto_0`, `{taskdef}_auto_1`, etc.
+3. **Inherits task kind**: Auto-instances inherit the task kind (INSTANCE, OPTIONAL, REQUEST) from their dependent task
+4. **No cascade**: Only direct dependencies are instantiated; dependencies of auto-created instances are not
+
+**Example: Thermal Management Pattern**
+
+```tasknet
+taskdef preheat {
+  duration_range [50, 100];
+  impacts { maint { battery +~ -0.2; temperature +~ 0.5; } }
+}
+
+taskdef maintainheat {
+  duration_range [110, 120];
+  impacts { maint { battery +~ -0.05; temperature +~ -0.05; } }
+  after preheat;  // Type-level dependency
+}
+
+taskdef downlink {
+  duration_range [50, 100];
+  inv { temperature in [25.0, 50.0]; }
+  impacts { maint { battery +~ -0.3; } }
+  after preheat;           // Type-level dependency
+  containedin maintainheat; // Type-level dependency
+}
+
+// Just specify the downlinks:
+task downlink_0 : downlink { start_range [100, 300]; }
+task downlink_1 : downlink { start_range [500, 700]; }
+```
+
+**Auto-instantiation creates 4 thermal tasks:**
+- `preheat_auto_0`, `maintainheat_auto_0` (for downlink_0)
+- `preheat_auto_1`, `maintainheat_auto_1` (for downlink_1)
+
+Each downlink gets its own thermal management sequence, reducing manual specification from 6 tasks to 2 tasks.
+
+**When auto-instantiation is skipped:**
+
+If you manually create any instances of a taskdef, auto-instantiation is skipped for that taskdef (assumes you're managing instances manually).
+
 **Standalone Tasks**
 
 Tasks can also be defined directly without using definitions:
@@ -357,13 +405,15 @@ All task fields are optional unless marked as required.
 **after**
 - Task ordering: this task must start after other tasks end
 - Example: `after` warmup, calibrate;
-- Note: When referencing a task definition name, at least one instance of that definition must exist in the tasknet. TaskSAT validates this at initialization and reports an error if no instances are found.
+- Can reference task instance names or taskdef names (type-level dependencies)
+- When referencing a taskdef name, TaskSAT automatically creates instances if none exist (see Auto-Instantiation)
 
 **containedin**
 - Hierarchical constraint: this task must execute entirely within another task.
   This task's start >= parent's start AND this task's end <= parent's end
 - Example: `containedin` daylight, communication_window;
-- Note: When referencing a task definition name, at least one instance of that definition must exist in the tasknet. TaskSAT validates this at initialization and reports an error if no instances are found.
+- Can reference task instance names or taskdef names (type-level dependencies)
+- When referencing a taskdef name, TaskSAT automatically creates instances if none exist (see Auto-Instantiation)
 
 **optional** 
 - Marks task as optional, it may only be scheduled if needed
