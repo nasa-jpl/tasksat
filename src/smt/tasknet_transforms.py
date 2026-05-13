@@ -43,6 +43,14 @@ def apply_transforms(tn: TaskNet) -> TaskNet:
     # (Must come after reclassification so we know which taskdefs are referenced)
     tn = instantiate_from_definitions(tn)
 
+    # Pass 5: Reclassify again after auto-instantiation
+    # (Newly created instances need to be linked to tasks that depend on them)
+    tn = reclassify_constraints(tn)
+
+    # Pass 6: Link tasks to their auto-created instances
+    # (Convert type-level dependencies to instance-level dependencies)
+    tn = link_auto_instances(tn)
+
     # Future passes can be added here:
     # tn = expand_macros(tn)              # Hypothetical: expand task templates
     # tn = inline_definitions(tn)         # Hypothetical: inline task definitions
@@ -428,6 +436,11 @@ def instantiate_from_definitions(tn: TaskNet) -> TaskNet:
 
         # Create one instance per dependent task
         for idx, dependent_task_id in enumerate(dependent_tasks):
+            # Find the dependent task to inherit its kind
+            dependent_task = next((t for t in instances if t.id == dependent_task_id), None)
+            if not dependent_task:
+                continue  # Skip if dependent task not found
+
             # Use naming pattern: {taskdef_id}_auto_N
             instance_id = f"{def_id}_auto_{idx}"
 
@@ -450,10 +463,19 @@ def instantiate_from_definitions(tn: TaskNet) -> TaskNet:
                     return None
                 return [Impact(imp.id, imp.when, imp.how) for imp in impacts]
 
+            # Inherit kind from dependent task:
+            # - If dependent is INSTANCE (required) → auto-instance is INSTANCE (required)
+            # - If dependent is REQUEST (desirable) → auto-instance is OPTIONAL (only if REQUEST included)
+            # - If dependent is OPTIONAL (minimize) → auto-instance is OPTIONAL
+            if dependent_task.kind == TaskKind.INSTANCE:
+                instance_kind = TaskKind.INSTANCE
+            else:
+                instance_kind = TaskKind.OPTIONAL
+
             new_instance = Task(
                 id=instance_id,
                 ident=next_ident,
-                kind=TaskKind.INSTANCE,  # Required (dependency must be satisfied)
+                kind=instance_kind,  # Inherit from dependent task
                 definition=def_id,       # Reference to taskdef
                 priority=taskdef.priority,
                 startrng=taskdef.startrng,
@@ -484,6 +506,142 @@ def instantiate_from_definitions(tn: TaskNet) -> TaskNet:
         for inst in new_instances:
             print(f"    {inst.id} (from taskdef {inst.definition})")
         print()
+
+    return tn
+
+
+# ==============================================================================
+# Transformation Pass 6: Link Auto-Instances
+# ==============================================================================
+
+def link_auto_instances(tn: TaskNet) -> TaskNet:
+    """
+    Link tasks to their auto-created instances by converting type-level dependencies
+    to instance-level dependencies.
+
+    After auto-instantiation creates instances like preheat_auto_0 and preheat_auto_1,
+    we need to match each dependent task to its corresponding instance.
+
+    The matching uses the same order as instance creation: instances are created
+    in the order dependent tasks appear, so downlink_1 (first) gets preheat_auto_0,
+    downlink_2 (second) gets preheat_auto_1, etc.
+
+    Args:
+        tn: The TaskNet AST
+
+    Returns:
+        TaskNet with type-level dependencies linked to auto-created instances
+    """
+    # Replicate the dependency collection logic from instantiate_from_definitions
+    taskdefs = {t.id: t for t in tn.tasks if t.kind == TaskKind.DEFINITION}
+    instances = [t for t in tn.tasks if t.kind != TaskKind.DEFINITION]
+
+    # Filter out auto-created instances (only process original instances for mapping)
+    original_instances = [t for t in instances if '_auto_' not in t.id]
+
+    # Collect dependencies: list of (dependent_task_id, required_taskdef_id) pairs
+    dependencies = []
+
+    for task in original_instances:
+        needed_taskdefs = []
+
+        # Check instance's direct constraints
+        if task.after_definitions:
+            needed_taskdefs.extend(task.after_definitions)
+        if task.containedin_definitions:
+            needed_taskdefs.extend(task.containedin_definitions)
+
+        # Check inherited constraints from taskdef
+        if task.definition and task.definition in taskdefs:
+            taskdef = taskdefs[task.definition]
+            if taskdef.after_definitions:
+                needed_taskdefs.extend(taskdef.after_definitions)
+            if taskdef.containedin_definitions:
+                needed_taskdefs.extend(taskdef.containedin_definitions)
+
+        # For each needed taskdef, record the dependency
+        for def_id in needed_taskdefs:
+            if def_id in taskdefs:
+                dependencies.append((task.id, def_id))
+
+    # Group dependencies by taskdef (in same order as instantiation)
+    from collections import defaultdict
+    taskdef_dependencies = defaultdict(list)
+    for task_id, def_id in dependencies:
+        taskdef_dependencies[def_id].append(task_id)
+
+    # Build two mappings:
+    # 1. (task_id, taskdef_id) -> auto_instance_id (for linking dependencies)
+    # 2. auto_instance_id -> task_id (for tracking which "group" an auto-instance belongs to)
+    existing_instance_ids = {t.id for t in tn.tasks}
+    task_to_instance = {}
+    auto_instance_to_group = {}  # Maps auto-instance to its "parent" dependent task
+
+    for def_id, dependent_task_ids in taskdef_dependencies.items():
+        for idx, dependent_task_id in enumerate(dependent_task_ids):
+            auto_instance_id = f"{def_id}_auto_{idx}"
+            # Only add mapping if the auto-instance exists
+            if auto_instance_id in existing_instance_ids:
+                task_to_instance[(dependent_task_id, def_id)] = auto_instance_id
+                auto_instance_to_group[auto_instance_id] = dependent_task_id
+
+
+    # For each task, link type-level dependencies to their auto-instances
+    for task in instances:
+        # Collect all type-level dependencies (direct + inherited from taskdef)
+        after_defs = []
+        containedin_defs = []
+
+        # Direct constraints
+        if task.after_definitions:
+            after_defs.extend(task.after_definitions)
+        if task.containedin_definitions:
+            containedin_defs.extend(task.containedin_definitions)
+
+        # Inherited constraints from taskdef
+        if task.definition and task.definition in taskdefs:
+            taskdef = taskdefs[task.definition]
+            if taskdef.after_definitions:
+                after_defs.extend(taskdef.after_definitions)
+            if taskdef.containedin_definitions:
+                containedin_defs.extend(taskdef.containedin_definitions)
+
+        # Determine which "group" to use for lookups:
+        # - Original tasks use their own ID
+        # - Auto-instances use their parent dependent task's ID
+        lookup_task_id = auto_instance_to_group.get(task.id, task.id)
+
+        # Process after constraints
+        if after_defs:
+            new_after_instances = list(task.after_instances) if task.after_instances else []
+            new_after_definitions = []
+
+            for taskdef_id in after_defs:
+                key = (lookup_task_id, taskdef_id)
+                if key in task_to_instance:
+                    new_after_instances.append(task_to_instance[key])
+                else:
+                    # Keep as type-level (no auto-instance for this task+taskdef pair)
+                    new_after_definitions.append(taskdef_id)
+
+            task.after_instances = new_after_instances if new_after_instances else None
+            task.after_definitions = new_after_definitions if new_after_definitions else None
+
+        # Process containedin constraints
+        if containedin_defs:
+            new_containedin_instances = list(task.containedin_instances) if task.containedin_instances else []
+            new_containedin_definitions = []
+
+            for taskdef_id in containedin_defs:
+                key = (lookup_task_id, taskdef_id)
+                if key in task_to_instance:
+                    new_containedin_instances.append(task_to_instance[key])
+                else:
+                    # Keep as type-level (no auto-instance for this task+taskdef pair)
+                    new_containedin_definitions.append(taskdef_id)
+
+            task.containedin_instances = new_containedin_instances if new_containedin_instances else None
+            task.containedin_definitions = new_containedin_definitions if new_containedin_definitions else None
 
     return tn
 
