@@ -1,0 +1,46 @@
+# Test: Multiple auto-instantiation
+# Two tasks depend on the same taskdef.
+# Expected: Creates TWO instances (one per dependent task), not one shared instance.
+
+tasknet AutoInstantiateMultiple {
+  end = 100;
+
+  timelines {
+    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+  }
+
+  # Taskdef: preheat (no user-provided instances)
+  taskdef preheat {
+    id 1;
+    duration_range [5, 10];
+    impacts {
+      maint {
+        battery +~ -0.1;
+      }
+    }
+  }
+
+  # Task instance 1 depends on preheat
+  task operation1 {
+    id 2;
+    duration_range [10, 20];
+    impacts {
+      maint {
+        battery +~ -0.2;
+      }
+    }
+    after preheat;  # Should auto-create preheat_auto_0
+  }
+
+  # Task instance 2 also depends on preheat
+  task operation2 {
+    id 3;
+    duration_range [10, 20];
+    impacts {
+      maint {
+        battery +~ -0.2;
+      }
+    }
+    after preheat;  # Should auto-create preheat_auto_1 (separate instance)
+  }
+}

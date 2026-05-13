@@ -1,0 +1,38 @@
+# Test: Basic auto-instantiation
+# A task instance depends on a taskdef via 'after' constraint.
+# Expected: Auto-creates one OPTIONAL instance of the taskdef.
+# Since auto-instantiated tasks are OPTIONAL, they may not be included in the schedule.
+
+tasknet AutoInstantiateBasic {
+  end = 100;
+
+  timelines {
+    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+  }
+
+  # Taskdef: preheat (no user-provided instances)
+  taskdef preheat {
+    id 1;
+    duration_range [5, 10];
+    impacts {
+      maint {
+        battery +~ -0.1;
+      }
+    }
+  }
+
+  # Task instance that depends on preheat taskdef
+  task operation {
+    id 2;
+    duration_range [10, 20];
+    impacts {
+      maint {
+        battery +~ -0.2;
+      }
+    }
+    after preheat;  # Type-level dependency -> should auto-create preheat instance
+  }
+}
+
+# Note: This test verifies that auto-instantiation occurs (instance is created).
+# The auto-created instance is OPTIONAL, so optimizer may exclude it from schedule.

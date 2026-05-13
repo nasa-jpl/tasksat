@@ -228,3 +228,54 @@ class TestVerifier:
             "T4            : start =",
             "No temporal properties attached to this TaskNet."
         )
+
+    def test_tasknet25_auto_instantiate_basic(self):
+        """Test basic auto-instantiation: task depends on taskdef, creates instance"""
+        verify_out('tasknet25_auto_instantiate_basic.tn')(
+            "*** Auto-instantiated 1 task(s) from taskdefs:",
+            "preheat_auto_0 (from taskdef preheat)",
+            "*** NEW SCHEDULE***",
+            "operation     : start =",
+            "preheat_auto_0: start =",  # Auto-instance inherits INSTANCE kind, so must be scheduled
+            "No temporal properties attached to this TaskNet."
+        )
+
+    def test_tasknet26_auto_instantiate_no_duplicate(self):
+        """Test no duplicate: existing instance prevents auto-instantiation"""
+        verify_out('tasknet26_auto_instantiate_no_duplicate.tn')(
+            "*** NEW SCHEDULE***",
+            "preheat_manual: start =",
+            "operation     : start =",
+            "No temporal properties attached to this TaskNet."
+        )
+
+    def test_tasknet27_auto_instantiate_no_cascade(self):
+        """Test no cascade: auto-created instance's dependencies are not instantiated
+
+        This test verifies that only 1 instance is created (T1_auto_0), not 2 (T1 and T0).
+        The test will fail at SMT encoding because T1_auto_0's dependency on T0 is unsatisfied,
+        but that failure is expected and proves no cascade occurred.
+        """
+        from .conftest import verify, contains_all
+        output = verify('tasknet27_auto_instantiate_no_cascade.tn', check=False)
+        # Verify T1 was auto-instantiated
+        contains_all(output, [
+            "*** Auto-instantiated 1 task(s) from taskdefs:",
+            "T1_auto_0 (from taskdef T1)"
+        ])
+        # Verify T0 was NOT auto-instantiated (should only show 1 task, not 2)
+        assert "T0_auto_0" not in output, "T0 should not be auto-instantiated (no cascade)"
+
+    def test_tasknet28_auto_instantiate_multiple(self):
+        """Test multiple instantiation: two tasks depending on same taskdef create two instances"""
+        verify_out('tasknet28_auto_instantiate_multiple.tn')(
+            "*** Auto-instantiated 2 task(s) from taskdefs:",
+            "preheat_auto_0 (from taskdef preheat)",
+            "preheat_auto_1 (from taskdef preheat)",
+            "*** NEW SCHEDULE***",
+            "operation1    : start =",
+            "operation2    : start =",
+            "preheat_auto_0: start =",  # Auto-instances inherit INSTANCE kind
+            "preheat_auto_1: start =",  # Auto-instances inherit INSTANCE kind
+            "No temporal properties attached to this TaskNet."
+        )

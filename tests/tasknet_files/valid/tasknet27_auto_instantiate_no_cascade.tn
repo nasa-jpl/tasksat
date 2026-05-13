@@ -1,0 +1,47 @@
+# Test: No cascade auto-instantiation
+# Task T2 depends on taskdef T1, which itself depends on taskdef T0.
+# Expected: Auto-creates T1 instance, but NOT T0 instance (no cascade).
+# This should result in UNSAT or wellformedness error since T1's dependency is unsatisfied.
+
+tasknet AutoInstantiateNoCascade {
+  end = 100;
+
+  timelines {
+    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+  }
+
+  # Taskdef T0 (no instances provided)
+  taskdef T0 {
+    id 1;
+    duration_range [5, 10];
+    impacts {
+      maint {
+        battery +~ -0.1;
+      }
+    }
+  }
+
+  # Taskdef T1 depends on T0 (no instances provided)
+  taskdef T1 {
+    id 2;
+    duration_range [5, 10];
+    impacts {
+      maint {
+        battery +~ -0.1;
+      }
+    }
+    after T0;  # Type-level dependency on T0
+  }
+
+  # Task instance T2 depends on T1
+  task T2 {
+    id 3;
+    duration_range [10, 20];
+    impacts {
+      maint {
+        battery +~ -0.2;
+      }
+    }
+    after T1;  # Should auto-create T1, but NOT T0 (no cascade)
+  }
+}

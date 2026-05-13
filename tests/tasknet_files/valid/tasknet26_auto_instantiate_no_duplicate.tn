@@ -1,0 +1,39 @@
+# Test: No duplicate auto-instantiation
+# A task depends on a taskdef, but an instance already exists.
+# Expected: Should NOT create another instance (no duplicate).
+
+tasknet AutoInstantiateNoDuplicate {
+  end = 100;
+
+  timelines {
+    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+  }
+
+  # Taskdef: preheat
+  taskdef preheat {
+    id 1;
+    duration_range [5, 10];
+    impacts {
+      maint {
+        battery +~ -0.1;
+      }
+    }
+  }
+
+  # User-provided instance of preheat
+  task preheat_manual : preheat {
+    id 10;
+  }
+
+  # Task instance that depends on preheat taskdef
+  task operation {
+    id 2;
+    duration_range [10, 20];
+    impacts {
+      maint {
+        battery +~ -0.2;
+      }
+    }
+    after preheat;  # Should use existing preheat_manual, not auto-create
+  }
+}

@@ -1,0 +1,79 @@
+# DEMO: Auto-Instantiation with Thermal Management Pattern
+#
+# Scenario: Mars rover downlinks require thermal management
+# - Preheat: warm up radio equipment (drains battery, increases temperature)
+# - Maintainheat: keep equipment warm (drains battery, maintains temperature)
+# - Downlink: transmit data
+#
+# Constraints:
+# - Downlink must be after preheat (warming up first)
+# - Downlink must be contained in maintainheat (stay warm during transmission)
+# - Maintainheat must be after preheat (no overlap - sequential heating phases)
+#
+# Without auto-instantiation: Must manually create 4 thermal tasks (2 per downlink)
+# With auto-instantiation: Just specify the pattern once!
+
+tasknet ThermalDemo {
+  end = 2000;
+
+  timelines {
+    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 90.0;
+    temperature : rate [0.0, 50.0] bounds [0.0, 50.0] = 10.0 initial_rate = -0.2;
+  }
+
+  taskdef preheat {
+    duration_range [50, 100];
+    impacts {
+      maint {
+        battery +~ -0.2;      
+        temperature +~ 0.5;   
+      }
+    }
+  }
+
+  taskdef maintainheat {
+    duration_range [110, 120]; 
+    impacts {
+      maint {
+        battery +~ -0.05;  
+        temperature +~ -0.05; 
+      }
+    }
+    after preheat;  
+  }
+
+  taskdef downlink {
+    duration_range [50, 100];
+    inv {
+      temperature in [25.0, 50.0];  
+    }
+    impacts {
+      maint {
+        battery +~ -0.3;  
+      }
+    }
+    after preheat;           
+    containedin maintainheat; 
+  }
+
+  task downlink_0 : downlink {
+    start_range [100, 300];  
+  }
+
+  task downlink_1 : downlink {
+    start_range [500, 700];  
+  }
+}
+
+# ===== AUTO-INSTANTIATION CREATES: =====
+# preheat_auto_0, maintainheat_auto_0 (for downlink_0)
+# preheat_auto_1, maintainheat_auto_1 (for downlink_1)
+#
+# Total: 4 thermal instances created automatically!
+#
+# Thermal management pattern ensures:
+# 1. Each downlink has its own preheat + maintainheat pair
+# 2. Preheat warms up equipment before maintainheat starts
+# 3. Maintainheat starts after preheat completes (temporal "after" constraint)
+# 4. Downlink is contained within maintainheat period
+# 5. All thermal instances are INSTANCE kind (required, not optional)
