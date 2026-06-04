@@ -6,7 +6,9 @@ Syntax highlighting and language support for TaskNet files (.tn) used in MEXEC t
 
 - Syntax highlighting for TaskNet DSL
 - Support for tasknet keywords, types, and operators
-- Comment and string highlighting
+- Comment highlighting (both `#` and `//` styles)
+- String highlighting
+- Auto-commenting with Cmd+/ or Ctrl+/ (uses `//`)
 
 ## Usage
 

@@ -492,6 +492,45 @@ class WellFormednessChecker:
             self._check_formula_timeline_refs(prop_name, formula.left, kind)
             self._check_formula_timeline_refs(prop_name, formula.right, kind)
 
+        elif isinstance(formula, TLTimeCmp):
+            # Check both left and right temporal terms
+            self._check_temporal_term(prop_name, formula.left, kind)
+            self._check_temporal_term(prop_name, formula.right, kind)
+
+    def _check_temporal_term(self, prop_name: str, term, kind: str):
+        """Check a temporal term (TLTimeVar, TLTaskBoundary, or number)."""
+        if isinstance(term, TLTimeVar):
+            # 'time' is always valid
+            pass
+        elif isinstance(term, TLTaskBoundary):
+            # Check that the referenced task exists
+            if term.task not in self.task_map:
+                self._error(
+                    "Task Reference",
+                    f"{kind} '{prop_name}' references non-existent task '{term.task}' in {term.task}.{term.boundary}"
+                )
+            else:
+                # Check that it's not a definition
+                task = self.task_map[term.task]
+                if task.kind == TaskKind.DEFINITION:
+                    self._error(
+                        "Task Reference",
+                        f"{kind} '{prop_name}' references task definition '{term.task}' in {term.task}.{term.boundary}. "
+                        "Task definitions cannot be scheduled. Use a task instance instead."
+                    )
+                # Note: Referencing task.start or task.end for optional/request tasks is CONDITIONAL.
+                # The constraint evaluates to true if the task is not scheduled.
+                # This matches the semantics of active(task) in temporal formulas.
+        elif isinstance(term, (int, float)):
+            # Numeric constants are always valid
+            pass
+        else:
+            # Should not happen if parser is correct
+            self._error(
+                "Invalid Term",
+                f"{kind} '{prop_name}' contains invalid temporal term: {term}"
+            )
+
 
 def check_wellformedness(tn: TaskNet) -> bool:
     """

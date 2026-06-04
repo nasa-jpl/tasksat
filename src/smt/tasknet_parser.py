@@ -67,6 +67,9 @@ reserved = {
     "or":          "OR",
     # task predicates
     "active":      "ACTIVE",
+    "time":        "TIME",
+    # sequencing
+    "sequence":    "SEQUENCE",
 }
 
 tokens = [
@@ -122,7 +125,7 @@ t_ignore = " \t\r"
 
 
 def t_COMMENT(t):
-    r"\#[^\n]*"
+    r"(\#|//)[^\n]*"
     pass
 
 
@@ -1193,6 +1196,116 @@ def p_tl_atom_active(p):
     "tl_atom : ACTIVE LPAREN NAME RPAREN"
     task_name = p[3]
     p[0] = TLTaskActive(task=task_name)
+
+
+def p_tl_atom_true(p):
+    "tl_atom : TRUE"
+    p[0] = TLTrue()
+
+
+def p_tl_atom_false(p):
+    "tl_atom : FALSE"
+    p[0] = TLFalse()
+
+
+def p_tl_atom_time_cmp_num(p):
+    "tl_atom : TIME cmp_op NUMBER"
+    op = p[2]
+    bound = float(p[3])
+    left = TLTimeVar()
+    p[0] = TLTimeCmp(left=left, op=op, right=bound)
+
+
+def p_tl_atom_time_cmp_task_start(p):
+    "tl_atom : TIME cmp_op NAME DOT START_KW"
+    task_name = p[3]
+    op = p[2]
+    left = TLTimeVar()
+    right = TLTaskBoundary(task=task_name, boundary="start")
+    p[0] = TLTimeCmp(left=left, op=op, right=right)
+
+
+def p_tl_atom_time_cmp_task_end(p):
+    "tl_atom : TIME cmp_op NAME DOT END"
+    task_name = p[3]
+    op = p[2]
+    left = TLTimeVar()
+    right = TLTaskBoundary(task=task_name, boundary="end")
+    p[0] = TLTimeCmp(left=left, op=op, right=right)
+
+
+def p_tl_atom_task_start_cmp_num(p):
+    "tl_atom : NAME DOT START_KW cmp_op NUMBER"
+    task_name = p[1]
+    op = p[4]
+    bound = float(p[5])
+    left = TLTaskBoundary(task=task_name, boundary="start")
+    p[0] = TLTimeCmp(left=left, op=op, right=bound)
+
+
+def p_tl_atom_task_end_cmp_num(p):
+    "tl_atom : NAME DOT END cmp_op NUMBER"
+    task_name = p[1]
+    op = p[4]
+    bound = float(p[5])
+    left = TLTaskBoundary(task=task_name, boundary="end")
+    p[0] = TLTimeCmp(left=left, op=op, right=bound)
+
+
+def p_tl_atom_task_start_cmp_task_start(p):
+    "tl_atom : NAME DOT START_KW cmp_op NAME DOT START_KW"
+    task_name1 = p[1]
+    op = p[4]
+    task_name2 = p[5]
+    left = TLTaskBoundary(task=task_name1, boundary="start")
+    right = TLTaskBoundary(task=task_name2, boundary="start")
+    p[0] = TLTimeCmp(left=left, op=op, right=right)
+
+
+def p_tl_atom_task_start_cmp_task_end(p):
+    "tl_atom : NAME DOT START_KW cmp_op NAME DOT END"
+    task_name1 = p[1]
+    op = p[4]
+    task_name2 = p[5]
+    left = TLTaskBoundary(task=task_name1, boundary="start")
+    right = TLTaskBoundary(task=task_name2, boundary="end")
+    p[0] = TLTimeCmp(left=left, op=op, right=right)
+
+
+def p_tl_atom_task_end_cmp_task_start(p):
+    "tl_atom : NAME DOT END cmp_op NAME DOT START_KW"
+    task_name1 = p[1]
+    op = p[4]
+    task_name2 = p[5]
+    left = TLTaskBoundary(task=task_name1, boundary="end")
+    right = TLTaskBoundary(task=task_name2, boundary="start")
+    p[0] = TLTimeCmp(left=left, op=op, right=right)
+
+
+def p_tl_atom_task_end_cmp_task_end(p):
+    "tl_atom : NAME DOT END cmp_op NAME DOT END"
+    task_name1 = p[1]
+    op = p[4]
+    task_name2 = p[5]
+    left = TLTaskBoundary(task=task_name1, boundary="end")
+    right = TLTaskBoundary(task=task_name2, boundary="end")
+    p[0] = TLTimeCmp(left=left, op=op, right=right)
+
+
+def p_tl_atom_sequence(p):
+    "tl_atom : SEQUENCE LBRACKET task_name_list RBRACKET"
+    tasks = p[3]
+    p[0] = TLSequence(tasks=tasks)
+
+
+def p_task_name_list_single(p):
+    "task_name_list : NAME"
+    p[0] = [p[1]]
+
+
+def p_task_name_list_many(p):
+    "task_name_list : task_name_list COMMA NAME"
+    p[0] = p[1] + [p[3]]
 
 
 def p_cmp_op_lt(p):

@@ -1,0 +1,431 @@
+# Translated from MEXEC XML (version v1.5.0)
+# TaskNet ID: 1
+
+tasknet Tasknet_1 {
+  end = 250000;
+
+  timelines {
+    battery_charging : atomic = false;
+    last_waypoint_reached : cumulative [0, 255]  = 0;
+    remaining_waypoint_count : cumulative [0, 255]  = 199;
+    rover_driving : atomic = false;
+    battery_soc : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0 initial_rate = 0.01;
+    e_stop : state(Off, On) = Off;
+    orbiter_visible : state(NOT_VISIBLE, VISIBLE) = NOT_VISIBLE;
+    orbiter_available : state(NOT_AVAILABLE, AVAILABLE) = NOT_AVAILABLE;
+    orbiter_in_use : atomic = false;
+    rover_motors_heating : atomic = false;
+    gl_active : atomic = false;
+  }
+
+  # ============================================================================
+  # TASK DEFINITIONS
+  # ============================================================================
+
+  taskdef battery_recharge {
+    id 8198;
+    priority 3000;
+    duration_range [1, 4000];
+    pre {
+      battery_charging = false;
+    }
+    inv {
+      battery_soc in [0.0, 95.0];
+    }
+    impacts {
+      maint {
+        battery_charging += 1;
+        battery_soc +~ 0.1;
+      }
+    }
+  }
+
+  taskdef orbiter_visible {
+    id 10000;
+    priority 7000;
+    duration_range [1, 250000];
+    impacts {
+      pre {
+        orbiter_visible = VISIBLE;
+      }
+      post {
+        orbiter_visible = NOT_VISIBLE;
+      }
+    }
+  }
+
+  taskdef orbiter_available {
+    id 10001;
+    priority 6000;
+    duration_range [1, 250000];
+    inv {
+      orbiter_visible = VISIBLE;
+    }
+    impacts {
+      pre {
+        orbiter_available = AVAILABLE;
+      }
+      post {
+        orbiter_available = NOT_AVAILABLE;
+      }
+    }
+  }
+
+  taskdef global_localization_preheat {
+    id 8209;
+    priority 600;
+    duration_range [1, 200];
+    inv {
+      battery_soc in [30.0, 100.0];
+    }
+    impacts {
+      maint {
+        battery_soc +~ 0.0;
+      }
+    }
+  }
+
+  taskdef global_localization_maintainheat {
+    id 8210;
+    priority 500;
+    duration_range [1, 5000];
+    inv {
+      battery_soc in [20.0, 100.0];
+    }
+    impacts {
+      maint {
+        battery_soc +~ 0.0;
+      }
+    }
+  }
+
+  taskdef global_localization {
+    id 8208;
+    priority 2500;
+    duration_range [1, 690];
+    pre {
+      gl_active = false;
+    }
+    inv {
+      gl_active = true;
+    }
+    impacts {
+      maint {
+        gl_active += 1;
+      }
+    }
+    after global_localization_preheat;
+    containedin global_localization_maintainheat;
+  }
+
+  taskdef comm_preheat {
+    id 8199;
+    priority 600;
+    duration_range [1, 200];
+    inv {
+      battery_soc in [30.0, 100.0];
+    }
+    impacts {
+      maint {
+        battery_soc +~ -0.01;
+      }
+    }
+  }
+
+  taskdef comm_maintainheat {
+    id 8200;
+    priority 500;
+    duration_range [1, 5000];
+    inv {
+      battery_soc in [20.0, 100.0];
+    }
+    impacts {
+      maint {
+        battery_soc +~ -0.01;
+      }
+    }
+  }
+
+  taskdef downlink_all {
+    id 8195;
+    priority 4000;
+    duration_range [1, 250000];
+    pre {
+      orbiter_in_use = false;
+    }
+    inv {
+      orbiter_available = AVAILABLE;
+      orbiter_in_use = true;
+    }
+    impacts {
+      maint {
+        battery_soc +~ 2.0;
+        orbiter_in_use += 1;
+      }
+    }
+    after comm_preheat;
+    containedin comm_maintainheat;
+  }
+
+  taskdef route_segment_request_preheat {
+    id 20480;
+    priority 1999;
+    duration_range [1, 200];
+    pre {
+      rover_motors_heating = false;
+      e_stop = Off;
+      battery_charging = false;
+    }
+    inv {
+      battery_soc in [30.0, 100.0];
+      e_stop = Off;
+      battery_charging = false;
+    }
+    impacts {
+      maint {
+        battery_soc +~ -0.01;
+        rover_motors_heating += 1;
+      }
+    }
+  }
+
+  taskdef route_segment_request_maintainheat {
+    id 28672;
+    priority 1998;
+    duration_range [1, 250000];
+    pre {
+      rover_motors_heating = false;
+      battery_charging = false;
+    }
+    inv {
+      battery_soc in [20.0, 100.0];
+      battery_charging = false;
+    }
+    impacts {
+      maint {
+        battery_soc +~ -0.01;
+        rover_motors_heating += 1;
+      }
+    }
+  }
+
+  taskdef route_segment_request {
+    id 10240;
+    priority 2000;
+    duration_range [120, 250000];
+    start_range [0, 250000];
+    pre {
+      rover_driving = false;
+      e_stop = Off;
+      orbiter_in_use = false;
+      battery_charging = false;
+      remaining_waypoint_count in [1, 255];
+      gl_active = false;
+    }
+    inv {
+      battery_soc in [20.0, 100.0];
+      e_stop = Off;
+      orbiter_in_use = false;
+      battery_charging = false;
+      remaining_waypoint_count in [1, 255];
+      gl_active = false;
+    }
+    impacts {
+      maint {
+        rover_driving += 1;
+        battery_soc +~ -0.01;
+      }
+    }
+    after route_segment_request_preheat;
+    containedin route_segment_request_maintainheat;
+  }
+
+  # ============================================================================
+  # TASK INSTANCES
+  # ============================================================================
+
+  task orbiter_visible_0 : orbiter_visible {
+    id 45056;
+    start_range [100, 100];
+    start 100;
+    duration 9900;
+    duration_range [9900, 9900];
+  }
+
+  task orbiter_available_0 : orbiter_available {
+    id 49152;
+    start_range [360, 360];
+    start 360;
+    duration 300;
+    duration_range [300, 300];
+  }
+
+  task downlink_all1 : downlink_all {
+    id 53249;
+    start_range [360, 660];
+    start 360;
+    duration 300;
+    duration_range [30, 300];
+  }
+
+  task orbiter_available_1 : orbiter_available {
+    id 49153;
+    start_range [1020, 1020];
+    start 1020;
+    duration 300;
+    duration_range [300, 300];
+  }
+
+  task downlink_all2 : downlink_all {
+    id 53250;
+    start_range [1020, 1320];
+    start 1020;
+    duration 300;
+    duration_range [30, 300];
+  }
+
+  task orbiter_available_2 : orbiter_available {
+    id 49154;
+    start_range [1680, 1680];
+    start 1680;
+    duration 300;
+    duration_range [300, 300];
+  }
+
+  task downlink_all3 : downlink_all {
+    id 53251;
+    start_range [1680, 1980];
+    start 1680;
+    duration 300;
+    duration_range [30, 300];
+  }
+
+  task orbiter_available_3 : orbiter_available {
+    id 49155;
+    start_range [2440, 2440];
+    start 2440;
+    duration 300;
+    duration_range [300, 300];
+  }
+
+  task downlink_all4 : downlink_all {
+    id 53252;
+    start_range [2440, 2740];
+    start 2440;
+    duration 300;
+    duration_range [30, 300];
+  }
+
+  task orbiter_available_4 : orbiter_available {
+    id 49156;
+    start_range [3100, 3100];
+    start 3100;
+    duration 300;
+    duration_range [300, 300];
+  }
+
+  task downlink_all5 : downlink_all {
+    id 53253;
+    start_range [3100, 3400];
+    start 3100;
+    duration 300;
+    duration_range [30, 300];
+  }
+
+  task orbiter_available_5 : orbiter_available {
+    id 49157;
+    start_range [3760, 3760];
+    start 3760;
+    duration 300;
+    duration_range [300, 300];
+  }
+
+  task downlink_all6 : downlink_all {
+    id 53254;
+    start_range [3760, 4060];
+    start 3760;
+    duration 300;
+    duration_range [30, 300];
+  }
+
+  task orbiter_available_6 : orbiter_available {
+    id 49158;
+    start_range [4420, 4420];
+    start 4420;
+    duration 300;
+    duration_range [300, 300];
+  }
+
+  task downlink_all7 : downlink_all {
+    id 53255;
+    start_range [4420, 4720];
+    start 4420;
+    duration 300;
+    duration_range [30, 300];
+  }
+
+  task orbiter_available_7 : orbiter_available {
+    id 49159;
+    start_range [5080, 5080];
+    start 5080;
+    duration 300;
+    duration_range [300, 300];
+  }
+
+  task downlink_all8 : downlink_all {
+    id 53256;
+    start_range [5080, 5380];
+    start 5080;
+    duration 300;
+    duration_range [30, 300];
+  }
+
+  task orbiter_available_8 : orbiter_available {
+    id 49160;
+    start_range [5740, 5740];
+    start 5740;
+    duration 300;
+    duration_range [300, 300];
+  }
+
+  task downlink_all9 : downlink_all {
+    id 53257;
+    start_range [5740, 6040];
+    start 5740;
+    duration 300;
+    duration_range [30, 300];
+  }
+
+  task orbiter_available_9 : orbiter_available {
+    id 49161;
+    start_range [6400, 6400];
+    start 6400;
+    duration 360;
+    duration_range [360, 360];
+  }
+
+  task downlink_all10 : downlink_all {
+    id 53258;
+    start_range [6400, 6760];
+    start 6400;
+    duration 360;
+    duration_range [30, 360];
+  }
+
+  # ============================================================================
+  # TASK REQUESTS (maximize inclusion)
+  # ============================================================================
+
+  request task global_localization_request_0 : global_localization {
+    id 10000;
+  }
+
+  request task battery_recharge_request_0 : battery_recharge {
+    id 10001;
+  }
+
+  request task route_segment_request_request_0 : route_segment_request {
+    id 10240;
+  }
+
+}

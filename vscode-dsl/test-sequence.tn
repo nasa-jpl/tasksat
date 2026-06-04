@@ -1,0 +1,24 @@
+// Test file for sequence keyword syntax highlighting
+
+tasknet SequenceTest {
+  end = 1000;
+
+  timelines {
+    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0 initial_rate = 0.0;
+  }
+
+  task preheat_0 { duration 10; }
+  task downlink_0 { duration 50; }
+  task preheat_1 { duration 10; }
+  task downlink_1 { duration 50; }
+
+  constraints {
+    // The sequence keyword should be highlighted
+    prop sequential: sequence [preheat_0, downlink_0, preheat_1, downlink_1];
+
+    // Other temporal keywords for comparison
+    prop battery_ok: always (battery >= 20.0);
+    prop task_active: eventually active(downlink_0);
+    prop time_check: time < 500;
+  }
+}

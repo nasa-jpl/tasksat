@@ -196,3 +196,6 @@ jpl/mexec/test/debug/
 # Backup files
 *.tn~
 *.tn.old
+
+# TaskSAT generated files
+.tasksat/
