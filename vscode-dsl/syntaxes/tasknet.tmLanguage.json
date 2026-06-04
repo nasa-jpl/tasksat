@@ -16,6 +16,10 @@
         {
           "name": "comment.line.number-sign.tasknet",
           "match": "#.*$"
+        },
+        {
+          "name": "comment.line.double-slash.tasknet",
+          "match": "\\/\\/.*$"
         }
       ]
     },
@@ -45,11 +49,11 @@
 	  
         {
           "name": "keyword.control.tasknet",
-          "match": "\\b(always|eventually|once|sofar|until|since|not|and|or)\\b"
+          "match": "\\b(always|eventually|once|sofar|until|since|not|and|or|sequence|active|time)\\b"
         },
 	{
           "name": "keyword.operator.word.tasknet",
-          "match": "\\b(always|eventually|once|sofar|until|since|not|and|or)\\b"
+          "match": "\\b(always|eventually|once|sofar|until|since|not|and|or|sequence|active|time)\\b"
         },
 
         {

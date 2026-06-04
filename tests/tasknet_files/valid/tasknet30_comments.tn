@@ -1,0 +1,28 @@
+# This is a hash-style comment
+// This is a C-style comment
+
+tasknet CommentTest {
+  end = 100;  # Inline hash comment
+
+  timelines {
+    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0 initial_rate = 0.0;  // Inline C-style comment
+  }
+
+  # Task with hash comments
+  task charge {
+    duration 30;
+    # This is a pre-condition
+    pre {
+      battery in [20.0, 100.0];
+    }
+  }
+
+  // Task with C-style comments
+  task drive {
+    duration 40;
+    // This is also a pre-condition
+    pre {
+      battery in [30.0, 100.0];
+    }
+  }
+}

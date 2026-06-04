@@ -27,6 +27,11 @@ class TaskNetSMT:
         self.request_tasks = [t for t in self.tn.tasks if t.kind == TaskKind.REQUEST]
         self.all_scheduled_tasks = self.required_tasks + self.optional_tasks + self.request_tasks
 
+        # === Auto-instance mapping ===
+        # Build mapping: (task_id, taskdef_id) -> auto_instance_id
+        # This allows resolving inherited type-level dependencies to specific auto-instances
+        self.auto_instance_map = self._build_auto_instance_map()
+
         # === Optional task inclusion variables ===
         self.optional_included: Dict[str, object] = {}
         for t in self.optional_tasks:
@@ -597,6 +602,58 @@ class TaskNetSMT:
             impacts=merged_impacts,  # Use merged impacts
         )
 
+    def _build_auto_instance_map(self) -> Dict[Tuple[str, str], str]:
+        """
+        Build mapping from (task_id, taskdef_id) to auto_instance_id.
+
+        This replicates the logic from instantiate_from_definitions to determine
+        which auto-instance belongs to which task, allowing the encoder to resolve
+        inherited type-level dependencies to specific auto-instances.
+
+        Returns:
+            Dict mapping (dependent_task_id, required_taskdef_id) -> auto_instance_id
+        """
+        from collections import defaultdict
+
+        # Get taskdefs and instances
+        taskdefs = {t.definition: t for t in self.all_scheduled_tasks if t.definition}
+        # Get original task IDs (non-auto instances)
+        original_tasks = [t for t in self.all_scheduled_tasks if '_auto_' not in t.id]
+
+        # Collect dependencies: (task_id, taskdef_id) pairs
+        dependencies = []
+        for task in original_tasks:
+            needed_taskdefs = []
+
+            # Check instance's direct type-level constraints
+            if task.after_definitions:
+                needed_taskdefs.extend(task.after_definitions)
+            if task.containedin_definitions:
+                needed_taskdefs.extend(task.containedin_definitions)
+
+            # Note: We don't need to check inherited constraints here because
+            # resolve_task_definitions has already merged them into the task
+
+            for def_id in needed_taskdefs:
+                dependencies.append((task.id, def_id))
+
+        # Group by taskdef
+        taskdef_dependencies = defaultdict(list)
+        for task_id, def_id in dependencies:
+            taskdef_dependencies[def_id].append(task_id)
+
+        # Build mapping using same indexing as instantiate_from_definitions
+        mapping = {}
+        existing_ids = {t.id for t in self.all_scheduled_tasks}
+
+        for def_id, dependent_task_ids in taskdef_dependencies.items():
+            for idx, dependent_task_id in enumerate(dependent_task_ids):
+                auto_instance_id = f"{def_id}_auto_{idx}"
+                if auto_instance_id in existing_ids:
+                    mapping[(dependent_task_id, def_id)] = auto_instance_id
+
+        return mapping
+
     # -------------------
     # Normalizing tasknet
     # -------------------
@@ -724,26 +781,33 @@ class TaskNetSMT:
                         # ill-formed TaskNet — forbid
                         self.solver.add(False)
                     else:
-                        add_constraint(self.end_vars[bid] <= s, label=f"dependency_after: task '{t.id}' must start after task '{bid}' ends")
+                        add_constraint(self.end_vars[bid] <= s, label=f"dependency_after: '{t.id}' after '{bid}'")
 
-            # Type-level after dependencies (definition IDs with OR semantics)
+            # Type-level after dependencies (definition IDs)
             if t.after_definitions is not None:
                 for def_id in t.after_definitions:
-                    # Find all instances of def_id (exclude definitions themselves)
-                    def_instances = [inst for inst in tasks
-                                    if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
-
-                    if not def_instances:
-                        # No instances of required definition - constraint cannot be satisfied
-                        if isinstance(self.solver, Solver):
-                            self.add_tracked(False, f"missing_dependency_after: task '{t.id}' requires '{def_id}' but no instances exist")
-                        else:
-                            self.solver.add(False)
+                    # Check if there's a specific auto-instance for this task
+                    auto_key = (t.id, def_id)
+                    if auto_key in self.auto_instance_map:
+                        # Use the specific auto-instance created for this task
+                        auto_id = self.auto_instance_map[auto_key]
+                        add_constraint(self.end_vars[auto_id] <= s,
+                                     label=f"dependency_after: '{t.id}' after '{auto_id}'")
                     else:
-                        # At least one instance must complete before this task starts
-                        # Encoding: OR over all instances: (end(inst1) <= s) OR (end(inst2) <= s) OR ...
-                        constraints = [self.end_vars[inst.id] <= s for inst in def_instances]
-                        add_constraint(Or(*constraints), label=f"dependency_after: task '{t.id}' must start after some instance of '{def_id}'")
+                        # No auto-instance: use OR semantics over all available instances
+                        def_instances = [inst for inst in tasks
+                                        if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
+
+                        if not def_instances:
+                            # No instances of required definition - constraint cannot be satisfied
+                            if isinstance(self.solver, Solver):
+                                self.add_tracked(False, f"missing_dependency_after: task '{t.id}' requires '{def_id}' but no instances exist")
+                            else:
+                                self.solver.add(False)
+                        else:
+                            # At least one instance must complete before this task starts (OR semantics)
+                            constraints = [self.end_vars[inst.id] <= s for inst in def_instances]
+                            add_constraint(Or(*constraints), label=f"dependency_after: task '{t.id}' must start after some instance of '{def_id}'")
 
             # Instance-level containedin dependencies (specific task IDs)
             if t.containedin_instances is not None:
@@ -755,29 +819,35 @@ class TaskNetSMT:
                         # parent task must be active during this task's execution
                         # parent_start <= this_start AND this_end <= parent_end
                         add_constraint(self.start_vars[pid] <= s, e <= self.end_vars[pid],
-                                     label=f"dependency_containedin: task '{t.id}' must be contained within task '{pid}'")
+                                     label=f"dependency_containedin: '{t.id}' within '{pid}'")
 
-            # Type-level containedin dependencies (definition IDs with OR semantics)
+            # Type-level containedin dependencies (definition IDs)
             if t.containedin_definitions is not None:
                 for def_id in t.containedin_definitions:
-                    # Find all instances of def_id (exclude definitions themselves)
-                    def_instances = [inst for inst in tasks
-                                    if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
-
-                    if not def_instances:
-                        # No instances of required definition - constraint cannot be satisfied
-                        if isinstance(self.solver, Solver):
-                            self.add_tracked(False, f"missing_dependency_containedin: task '{t.id}' requires '{def_id}' but no instances exist")
-                        else:
-                            self.solver.add(False)
+                    # Check if there's a specific auto-instance for this task
+                    auto_key = (t.id, def_id)
+                    if auto_key in self.auto_instance_map:
+                        # Use the specific auto-instance created for this task
+                        auto_id = self.auto_instance_map[auto_key]
+                        add_constraint(self.start_vars[auto_id] <= s, e <= self.end_vars[auto_id],
+                                     label=f"dependency_containedin: '{t.id}' within '{auto_id}'")
                     else:
-                        # Must be contained within at least one instance
-                        # Encoding: OR over all instances:
-                        #   (parent1.start <= s AND e <= parent1.end) OR
-                        #   (parent2.start <= s AND e <= parent2.end) OR ...
-                        constraints = [And(self.start_vars[inst.id] <= s, e <= self.end_vars[inst.id])
-                                      for inst in def_instances]
-                        add_constraint(Or(*constraints), label=f"dependency_containedin: task '{t.id}' must be contained within some instance of '{def_id}'")
+                        # No auto-instance: use OR semantics over all available instances
+                        def_instances = [inst for inst in tasks
+                                        if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
+
+                        if not def_instances:
+                            # No instances of required definition - constraint cannot be satisfied
+                            if isinstance(self.solver, Solver):
+                                self.add_tracked(False, f"missing_dependency_containedin: task '{t.id}' requires '{def_id}' but no instances exist")
+                            else:
+                                self.solver.add(False)
+                        else:
+                            # Must be contained within at least one instance (OR semantics)
+                            # Encoding: (parent1.start <= s AND e <= parent1.end) OR (parent2.start <= s AND e <= parent2.end) OR ...
+                            constraints = [And(self.start_vars[inst.id] <= s, e <= self.end_vars[inst.id])
+                                          for inst in def_instances]
+                            add_constraint(Or(*constraints), label=f"dependency_containedin: task '{t.id}' must be contained within some instance of '{def_id}'")
 
         # --- All task boundaries are pairwise distinct ---
         # Only for included tasks
@@ -1983,6 +2053,75 @@ class TaskNetTL(TaskNetSMT):
                 self.solver.add(False)
                 return False
             return expr == f.value
+
+        if isinstance(f, TLTrue):
+            return True
+
+        if isinstance(f, TLFalse):
+            return False
+
+        if isinstance(f, TLTimeCmp):
+            # Encode comparison between temporal terms (time, task.start, task.end, numbers)
+            # Semantics: Conditional on optional/request tasks (evaluates to true if not scheduled)
+            def encode_temporal_term(term):
+                if isinstance(term, TLTimeVar):
+                    # Current time at zone j
+                    return self.zones[j]
+                elif isinstance(term, TLTaskBoundary):
+                    # Task start or end time
+                    if term.boundary == "start":
+                        return self.start_vars[term.task]
+                    else:  # "end"
+                        return self.end_vars[term.task]
+                elif isinstance(term, (int, float)):
+                    # Numeric constant
+                    return term
+                else:
+                    raise ValueError(f"Unknown temporal term type: {type(term)}")
+
+            def get_referenced_tasks(term):
+                """Collect all task boundaries referenced in a term."""
+                if isinstance(term, TLTaskBoundary):
+                    return {term.task}
+                return set()
+
+            # Collect all optional/request tasks referenced
+            referenced_tasks = get_referenced_tasks(f.left) | get_referenced_tasks(f.right)
+            optional_refs = [t for t in referenced_tasks if t in self.optional_included]
+            request_refs = [t for t in referenced_tasks if t in self.request_included]
+
+            left_expr = encode_temporal_term(f.left)
+            right_expr = encode_temporal_term(f.right)
+
+            # Build the comparison
+            if f.op == "<":
+                constraint = left_expr < right_expr
+            elif f.op == "<=":
+                constraint = left_expr <= right_expr
+            elif f.op == "=":
+                constraint = left_expr == right_expr
+            elif f.op == ">":
+                constraint = left_expr > right_expr
+            elif f.op == ">=":
+                constraint = left_expr >= right_expr
+            else:
+                self.solver.add(False)
+                return False
+
+            # Wrap with conditional: If any optional/request task is referenced,
+            # the constraint only applies if ALL referenced tasks are included
+            if optional_refs or request_refs:
+                all_included = []
+                for t in optional_refs:
+                    all_included.append(self.optional_included[t])
+                for t in request_refs:
+                    all_included.append(self.request_included[t])
+
+                # If(all tasks included, constraint, true)
+                condition = And(*all_included) if len(all_included) > 1 else all_included[0]
+                return If(condition, constraint, True)
+
+            return constraint
 
         if isinstance(f, TLAnd):
             return And(self._encode_formula_at_pos(f.left, j),

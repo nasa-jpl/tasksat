@@ -197,6 +197,37 @@ class TLTaskActive(Formula):
     task: TaskName
 
 @dataclass
+class TLTrue(Formula):
+    """Temporal logic constant: true"""
+    pass
+
+@dataclass
+class TLFalse(Formula):
+    """Temporal logic constant: false"""
+    pass
+
+@dataclass
+class TLTimeVar(Formula):
+    """Reference to current time in temporal formulas"""
+    pass
+
+@dataclass
+class TLTaskBoundary(Formula):
+    """Reference to task start or end time: task.start or task.end"""
+    task: TaskName
+    boundary: Literal["start", "end"]
+
+# Temporal term types for arithmetic comparisons
+TemporalTerm = Union['TLTimeVar', 'TLTaskBoundary', float]
+
+@dataclass
+class TLTimeCmp(Formula):
+    """Comparison between temporal terms: time, task.start, task.end, or numbers"""
+    left: TemporalTerm
+    op: Literal["<", "<=", "=", ">=", ">"]
+    right: TemporalTerm
+
+@dataclass
 class TLAnd(Formula):
     left: Formula
     right: Formula
@@ -240,6 +271,12 @@ class TLOnce(Formula):
 class TLSince(Formula):
     left: Formula
     right: Formula
+
+@dataclass
+class TLSequence(Formula):
+    """Sequence constraint: tasks must execute in the given order.
+    Desugared to: task[0].end <= task[1].start and task[1].end <= task[2].start ..."""
+    tasks: List[TaskName]
 
 @dataclass
 class TemporalProperty:

@@ -1,0 +1,69 @@
+// Example demonstrating the sequence construct for sequential task ordering
+
+tasknet SequenceExample {
+  end = 100;
+
+  timelines {
+    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0 initial_rate = 0.01;
+    location : state(base, site_a, site_b, site_c) = base;
+  }
+
+  task charge {
+    duration 20;
+    impacts {
+      maint {
+        battery +~ 1.0;
+      }
+    }
+  }
+
+  task drive_to_a {
+    duration 15;
+    impacts {
+      maint {
+        battery -~ 0.5;
+      }
+      post {
+        location = site_a;
+      }
+    }
+  }
+
+  task drive_to_b {
+    duration 15;
+    impacts {
+      maint {
+        battery -~ 0.5;
+      }
+      post {
+        location = site_b;
+      }
+    }
+  }
+
+  task drive_to_c {
+    duration 15;
+    impacts {
+      maint {
+        battery -~ 0.5;
+      }
+      post {
+        location = site_c;
+      }
+    }
+  }
+
+  constraints {
+    // Use sequence to enforce strict ordering
+    // This is equivalent to:
+    //   charge.end <= drive_to_a.start and
+    //   drive_to_a.end <= drive_to_b.start and
+    //   drive_to_b.end <= drive_to_c.start
+    prop mission_sequence: sequence [charge, drive_to_a, drive_to_b, drive_to_c];
+  }
+
+  properties {
+    prop battery_safety: always (battery >= 0.0);
+    prop mission_complete: eventually (location = site_c);
+  }
+}

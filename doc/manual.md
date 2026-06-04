@@ -11,6 +11,25 @@ A TaskSAT specification (`.tn` file) defines a scheduling problem with:
 - **Tasks**: Operations with durations, constraints, and effects
 - **Properties**: Temporal logic formulas that must hold
 
+## Comments
+
+TaskSAT supports both hash-style and C-style line comments:
+
+```tasknet
+# Hash-style comment
+// C-style comment
+
+tasknet Example {
+  end = 100;  # Inline hash comment
+
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;  // Inline C-style comment
+  }
+}
+```
+
+Both comment styles can be used interchangeably in the same file. C-style `//` comments are particularly useful when using editor features like VS Code's block comment toggle (Cmd+/ or Ctrl+/).
+
 ## TaskNet Structure
 
 Here is the schematic structure of a TaskNet specification:
@@ -514,6 +533,8 @@ temporal operators.
 
 **Atomic Formulas**
 
+- `true` - always true
+- `false` - always false
 - `timeline = value` 
 - `timeline >= value`
 - `timeline <= value`
@@ -521,6 +542,8 @@ temporal operators.
 - `timeline > value`
 
 Where value can be a name (for state timelines), a Boolean (for atomic timelines), or an integer or float.
+
+**Note:** For rate/cumulative timelines, `timeline = number` is interpreted as state equality (for compatibility with state timelines that have numeric state names). For numeric equality on rate timelines, use: `timeline >= value` combined with `timeline <= value`, or `timeline in [value, value]`.
 
 In addition the following formula:
 
@@ -549,6 +572,84 @@ Past time:
 - `once` φ - φ is true at some past time
 - φ1 since φ2 - φ2 once was true and since then (not including) φ1 is true
 
+**Time variable and task boundaries**
+
+In addition to timeline references, temporal formulas can reference:
+
+- `time` - the current time point in the schedule
+- `task.start` - the start time of a task
+- `task.end` - the end time of a task
+
+These are **constants** (determined once by the solver) that can be compared with each other, with `time`, or with numeric constants:
+
+```tasknet
+# Task ordering without active()
+prop T1_after_T2: T1.start >= T2.end;
+
+# Time windows
+prop early_start: task1.start < 100;
+prop late_end: task2.end > 200;
+
+# Comparing with current time
+prop before_task: always (time < task1.start -> battery > 50.0);
+
+# Complex orderings
+prop sequential: T1.end <= T2.start and T2.end <= T3.start;
+```
+
+**Important semantics:**
+- Referencing `task.start` or `task.end` where `task` is optional/request is **conditional** - the constraint evaluates to `true` if the task is not scheduled
+- This matches `active(task)` semantics and allows converting `always (active(T) -> constraint)` to just use `T.start`/`T.end`
+- `time`, `task.start`, and `task.end` are more efficient than `active(task)` because they don't create additional timelines
+- Use `task.start`/`task.end` for ordering constraints; use `active(task)` for checking if a task is executing at a specific time point
+
+**Sequence construct**
+
+For sequential task execution, TaskNet provides the `sequence` construct as syntactic sugar:
+
+```tasknet
+prop ordering: sequence [task1, task2, task3, task4];
+```
+
+This is equivalent to writing:
+
+```tasknet
+prop ordering:
+  task1.end <= task2.start and
+  task2.end <= task3.start and
+  task3.end <= task4.start;
+```
+
+The `sequence` construct:
+- Takes a list of task names in square brackets
+- Desugars to pairwise `.end <= .start` constraints
+- Can be used in both `constraints` and `properties` blocks
+- Is more concise and less error-prone than manually writing pairwise constraints
+- Works with any number of tasks (2 or more)
+
+**Example:**
+
+```tasknet
+constraints {
+  // Sequential downlink operations
+  prop downlinks: sequence [
+    preheat_0,
+    downlink_0,
+    preheat_1,
+    downlink_1,
+    preheat_2,
+    downlink_2
+  ];
+  
+  // Equivalent to:
+  // prop downlinks:
+  //   preheat_0.end <= downlink_0.start and
+  //   downlink_0.end <= preheat_1.start and
+  //   preheat_1.end <= downlink_1.start and
+  //   ...
+}
+```
+
 **Examples**
 
 ```tasknet
@@ -569,5 +670,107 @@ Past time:
 
   # Battery must stay above safe level until charging starts
   prop safe_until_charge: (battery > 20.0) until active(charge);
+
+  # Using true/false constants
+  prop tautology: always (true or false);
+  prop conditional: true -> (battery >= 0.0);
+  prop negation: always (not false);
+
+  # Using time and task boundaries
+  prop task_ordering: drive.start >= preheat.end;
+  prop early_completion: collect_data.end < 500;
+  prop minimum_gap: transmit.start >= collect_data.end + 100;
+  prop time_window: always (time > 1000 -> battery >= 40.0);
+```
+
+## User-Guided Scheduling
+
+For large tasknets (100+ tasks), the SMT solver may timeout. You can guide the solver by adding temporal constraints that narrow the search space.
+
+### Viewing Auto-Instantiated Tasks
+
+Auto-instantiated tasks (e.g., `preheat_auto_0`) only exist in the transformed AST after parsing. When auto-instantiation occurs, the verifier **automatically writes** the transformed tasknet to `.tasksat/transformed/<filename>_transformed.tn`:
+
+```bash
+# Normal verification (auto-writes transformed file if auto-instantiation occurs)
+python src/smt/tasknet_verifier.py input.tn
+
+# Skip verification and only generate transformed file
+python src/smt/tasknet_verifier.py input.tn --transform-only
+```
+
+The transformed tasknet shows all auto-instantiated tasks as explicit task declarations. Generated files are stored in `.tasksat/transformed/` to keep your project organized. You can then edit the transformed file to add scheduling hints.
+
+**Note**: The `.tasksat/` directory is automatically added to `.gitignore` to avoid committing generated files.
+
+### Schedule Output
+
+The LLM-based scheduler (for large tasknets) writes schedules and visualizations to `.tasksat/schedules/`:
+
+```bash
+python jpl/tools/llm_scheduler.py tasknet.tn
+# Generates:
+#   .tasksat/schedules/tasknet_schedule.json
+#   .tasksat/schedules/tasknet_schedule.png
+```
+
+All TaskSAT-generated artifacts are organized under `.tasksat/`:
+- `.tasksat/transformed/` - Transformed tasknets with auto-instantiated tasks
+- `.tasksat/schedules/` - Generated schedules and visualizations
+
+### Example: Adding Scheduling Hints
+
+Given a tasknet with auto-instantiated thermal management:
+
+```tasknet
+taskdef preheat { ... }
+taskdef maintainheat { after preheat; ... }
+taskdef downlink { after preheat; containedin maintainheat; ... }
+
+task downlink_0 : downlink { start_range [100, 300]; }
+task downlink_1 : downlink { start_range [500, 700]; }
+```
+
+Auto-instantiation creates: `preheat_auto_0`, `preheat_auto_1`, `maintainheat_auto_0`, `maintainheat_auto_1`.
+
+After running the verifier (which auto-writes the transformed file), edit `.tasksat/transformed/<filename>_transformed.tn` to add hints:
+
+```tasknet
+constraints {
+  # Temporal ordering: complete downlink_0 before starting downlink_1
+  prop downlink_sequential:
+    active(downlink_1) -> once active(downlink_0);
+
+  # Task grouping: cluster thermal operations early
+  prop thermal_early:
+    always (active(preheat_auto_0) -> preheat_auto_0.start < 500);
+    
+  # Resource management: spread battery-heavy operations
+  prop spread_downlinks:
+    active(downlink_0) -> (downlink_1.start - downlink_0.end > 200);
+}
+```
+
+### Common Patterns
+
+**Temporal Ordering**:
+```tasknet
+# Task A must complete before task B starts
+prop A_before_B: active(B) -> once active(A);
+
+# Bound task start time
+prop early_start: active(task) -> task.start < 1000;
+```
+
+**Task Grouping**:
+```tasknet
+# Cluster tasks within time window
+prop cluster: active(A) -> (B.start - A.end < 100);
+```
+
+**Mutual Exclusion**:
+```tasknet
+# Tasks cannot overlap
+prop exclusive: always (active(A) -> not active(B));
 ```
 

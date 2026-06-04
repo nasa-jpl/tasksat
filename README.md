@@ -7,6 +7,7 @@ TaskSAT can be applied to scheduling problems in autonomous systems, such as spa
 ## Key Features
 
 - **Auto-instantiation**: Automatically creates task instances from taskdefs when type-level dependencies exist, reducing manual specification (e.g., 2 downlinks → 6 tasks total with thermal management)
+- **Sequence construct**: Concise syntax for sequential task ordering - `sequence [t1, t2, t3]` desugars to pairwise constraints
 - **Rich state modeling**: Rate-based continuous resources, discrete states, Boolean flags
 - **Temporal logic**: LTL-style properties (always, eventually, until, since) for verification
 - **Zone-based encoding**: Efficient SMT encoding using time discretization at task boundaries
@@ -77,6 +78,22 @@ TaskSAT can be applied to scheduling problems in autonomous systems, such as spa
   └─────────────────────┘
 ```
 
+## Generated Files
+
+TaskSAT organizes all generated files under `.tasksat/` directories:
+
+```
+project/
+  tasknet.tn
+  .tasksat/
+    transformed/      # Auto-instantiated tasknets (written automatically when auto-instantiation occurs)
+    schedules/        # Generated schedules and visualizations (LLM scheduler)
+```
+
+The `.tasksat/` directory is automatically added to `.gitignore`.
+
+**Transformed tasknets:** When the SMT-based verifier auto-instantiates task instances from taskdefs, it automatically writes the expanded tasknet to `.tasksat/transformed/<filename>_transformed.tn`. This makes it easy to inspect what tasks were created. Use `--transform-only` to generate this file without running verification.
+
 ## Running Examples in this Document
 
 All examples in this document are organized in 
@@ -101,7 +118,8 @@ TaskSAT was created in order to explore an alternative method for analysing and 
 
 - **[Getting Started](doc/getting-started.md)** - Quick installation and your first TaskNet in minutes
 - **[Tutorial](doc/tutorial.md)** - In-depth walkthrough of concepts using an example
-- **[Manual](doc/manual.md)** - A language reference 
+- **[Manual](doc/manual.md)** - Complete language reference
+- **[Grammar](doc/grammar.txt)** - Formal grammar and syntax reference
 - **[Theory](doc/smt-encoding.md)** - Theory behind SMT encoding
 
 ## Alternative Approach: LLM-Based Scheduler

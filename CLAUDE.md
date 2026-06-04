@@ -24,9 +24,11 @@ python src/smt/tasknet_verifier.py tasknet.tn
 # Satisfy mode (find any valid schedule)
 python src/smt/tasknet_verifier.py tasknet.tn --mode satisfy
 
-# Inspect transformed tasknet (after auto-instantiation)
-python src/smt/tasknet_verifier.py tasknet.tn --write-transformed output.json
+# Generate transformed tasknet without verification (useful for inspecting auto-instantiation)
+python src/smt/tasknet_verifier.py tasknet.tn --transform-only
 ```
+
+**Note:** When auto-instantiation occurs, the transformed tasknet is automatically written to `.tasksat/transformed/<filename>_transformed.tn` for inspection. Use `--transform-only` to generate this file without running verification.
 
 **Run LLM-based scheduler** (for large tasknets):
 ```bash
@@ -100,7 +102,9 @@ def apply_transforms(tn):
     tn = inject_task_state_timelines(tn)        # Auto-create __T_active timelines
     tn = reclassify_constraints(tn)             # Fix after/containedin categorization
     tn = instantiate_from_definitions(tn)       # Auto-create task instances from taskdefs
-    return tn
+    tn = reclassify_constraints(tn)             # Reclassify again after instantiation
+    # Note: link_auto_instances was removed - SMT encoder resolves at encoding time
+    return tn, auto_instantiation_occurred      # Returns (TaskNet, bool)
 ```
 
 **LLM-based pipeline** (`jpl/tools/`):
@@ -109,7 +113,7 @@ def apply_transforms(tn):
 - `visualize_schedule.py` - Creates Gantt charts
 - Lean validator: `src/lean/TaskNetExec/` (compiled separately)
 
-### Auto-Instantiation (Recent Feature)
+### Auto-Instantiation
 
 **Problem**: Tasks can reference taskdefs via `after`/`containedin` but taskdefs are templates, not instances.
 
@@ -122,6 +126,13 @@ def apply_transforms(tn):
 - Naming: `{taskdef}_auto_0`, `{taskdef}_auto_1`, etc.
 - No cascade: only direct dependencies are instantiated
 - Only if user provided zero instances (if user provided any, they manage instances manually)
+- **Auto-writes transformed file**: When auto-instantiation occurs, the expanded tasknet is automatically written to `.tasksat/transformed/<name>_transformed.tn`
+
+**Resolution**: The SMT encoder resolves inherited type-level dependencies to specific auto-instances at encoding time:
+- Task instances inherit type-level constraints from their taskdefs
+- When encoding, the encoder checks if a specific auto-instance exists for that task
+- If found, uses that specific instance; otherwise uses OR semantics over all available instances
+- This avoids duplicate constraints and maintains clean inheritance
 
 **Example**:
 ```
@@ -130,6 +141,8 @@ task downlink1 { after comm_preheat; }
 task downlink2 { after comm_preheat; }
 
 → Creates: comm_preheat_auto_0, comm_preheat_auto_1
+→ downlink1 inherits "after comm_preheat" which resolves to comm_preheat_auto_0
+→ downlink2 inherits "after comm_preheat" which resolves to comm_preheat_auto_1
 ```
 
 ### Repository Structure
@@ -185,6 +198,71 @@ git remote -v
 - **Guidance files**: Natural language mission-specific requirements
 - **Validation**: Polynomial-time check vs NP-hard search
 
+## Recent Improvements (2026)
+
+### Sequence Construct (June 2026)
+Added `sequence [task1, task2, ...]` syntax for sequential task ordering:
+```
+constraints {
+  prop ordering: sequence [preheat_0, downlink_0, preheat_1, downlink_1];
+}
+```
+Desugars to pairwise `.end <= .start` constraints. More concise and less error-prone than manual ordering constraints.
+
+### Comment Syntax (June 2026)
+Both `#` and `//` are supported for line comments:
+```
+# Hash-style comment
+// C-style comment (useful for block commenting with Cmd+/ in editors)
+```
+
+### Time Variable and Task Boundaries (June 2026)
+Added `time` variable and `task.start`/`task.end` references for more efficient temporal constraints:
+
+```
+constraints {
+  # Task ordering without active() - more efficient!
+  prop order: T1.start >= T2.end;
+  
+  # Time windows
+  prop early: task1.start < 100;
+  
+  # Current time comparisons
+  prop before_task: always (time < task1.start -> battery > 50.0);
+}
+```
+
+**Key semantics:**
+- `time`, `task.start`, `task.end` are constants (Z3 Int variables), not functions of time
+- More efficient than `active()` - no additional timelines created
+- **Conditional on optional/request tasks**: `optional_task.start >= X` evaluates to `true` if `optional_task` is not scheduled
+- This matches `active()` semantics: doesn't force optional tasks to be scheduled
+- Use for ordering; use `active()` for "during execution" checks
+
+### Temporal Logic Constants (June 2026)
+Added `true` and `false` constants to temporal logic formulas:
+```
+properties {
+  prop always_true: always true;
+  prop never_false: always (not false);
+  prop conditional: true -> (battery >= 0.0);
+}
+```
+
+### Auto-Write Transformed Files (June 2026)
+When auto-instantiation creates task instances, the verifier automatically writes the expanded tasknet to `.tasksat/transformed/<name>_transformed.tn`. Use `--transform-only` to generate this file without running verification.
+
+### Fixed Auto-Instance Resolution (June 2026)
+Fixed duplicate constraint bug in auto-instantiation:
+- **Problem**: Adding explicit instance-level constraints conflicted with inherited type-level constraints
+- **Solution**: SMT encoder now resolves inherited type-level dependencies to specific auto-instances at encoding time
+- **Result**: Clean inheritance without duplicate constraints
+
+### XML to TaskSAT Converter Improvements (June 2026)
+- Optional output path: `python jpl/mexec/xml_to_tasksat.py input.xml` (defaults to `.tasksat/tn/`)
+- Organized output: Converted files go to `.tasksat/tn/`, transformed files to `.tasksat/transformed/`
+- Avoids nested `.tasksat/.tasksat/` directories
+
 ## Common Pitfalls
 
 1. **Invariant timing**: TaskSAT checks invariants at (start, end], not [start, end]. PRE impacts at start must take effect before invariants are checked.
@@ -195,7 +273,11 @@ git remote -v
 
 4. **Atomic timeline maint impacts**: `maint { flag += 1 }` raises flag at task start, lowers at end automatically.
 
-5. **LLM scheduler requires JPL GenAI API**: The genai_api package must be installed and authenticated. Look for it at ~/genai_api or set GENAI_API_PATH.
+5. **Numeric equality on rate timelines**: The syntax `battery = 50.0` is interpreted as state equality (for state timelines with numeric state names like "0", "1"). For numeric equality on rate/cumulative timelines, use range syntax: `battery >= 50.0` and `battery <= 50.0`, or use `battery in [50.0, 50.0]`.
+
+6. **LLM scheduler requires JPL GenAI API**: The genai_api package must be installed and authenticated. Look for it at ~/genai_api or set GENAI_API_PATH.
+
+7. **Task boundary efficiency**: Use `task.start`/`task.end` instead of `active(task)` for ordering constraints. The former is more efficient (no timeline creation) and has clearer semantics for specifying task orderings.
 
 ## Dependencies
 

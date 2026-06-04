@@ -256,9 +256,26 @@ tl_unary :
 tl_atom :
    NAME cmp_op NUMBER
  | NAME EQ NAME
+ | NAME EQ NUMBER
  | NAME EQ TRUE
  | NAME EQ FALSE
  | ACTIVE LPAREN NAME RPAREN
+ | TRUE
+ | FALSE
+ | TIME cmp_op NUMBER
+ | TIME cmp_op NAME DOT START_KW
+ | TIME cmp_op NAME DOT END
+ | NAME DOT START_KW cmp_op NUMBER
+ | NAME DOT END cmp_op NUMBER
+ | NAME DOT START_KW cmp_op NAME DOT START_KW
+ | NAME DOT START_KW cmp_op NAME DOT END
+ | NAME DOT END cmp_op NAME DOT START_KW
+ | NAME DOT END cmp_op NAME DOT END
+ | SEQUENCE LBRACKET task_name_list RBRACKET
+
+task_name_list :
+   NAME
+ | task_name_list COMMA NAME
 
 cmp_op :
    LT

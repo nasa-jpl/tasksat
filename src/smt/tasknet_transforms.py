@@ -14,7 +14,7 @@ from typing import Set, Optional
 from tasknet_ast import *
 
 
-def apply_transforms(tn: TaskNet) -> TaskNet:
+def apply_transforms(tn: TaskNet) -> tuple[TaskNet, bool]:
     """
     Apply all AST transformations in order.
 
@@ -25,41 +25,126 @@ def apply_transforms(tn: TaskNet) -> TaskNet:
         tn: The parsed TaskNet AST
 
     Returns:
-        Transformed TaskNet with all derived constructs desugared to core primitives
+        Tuple of (transformed TaskNet, auto_instantiation_occurred)
+        - Transformed TaskNet with all derived constructs desugared to core primitives
+        - Boolean indicating whether auto-instantiation created new task instances
     """
-    # Pass 1: Desugar active(T) syntax to __T_active = true
+    # Pass 1: Desugar sequence [task1, task2, ...] to pairwise ordering constraints
+    tn = desugar_sequence(tn)
+
+    # Pass 2: Desugar active(T) syntax to __T_active = true
     tn = desugar_active_predicate(tn)
 
-    # Pass 2: Inject task state timelines for __taskname_active references
-    # (This must come after Pass 1 so it sees the desugared __T_active references)
+    # Pass 3: Inject task state timelines for __taskname_active references
+    # (This must come after Pass 2 so it sees the desugared __T_active references)
     tn = inject_task_state_timelines(tn)
 
-    # Pass 3: Reclassify constraints based on what they reference
+    # Pass 4: Reclassify constraints based on what they reference
     # (Parser puts all constraints in *_instances based on container type, but
     #  we need to categorize based on whether referenced ID is taskdef or instance)
     tn = reclassify_constraints(tn)
 
-    # Pass 4: Instantiate taskdefs for type-level dependencies
+    # Pass 5: Instantiate taskdefs for type-level dependencies
     # (Must come after reclassification so we know which taskdefs are referenced)
+    original_task_count = len(tn.tasks)
     tn = instantiate_from_definitions(tn)
+    auto_instantiation_occurred = len(tn.tasks) > original_task_count
 
-    # Pass 5: Reclassify again after auto-instantiation
+    # Pass 6: Reclassify again after auto-instantiation
     # (Newly created instances need to be linked to tasks that depend on them)
     tn = reclassify_constraints(tn)
 
-    # Pass 6: Link tasks to their auto-created instances
-    # (Convert type-level dependencies to instance-level dependencies)
-    tn = link_auto_instances(tn)
+    # NOTE: We do NOT convert type-level to instance-level dependencies here.
+    # The SMT encoder will resolve inherited type-level dependencies to specific
+    # auto-instances at encoding time, avoiding conflicts with inheritance.
 
     # Future passes can be added here:
     # tn = expand_macros(tn)              # Hypothetical: expand task templates
     # tn = inline_definitions(tn)         # Hypothetical: inline task definitions
 
-    return tn
+    return tn, auto_instantiation_occurred
 
 
 # ==============================================================================
-# Transformation Pass 1: Desugar active(T) Predicate
+# Transformation Pass 1: Desugar sequence Construct
+# ==============================================================================
+
+def desugar_sequence(tn: TaskNet) -> TaskNet:
+    """
+    Transform sequence [task1, task2, ...] constructs into pairwise ordering constraints.
+
+    This is syntactic sugar for sequential task ordering:
+        sequence [T1, T2, T3]
+    becomes:
+        T1.end <= T2.start and T2.end <= T3.start
+
+    The transformation recursively walks all temporal formulas in constraints
+    and properties, replacing TLSequence nodes with conjunctions of TLTimeCmp nodes.
+
+    Args:
+        tn: The TaskNet AST
+
+    Returns:
+        TaskNet with sequence constructs desugared to pairwise constraints
+    """
+    # Transform constraints
+    for prop in tn.constraints:
+        prop.formula = _desugar_sequence_formula(prop.formula)
+
+    # Transform properties
+    for prop in tn.properties:
+        prop.formula = _desugar_sequence_formula(prop.formula)
+
+    return tn
+
+
+def _desugar_sequence_formula(f: Formula) -> Formula:
+    """
+    Recursively desugar sequence [T1, T2, ...] to T1.end <= T2.start and ... in a formula.
+    """
+    # Base case: TLSequence desugars to conjunction of pairwise constraints
+    if isinstance(f, TLSequence):
+        tasks = f.tasks
+        if len(tasks) < 2:
+            # Empty or single-task sequence: trivially true
+            return TLTrue()
+
+        # Build conjunction: task[0].end <= task[1].start and task[1].end <= task[2].start ...
+        constraints = []
+        for i in range(len(tasks) - 1):
+            left = TLTaskBoundary(task=tasks[i], boundary="end")
+            right = TLTaskBoundary(task=tasks[i + 1], boundary="start")
+            constraint = TLTimeCmp(left=left, op="<=", right=right)
+            constraints.append(constraint)
+
+        # Chain with AND
+        result = constraints[0]
+        for c in constraints[1:]:
+            result = TLAnd(left=result, right=c)
+
+        return result
+
+    # Recursive cases: process subformulas
+    elif isinstance(f, (TLAnd, TLOr, TLUntil, TLSince)):
+        return type(f)(
+            left=_desugar_sequence_formula(f.left),
+            right=_desugar_sequence_formula(f.right)
+        )
+    elif isinstance(f, (TLNot, TLAlways, TLEventually, TLSoFar, TLOnce)):
+        return type(f)(sub=_desugar_sequence_formula(f.sub))
+    elif isinstance(f, TLImplies):
+        return TLImplies(
+            left=_desugar_sequence_formula(f.left),
+            right=_desugar_sequence_formula(f.right)
+        )
+
+    # Atomic formulas: no transformation needed
+    else:
+        return f
+
+
+# ==============================================================================
+# Transformation Pass 2: Desugar active(T) Predicate
 # ==============================================================================
 
 def desugar_active_predicate(tn: TaskNet) -> TaskNet:
@@ -113,13 +198,13 @@ def _desugar_formula(f: Formula) -> Formula:
             right=_desugar_formula(f.right)
         )
 
-    # Atomic formulas (TLNumCmp, TLStateIs, TLBoolIs): no transformation needed
+    # Atomic formulas (TLNumCmp, TLStateIs, TLBoolIs, TLTrue, TLFalse): no transformation needed
     else:
         return f
 
 
 # ==============================================================================
-# Transformation Pass 2: Task State Timeline Injection
+# Transformation Pass 3: Task State Timeline Injection
 # ==============================================================================
 
 def inject_task_state_timelines(tn: TaskNet) -> TaskNet:
