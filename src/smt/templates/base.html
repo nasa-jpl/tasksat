@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}TaskSAT{% endblock %} - Task Scheduling with SMT</title>
+
+    <!-- Modern CSS Framework -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand d-flex align-items-center" href="/">
+                <div class="logo-container me-2">
+                    <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <!-- TaskSAT Logo: Gantt chart with checkmark -->
+                        <rect x="4" y="4" width="32" height="32" rx="2" stroke="white" stroke-width="2" fill="none"/>
+                        <!-- Gantt bars (tasks) -->
+                        <rect x="8" y="10" width="12" height="4" fill="#4CAF50" rx="1"/>
+                        <rect x="12" y="17" width="16" height="4" fill="#2196F3" rx="1"/>
+                        <rect x="10" y="24" width="10" height="4" fill="#FF9800" rx="1"/>
+                        <!-- Checkmark -->
+                        <path d="M 24 26 L 27 29 L 32 24" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                    </svg>
+                </div>
+                <span class="fs-4 fw-bold">TaskSAT</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">
+                            <i class="bi bi-grid-3x3-gap"></i> Browse TaskNets
+                        </a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="docsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-book"></i> Documentation
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="docsDropdown">
+                            <li><a class="dropdown-item" href="/docs/tutorial" target="_blank">
+                                <i class="bi bi-mortarboard"></i> Tutorial
+                            </a></li>
+                            <li><a class="dropdown-item" href="/docs/manual" target="_blank">
+                                <i class="bi bi-file-text"></i> Manual
+                            </a></li>
+                            <li><a class="dropdown-item" href="/docs/grammar" target="_blank">
+                                <i class="bi bi-braces"></i> Grammar Reference
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/docs/getting-started" target="_blank">
+                                <i class="bi bi-play-circle"></i> Getting Started
+                            </a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="https://github.com/nasa-jpl/tasksat" target="_blank">
+                            <i class="bi bi-github"></i> GitHub
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="container-fluid mt-4">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 9999;">
+        <div id="notificationToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <i id="toastIcon" class="bi me-2"></i>
+                <strong class="me-auto" id="toastTitle">Notification</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body" id="toastBody">
+                Message
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-light text-center text-muted py-4 mt-5">
+        <div class="container">
+            <p class="mb-1">
+                <strong>TaskSAT</strong> - Task Scheduling with SMT-based Verification
+            </p>
+            <p class="small mb-0">
+                NASA Jet Propulsion Laboratory &copy; 2024-2026
+            </p>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Custom JS -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+    <!-- Toast Utility -->
+    <script>
+    function showToast(title, message, type = 'info') {
+        const toast = document.getElementById('notificationToast');
+        const toastTitle = document.getElementById('toastTitle');
+        const toastBody = document.getElementById('toastBody');
+        const toastIcon = document.getElementById('toastIcon');
+        const toastHeader = toast.querySelector('.toast-header');
+
+        // Set content
+        toastTitle.textContent = title;
+        toastBody.textContent = message;
+
+        // Reset classes
+        toastHeader.className = 'toast-header';
+        toastIcon.className = 'bi me-2';
+
+        // Set color and icon based on type
+        if (type === 'success') {
+            toastHeader.classList.add('bg-success', 'text-white');
+            toastIcon.classList.add('bi-check-circle-fill');
+        } else if (type === 'error') {
+            toastHeader.classList.add('bg-danger', 'text-white');
+            toastIcon.classList.add('bi-x-circle-fill');
+        } else if (type === 'warning') {
+            toastHeader.classList.add('bg-warning');
+            toastIcon.classList.add('bi-exclamation-triangle-fill');
+        } else {
+            toastHeader.classList.add('bg-info', 'text-white');
+            toastIcon.classList.add('bi-info-circle-fill');
+        }
+
+        // Show toast
+        const bsToast = new bootstrap.Toast(toast, { delay: 5000 });
+        bsToast.show();
+    }
+    </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

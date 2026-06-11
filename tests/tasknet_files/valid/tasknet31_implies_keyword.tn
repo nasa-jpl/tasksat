@@ -1,0 +1,38 @@
+// Test file for 'implies' keyword support
+// Both 'implies' and '->' should work identically
+
+tasknet test_implies_keyword {
+  end = 100;
+
+  timelines {
+    battery: rate [0, 100] = 50.0;
+    flag: atomic = false;
+  }
+
+  task t1 {
+    duration 10;
+    start_range [0, 50];
+    impacts {
+      pre {
+        flag = true;
+      }
+      maint {
+        battery +~ -1.0;
+      }
+      post {
+        flag = false;
+      }
+    }
+  }
+
+  properties {
+    // Using arrow syntax
+    prop arrow1: flag = true -> battery >= 30.0;
+
+    // Using implies keyword - should be identical
+    prop keyword1: flag = true implies battery >= 30.0;
+
+    // Nested implications with both syntaxes
+    prop mixed: (battery >= 60.0 -> flag = false) and (battery >= 40.0 implies battery >= 30.0);
+  }
+}

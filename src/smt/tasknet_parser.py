@@ -65,6 +65,7 @@ reserved = {
     "not":         "NOT",
     "and":         "AND",
     "or":          "OR",
+    "implies":     "IMPLIES_KW",
     # task predicates
     "active":      "ACTIVE",
     "time":        "TIME",
@@ -834,6 +835,11 @@ def p_constraints_block(p):
     p[0] = (pre_list, inv_list, post_list)
 
 
+def p_constraints_items_empty(p):
+    "constraints_items : empty"
+    p[0] = []
+
+
 def p_constraints_items_single(p):
     "constraints_items : constraints_item"
     p[0] = [p[1]]
@@ -995,6 +1001,11 @@ def p_impact_when_post(p):
     p[0] = "post"
 
 
+def p_impact_group_entries_empty(p):
+    "impact_group_entries : empty"
+    p[0] = []
+
+
 def p_impact_group_entries_single(p):
     "impact_group_entries : impact_group_entry"
     p[0] = [p[1]]
@@ -1054,6 +1065,11 @@ def p_properties_block(p):
     p[0] = p[3]
 
 
+def p_temporal_prop_list_empty(p):
+    "temporal_prop_list : empty"
+    p[0] = []
+
+
 def p_temporal_prop_list_single(p):
     "temporal_prop_list : temporal_prop"
     p[0] = [p[1]]
@@ -1083,8 +1099,13 @@ def p_tl_imp_single(p):
     p[0] = p[1]
 
 
-def p_tl_imp_chain(p):
+def p_tl_imp_chain_arrow(p):
     "tl_imp : tl_or IMPLIES tl_imp"
+    p[0] = TLImplies(left=p[1], right=p[3])
+
+
+def p_tl_imp_chain_keyword(p):
+    "tl_imp : tl_or IMPLIES_KW tl_imp"
     p[0] = TLImplies(left=p[1], right=p[3])
 
 

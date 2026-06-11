@@ -106,6 +106,7 @@ tasknet Rover2 {
   properties {
    prop target_reached: eventually (location = target and data >= 30);
    prop drive_charge: always (active(drive) -> eventually active(charge));
+   // Note: 'implies' keyword can also be used instead of '->'
    prop temperature: always temperature >= 10;
   }
 }

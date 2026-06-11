@@ -1,0 +1,712 @@
+{% extends "base.html" %}
+
+{% block title %}Browse TaskNets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2 class="fw-light" style="font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; letter-spacing: -0.5px;">
+                Verified TaskNets
+            </h2>
+            <div class="badge bg-secondary fs-6">
+                {{ tasknets|length }} TaskNet{{ 's' if tasknets|length != 1 else '' }}
+            </div>
+        </div>
+
+        <p class="lead text-muted">
+            Verified task schedules - view reports and timeline evolution.
+        </p>
+
+        <div class="mb-4">
+            <button class="btn btn-success me-2" onclick="showCreateModal()">
+                <i class="bi bi-plus-circle"></i> Create New Tasknet
+            </button>
+            <button class="btn btn-primary" onclick="showBrowseModal()">
+                <i class="bi bi-folder-open"></i> Open File
+            </button>
+        </div>
+
+        <hr class="my-4">
+
+        <!-- TaskNet Cards -->
+        <div class="row" id="tasknetGrid">
+            {% for tn in tasknets %}
+            <div class="col-md-6 col-lg-4 mb-4 tasknet-card"
+                 data-name="{{ tn.name|lower }}"
+                 data-has-schedule="{{ 'true' if tn.has_schedule else 'false' }}"
+                 data-has-timeline="{{ 'true' if tn.has_timeline else 'false' }}">
+                <div class="card h-100 shadow-sm hover-shadow">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            {% if tn.status == 'syntax_error' %}
+                                <i class="bi bi-code-slash text-danger"></i>
+                            {% elif tn.status == 'wellformedness_error' %}
+                                <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+                            {% elif tn.status == 'error' %}
+                                <i class="bi bi-exclamation-circle-fill text-danger"></i>
+                            {% elif tn.status == 'unsat' %}
+                                <i class="bi bi-x-octagon-fill text-warning"></i>
+                            {% elif tn.status == 'violated' or tn.has_violations %}
+                                <i class="bi bi-exclamation-triangle-fill text-danger"></i>
+                            {% else %}
+                                <i class="bi bi-check-circle-fill text-success"></i>
+                            {% endif %}
+                            {{ tn.name }}
+                        </h5>
+
+                        <!-- Status -->
+                        <p class="small mb-2">
+                            {% if tn.status == 'syntax_error' %}
+                                <span class="text-danger">
+                                    <i class="bi bi-code-slash"></i> Syntax Error
+                                </span>
+                            {% elif tn.status == 'wellformedness_error' %}
+                                <span class="text-warning">
+                                    <i class="bi bi-exclamation-triangle-fill"></i> Wellformedness Error
+                                </span>
+                            {% elif tn.status == 'error' %}
+                                <span class="text-danger">
+                                    <i class="bi bi-exclamation-circle-fill"></i> Verification Error
+                                </span>
+                            {% elif tn.status == 'unsat' %}
+                                <span class="text-warning">
+                                    <i class="bi bi-x-octagon-fill"></i> No Valid Schedule (UNSAT)
+                                </span>
+                            {% elif tn.status == 'violated' or tn.has_violations %}
+                                <span class="text-danger">
+                                    <i class="bi bi-x-circle-fill"></i> Property Violations
+                                </span>
+                            {% else %}
+                                <span class="text-success">
+                                    <i class="bi bi-check-circle-fill"></i> All Properties Verified
+                                </span>
+                            {% endif %}
+                        </p>
+
+                        <!-- Collapsible file path -->
+                        <div class="mb-3">
+                            <a class="text-muted small" data-bs-toggle="collapse" href="#path-{{ loop.index }}" role="button" aria-expanded="false">
+                                <i class="bi bi-info-circle"></i> Show source path
+                            </a>
+                            <div class="collapse mt-2" id="path-{{ loop.index }}">
+                                <small class="text-muted"><code>{{ tn.path }}</code></small>
+                            </div>
+                        </div>
+
+                        <a href="/report/{{ tn.name }}" class="btn btn-success btn-sm">
+                            <i class="bi bi-file-earmark-check"></i> View Report
+                        </a>
+                        <button class="btn btn-outline-danger btn-sm" onclick="deleteVerification('{{ tn.name }}')">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        {% if not tasknets %}
+        <div class="alert alert-info text-center">
+            <h4><i class="bi bi-info-circle"></i> No TaskNets Found</h4>
+            <p>Run <code>python src/smt/tasknet_verifier.py &lt;file.tn&gt;</code> to generate schedules.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+    </div>
+</div>
+
+<!-- Create New Tasknet Modal -->
+<div class="modal fade" id="createModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create New Tasknet</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Filename:</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="newTasknetName" placeholder="my_tasknet" pattern="[a-zA-Z0-9_-]+" required>
+                        <span class="input-group-text">.tn</span>
+                    </div>
+                    <small class="text-muted">Letters, numbers, underscores, and hyphens only</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Folder:</label>
+                    <input type="text" class="form-control mb-2" id="newTasknetFolder" placeholder="tests/tasknet_files/valid">
+                    <select class="form-select" id="folderQuickPick" onchange="selectFolder()">
+                        <option value="">-- Or select from common folders --</option>
+                    </select>
+                    <small class="text-muted">Type a path or select from dropdown</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">TaskNet Code:</label>
+                    <div id="createEditor" style="height: 400px; border: 1px solid #dee2e6;"></div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Verification Mode:</label>
+                    <select class="form-select" id="createMode">
+                        <option value="optimize" selected>Optimize (find best schedule)</option>
+                        <option value="satisfy">Satisfy (find any valid schedule)</option>
+                    </select>
+                </div>
+            </div>
+            <div id="createError" class="alert alert-danger" style="display: none; margin: 1rem;"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="btnCreateVerify" onclick="createAndVerify()">
+                    <i class="bi bi-check-circle"></i> Create & Verify
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- File Browser Modal -->
+<div class="modal fade" id="browseModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Open TaskNet File</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Current Directory:</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="currentPath" readonly>
+                        <button class="btn btn-outline-secondary" onclick="browseParent()" id="btnParent">
+                            <i class="bi bi-arrow-up"></i> Up
+                        </button>
+                    </div>
+                </div>
+                <div id="browserContent" style="max-height: 400px; overflow-y: auto;">
+                    <div class="text-center p-4">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Verification Options Modal -->
+<div class="modal fade" id="verifyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Run Verification</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Verify <strong id="verifyTasknetName"></strong></p>
+                <div class="mb-3">
+                    <label class="form-label">Mode:</label>
+                    <select class="form-select" id="verifyMode">
+                        <option value="optimize" selected>Optimize (find best schedule)</option>
+                        <option value="satisfy">Satisfy (find any valid schedule)</option>
+                    </select>
+                    <small class="text-muted">Optimize mode finds the best schedule, satisfy mode finds any valid schedule faster.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="runVerification()">
+                    <i class="bi bi-play-circle"></i> Run Verification
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<!-- Monaco Editor -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+
+<script>
+let createEditor = null;
+let foldersLoaded = false;
+
+function loadFolders() {
+    if (foldersLoaded) return; // Don't reload if already loaded
+
+
+    fetch('/api/folders')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const select = document.getElementById('folderQuickPick');
+                const input = document.getElementById('newTasknetFolder');
+
+                if (!select) {
+                    console.error('Dropdown not found!');
+                    alert('ERROR: Dropdown element not found in DOM!');
+                    return;
+                }
+
+                console.log('Dropdown element found:', select);
+
+                select.innerHTML = '<option value="">-- Or select from common folders --</option>';
+
+                console.log('Loading folders:', data.folders.length);
+                data.folders.forEach(folder => {
+                    const option = document.createElement('option');
+                    option.value = folder.path;
+                    option.textContent = folder.display;
+                    select.appendChild(option);
+
+                    // Set default folder in input
+                    if (folder.default) {
+                        input.value = folder.path;
+                    }
+                });
+                foldersLoaded = true;
+                console.log('Folders loaded successfully');
+            }
+        })
+        .catch(error => {
+            console.error('Failed to load folders:', error);
+        });
+}
+
+// Preload folders on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadFolders();
+});
+
+function selectFolder() {
+    const select = document.getElementById('folderQuickPick');
+    const input = document.getElementById('newTasknetFolder');
+    if (select.value) {
+        input.value = select.value;
+    }
+}
+
+// Create new tasknet functionality
+function showCreateModal() {
+    // Load available folders first
+    loadFolders();
+
+    const modal = new bootstrap.Modal(document.getElementById('createModal'));
+    modal.show();
+
+    // Initialize Monaco Editor if not already initialized
+    if (!createEditor) {
+        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+        require(['vs/editor/editor.main'], function () {
+            // Register custom language
+            monaco.languages.register({ id: 'tasknet' });
+            monaco.languages.setMonarchTokensProvider('tasknet', {
+                keywords: [
+                    'tasknet', 'task', 'taskdef', 'timelines', 'constraints', 'properties', 'impacts',
+                    'pre', 'post', 'inv', 'maint', 'prop', 'after', 'containedin', 'sequence',
+                    'id', 'duration', 'start', 'end', 'always', 'eventually', 'implies',
+                    'active', 'time', 'true', 'false', 'rate', 'cumulative', 'state', 'atomic', 'bounds'
+                ],
+                tokenizer: {
+                    root: [
+                        [/[a-z_$][\w$]*/, { cases: { '@keywords': 'keyword', '@default': 'identifier' } }],
+                        [/[A-Z][\w$]*/, 'type.identifier'],
+                        [/[0-9]+(\.[0-9]+)?/, 'number'],
+                        [/#.*$/, 'comment'],
+                        [/\/\/.*$/, 'comment'],
+                        [/"([^"\\]|\\.)*"/, 'string'],
+                        [/\{|\}|\[|\]/, 'delimiter.bracket']
+                    ]
+                }
+            });
+
+            createEditor = monaco.editor.create(document.getElementById('createEditor'), {
+                value: `tasknet Rover2 {
+  end = 400;
+
+  timelines {
+    arm : atomic = false;
+    location : state(home, target) = home;
+    data : cumulative [0.0, 50.0] bounds [0.0, 100.0] = 0.0;
+    battery : rate [10.0, 100.0] bounds [0.0, 100.0] = 60.0;
+    temperature : rate [5.0, 40.0] bounds [0.0, 100.0] = 10.0;
+  }
+
+  taskdef charge_def {
+    pre {
+      battery in [0.0, 60.0];
+    }
+
+    impacts {
+      maint {
+        battery +~ 2.0;
+      }
+    }
+  }
+
+  taskdef drive_def {
+    pre {
+      battery in [60.0, 100.0];
+      temperature in [10.0, 40.0];
+    }
+
+    impacts {
+      maint {
+        battery -~ 1.5;
+      }
+      post {
+        location = target;
+      }
+    }
+  }
+
+  optional task charge : charge_def {
+    duration_range [60,70];
+  }
+
+  task drive: drive_def {
+    start_range [100, 120];
+    end_range [130, 160];
+    duration_range [30,40];
+  }
+
+  optional task heating {
+    duration_range [10, 10];
+
+    impacts {
+      maint {
+        battery -~ 0.5;
+        temperature +~ 2;
+      }
+    }
+  }
+
+  task collect {
+    duration_range  [20, 30];
+
+    pre {
+      location = target;
+      battery in [60.0, 100.0];
+      arm = false;
+    }
+
+    impacts {
+      pre {
+        arm = true;
+      }
+      maint {
+        battery -~ 0.5;
+        temperature -~ 0.2;
+      }
+      post {
+        data += 40.0;
+        arm = false;
+      }
+    }
+  }
+
+  constraints {
+     prop not_charge_drive: always not (active(charge) and active(drive));
+     prop not_charge_collect: always not (active(charge) and active(collect));
+     prop temperature10: always temperature >= 10;
+  }
+
+  properties {
+   prop target_reached: eventually (location = target and data >= 30);
+   prop drive_charge: always (active(drive) -> eventually active(charge));
+   // Note: 'implies' keyword can also be used instead of '->'
+   prop temperature: always temperature >= 10;
+  }
+}`,
+                language: 'tasknet',
+                theme: 'vs-dark',
+                automaticLayout: true,
+                minimap: { enabled: false },
+                fontSize: 16
+            });
+        });
+    }
+}
+
+function createAndVerify() {
+    if (!createEditor) return;
+
+    const name = document.getElementById('newTasknetName').value.trim();
+    const folder = document.getElementById('newTasknetFolder').value.trim();
+    const mode = document.getElementById('createMode').value;
+    const source = createEditor.getValue();
+
+    if (!name) {
+        showToast('Error', 'Please enter a filename', 'error');
+        return;
+    }
+
+    // Validate filename
+    if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+        showToast('Error', 'Filename can only contain letters, numbers, underscores, and hyphens', 'error');
+        return;
+    }
+
+    // Hide any previous errors
+    document.getElementById('createError').style.display = 'none';
+
+    // Disable button and show loading
+    const btn = document.getElementById('btnCreateVerify');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+
+    // Create and verify
+    fetch('/api/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            name: name,
+            folder: folder,
+            source: source,
+            mode: mode
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Check the actual verification status
+            const vStatus = data.verification_status || 'success';
+            console.log('Create - Verification status:', vStatus);
+            console.log('Create - Full data:', data);
+
+            if (vStatus === 'syntax_error') {
+                showToast('Syntax Error', `Created ${name}.tn but found syntax errors. Check the report.`, 'error');
+                const modal = bootstrap.Modal.getInstance(document.getElementById('createModal'));
+                modal.hide();
+                setTimeout(() => window.location.reload(), 3000);
+            } else if (vStatus === 'wellformedness_error') {
+                showToast('Wellformedness Error', `Created ${name}.tn but found semantic errors. Check the report.`, 'error');
+                const modal = bootstrap.Modal.getInstance(document.getElementById('createModal'));
+                modal.hide();
+                setTimeout(() => window.location.reload(), 3000);
+            } else if (vStatus === 'unsat') {
+                showToast('UNSAT', `Created ${name}.tn but no valid schedule found. Check the report.`, 'warning');
+                const modal = bootstrap.Modal.getInstance(document.getElementById('createModal'));
+                modal.hide();
+                setTimeout(() => window.location.reload(), 2000);
+            } else if (vStatus === 'violated') {
+                showToast('Property Violations', `Created ${name}.tn but found property violations. Check the report.`, 'warning');
+                const modal = bootstrap.Modal.getInstance(document.getElementById('createModal'));
+                modal.hide();
+                setTimeout(() => window.location.reload(), 2000);
+            } else if (vStatus === 'success') {
+                showToast('Success', `Created and verified ${name}.tn. Valid schedule found!`, 'success');
+                const modal = bootstrap.Modal.getInstance(document.getElementById('createModal'));
+                modal.hide();
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                showToast('Created', `Created ${name}.tn. Reloading...`, 'info');
+                const modal = bootstrap.Modal.getInstance(document.getElementById('createModal'));
+                modal.hide();
+                setTimeout(() => window.location.reload(), 1500);
+            }
+        } else {
+            // Show error in modal so user can fix it
+            const errorDiv = document.getElementById('createError');
+            errorDiv.innerHTML = `<strong>Verification Failed:</strong><br><pre style="white-space: pre-wrap; font-size: 0.85rem;">${data.output || data.message}</pre>`;
+            errorDiv.style.display = 'block';
+
+            // Re-enable button
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Create & Verify';
+
+            // Scroll to error
+            errorDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    })
+    .catch(error => {
+        const errorDiv = document.getElementById('createError');
+        errorDiv.innerHTML = `<strong>Error:</strong> ${error}`;
+        errorDiv.style.display = 'block';
+
+        // Re-enable button
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-circle"></i> Create & Verify';
+    });
+}
+
+// File browser functionality
+let currentBrowsePath = null;
+let selectedFilePath = null;
+
+function showBrowseModal() {
+    const modal = new bootstrap.Modal(document.getElementById('browseModal'));
+    modal.show();
+
+    // Start browsing from project root
+    browseDirectory('');
+}
+
+function browseDirectory(path) {
+    const url = path ? `/api/browse-directory?path=${encodeURIComponent(path)}` : '/api/browse-directory';
+
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                currentBrowsePath = data.current_path;
+                document.getElementById('currentPath').value = data.current_path;
+                document.getElementById('btnParent').disabled = !data.parent_path;
+
+                renderBrowserContent(data.folders, data.files);
+            } else {
+                showToast('Error', data.message, 'error');
+            }
+        })
+        .catch(error => {
+            showToast('Error', `Failed to browse directory: ${error}`, 'error');
+        });
+}
+
+function browseParent() {
+    const parentPath = document.getElementById('currentPath').value;
+    fetch(`/api/browse-directory?path=${encodeURIComponent(parentPath)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' && data.parent_path) {
+                browseDirectory(data.parent_path);
+            }
+        });
+}
+
+function renderBrowserContent(folders, files) {
+    const content = document.getElementById('browserContent');
+    let html = '<div class="list-group">';
+
+    // Render folders
+    folders.forEach(folder => {
+        html += `
+            <button type="button" class="list-group-item list-group-item-action" onclick="browseDirectory('${folder.path}')">
+                <i class="bi bi-folder-fill text-warning"></i> ${folder.name}
+            </button>
+        `;
+    });
+
+    // Render files
+    files.forEach(file => {
+        const icon = file.is_tn ? 'bi-file-earmark-code text-success' : 'bi-file-earmark';
+        const action = file.is_tn ? `selectFile('${file.path}', '${file.name}')` : '';
+        const clickable = file.is_tn ? 'list-group-item-action' : 'disabled';
+
+        html += `
+            <button type="button" class="list-group-item ${clickable}" ${action ? `onclick="${action}"` : ''}>
+                <i class="bi ${icon}"></i> ${file.name}
+                ${file.is_tn ? '<span class="badge bg-success ms-2">TaskNet</span>' : ''}
+            </button>
+        `;
+    });
+
+    if (folders.length === 0 && files.length === 0) {
+        html += '<p class="text-muted text-center p-4">Empty directory</p>';
+    }
+
+    html += '</div>';
+    content.innerHTML = html;
+}
+
+function selectFile(path, name) {
+    selectedFilePath = path;
+    document.getElementById('verifyTasknetName').textContent = name;
+
+    // Hide browse modal, show verify modal
+    const browseModal = bootstrap.Modal.getInstance(document.getElementById('browseModal'));
+    browseModal.hide();
+
+    const verifyModal = new bootstrap.Modal(document.getElementById('verifyModal'));
+    verifyModal.show();
+}
+
+function runVerification() {
+    const mode = document.getElementById('verifyMode').value;
+    const modal = bootstrap.Modal.getInstance(document.getElementById('verifyModal'));
+    modal.hide();
+
+    if (!selectedFilePath) return;
+
+    // Show loading toast
+    showToast('Verification Started', `Verifying file in ${mode} mode...`, 'info');
+
+    // Verify file at its original location
+    fetch('/api/verify-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            file_path: selectedFilePath,
+            mode: mode
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Check the actual verification status
+            const vStatus = data.verification_status || 'success';
+            console.log('Verify-file - Verification status:', vStatus);
+            console.log('Verify-file - Full data:', data);
+
+            if (vStatus === 'syntax_error') {
+                showToast('Syntax Error', 'Found syntax errors in tasknet. Check the report for details.', 'error');
+                setTimeout(() => window.location.reload(), 3000);
+            } else if (vStatus === 'wellformedness_error') {
+                showToast('Wellformedness Error', 'Found semantic errors in tasknet. Check the report for details.', 'error');
+                setTimeout(() => window.location.reload(), 3000);
+            } else if (vStatus === 'unsat') {
+                showToast('UNSAT', 'No valid schedule found. Check the report for details.', 'warning');
+                setTimeout(() => window.location.reload(), 2000);
+            } else if (vStatus === 'violated') {
+                showToast('Property Violations', 'Found property violations. Check the report for error traces.', 'warning');
+                setTimeout(() => window.location.reload(), 2000);
+            } else if (vStatus === 'success') {
+                showToast('Success', `Valid schedule found! Completed in ${data.duration}s.`, 'success');
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                showToast('Verification Complete', 'Reloading results...', 'info');
+                setTimeout(() => window.location.reload(), 1500);
+            }
+        } else {
+            showToast('Verification Failed', `${data.message}`, 'error');
+        }
+    })
+    .catch(error => {
+        showToast('Error', `${error}`, 'error');
+    })
+    .finally(() => {
+        selectedFilePath = null;
+    });
+}
+
+// Delete verification
+function deleteVerification(name) {
+    if (!confirm(`Delete verification for "${name}"?\n\nThis will remove all verification data including schedules, timelines, and reports.`)) {
+        return;
+    }
+
+    fetch(`/api/delete/${name}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast('Deleted', `Verification for "${name}" deleted. Reloading...`, 'success');
+            // Reload page after short delay
+            setTimeout(() => window.location.reload(), 1500);
+        } else {
+            showToast('Delete Failed', data.message, 'error');
+        }
+    })
+    .catch(error => {
+        showToast('Error', `${error}`, 'error');
+    });
+}
+</script>
+{% endblock %}

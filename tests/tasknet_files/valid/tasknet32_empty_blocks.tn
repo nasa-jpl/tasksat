@@ -1,0 +1,59 @@
+// Test file verifying that all block types can be empty
+// This is useful for incremental development and optional specifications
+
+tasknet test_empty_blocks {
+  end = 100;
+
+  timelines {
+    battery: rate = 50.0;
+    flag: atomic = false;
+  }
+
+  // Task with empty constraints block
+  task t1 {
+    duration 10;
+    constraints {
+    }
+  }
+
+  // Task with empty impacts block
+  task t2 {
+    duration 10;
+    impacts {
+    }
+  }
+
+  // Task with empty pre/inv/post blocks
+  task t3 {
+    duration 10;
+    constraints {
+      pre {
+      }
+      inv {
+      }
+      post {
+      }
+    }
+  }
+
+  // Task with empty impact groups
+  task t4 {
+    duration 10;
+    impacts {
+      pre {
+      }
+      maint {
+      }
+      post {
+      }
+    }
+  }
+
+  // Empty top-level constraints block
+  constraints {
+  }
+
+  // Empty properties block
+  properties {
+  }
+}

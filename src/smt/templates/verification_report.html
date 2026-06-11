@@ -1,0 +1,1029 @@
+{% extends "base.html" %}
+
+{% block title %}{{ name }} - Verification Report{% endblock %}
+
+{% block extra_css %}
+<style>
+.code-section {
+    max-height: 600px;
+    overflow-y: auto;
+}
+/* Monaco-style syntax highlighting (matching vs-dark theme) */
+pre[class*="language-"] {
+    margin: 0;
+    border-radius: 0;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 1rem;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    overflow: auto;
+}
+code[class*="language-"] {
+    background: none;
+    color: #d4d4d4;
+    font-family: 'Consolas', 'Courier New', monospace;
+}
+/* TokenType colors matching Monaco vs-dark */
+.token.comment {
+    color: #6a9955;  /* green */
+}
+.token.string {
+    color: #ce9178;  /* orange */
+}
+.token.keyword {
+    color: #569cd6;  /* blue */
+}
+.token.number {
+    color: #b5cea8;  /* light green */
+}
+.token.operator {
+    color: #d4d4d4;  /* light gray */
+}
+.token.punctuation {
+    color: #d4d4d4;  /* light gray */
+}
+.token.property {
+    color: #9cdcfe;  /* light blue */
+}
+.token.function {
+    color: #4ec9b0;  /* cyan/teal */
+}
+.timeline-chart {
+    margin-bottom: 30px;
+    height: 250px;
+}
+.btn-verify {
+    position: relative;
+}
+.btn-verify.loading::after {
+    content: "";
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: auto;
+    border: 3px solid transparent;
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+/* JSON syntax highlighting */
+#jsonContent {
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+.json-key {
+    color: #881391;
+    font-weight: bold;
+}
+.json-string {
+    color: #1A1AA6;
+}
+.json-number {
+    color: #1C00CF;
+}
+.json-boolean {
+    color: #0033B3;
+    font-weight: bold;
+}
+.json-null {
+    color: #808080;
+    font-weight: bold;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header with Navigation -->
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/">Home</a></li>
+            <li class="breadcrumb-item active">{{ name }}</li>
+            <li class="breadcrumb-item active">Verification Report</li>
+        </ol>
+    </nav>
+
+    <div class="row align-items-center mb-4">
+        <div class="col">
+            <h1 class="display-5">
+                {% if metadata.status == 'syntax_error' %}
+                    <i class="bi bi-code-slash text-danger" title="Syntax Error"></i>
+                {% elif metadata.status == 'wellformedness_error' %}
+                    <i class="bi bi-exclamation-triangle-fill text-warning" title="Wellformedness Error"></i>
+                {% elif metadata.status == 'error' %}
+                    <i class="bi bi-exclamation-circle-fill text-danger" title="Verification Error"></i>
+                {% elif metadata.status == 'unsat' %}
+                    <i class="bi bi-x-circle-fill text-danger" title="UNSAT: No valid schedule found"></i>
+                {% elif metadata.status == 'violated' %}
+                    {% set violated = metadata.num_violations|default(0) %}
+                    <i class="bi bi-exclamation-triangle-fill text-danger" title="{{ violated }} property violation(s)"></i>
+                {% elif properties %}
+                    {% set violated = properties|selectattr('status', 'equalto', 'violated')|list|length %}
+                    {% if violated > 0 %}
+                        <i class="bi bi-exclamation-triangle-fill text-danger" title="{{ violated }} property violation(s)"></i>
+                    {% else %}
+                        <i class="bi bi-check-circle-fill text-success" title="All properties verified"></i>
+                    {% endif %}
+                {% else %}
+                    <i class="bi bi-file-earmark-check text-success" title="Schedule found"></i>
+                {% endif %}
+                {{ name }}
+            </h1>
+            <p class="text-muted mb-1">
+                <i class="bi bi-file-code"></i>
+                <code id="sourcePath" style="user-select: all; cursor: pointer;"
+                      onclick="copyPath()"
+                      title="Click to copy path">{{ metadata.source_path }}</code>
+                <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copyPath()">
+                    <i class="bi bi-clipboard"></i> Copy
+                </button>
+                {% if '.tasksat/uploads/' in metadata.source_path %}
+                <span class="badge bg-warning text-dark ms-2" title="This is an uploaded copy, not the original file">
+                    <i class="bi bi-exclamation-triangle"></i> Uploaded Copy
+                </span>
+                {% endif %}
+            </p>
+            <p class="text-muted mb-1">
+                <i class="bi bi-terminal"></i>
+                <code id="commandPath" style="user-select: all; cursor: pointer;"
+                      onclick="copyCommand()"
+                      title="Click to copy command">{{ metadata.command }}</code>
+                <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copyCommand()">
+                    <i class="bi bi-clipboard"></i> Copy
+                </button>
+            </p>
+            <p class="text-muted" id="verifiedTime">
+                <i class="bi bi-clock-history"></i>
+                Last verified <span id="timeAgo"></span>
+                <small>({{ metadata.timestamp }})</small>
+            </p>
+            <p class="text-muted mb-1">
+                <i class="bi bi-clock text-primary"></i>
+                <strong>Performance:</strong>
+                {% if metadata.status != 'unsat' %}
+                    Total <strong>{{ metadata.duration_sec }}s</strong>
+                    (validity: {{ metadata.validity_check_sec }}s{% if metadata.property_verification_sec %}, properties: {{ metadata.property_verification_sec }}s{% endif %})
+                {% else %}
+                    Validity check: <strong>{{ metadata.validity_check_sec }}s</strong> (UNSAT)
+                {% endif %}
+            </p>
+        </div>
+        <div class="col-auto">
+            <button id="btnReVerify" class="btn btn-primary me-2 btn-verify"
+                    onclick="runVerification()"
+                    title="Re-run verification on the source file">
+                <i class="bi bi-arrow-clockwise"></i> Re-verify
+            </button>
+            <button id="btnShowNotes" class="btn btn-outline-secondary me-2" onclick="showNotesSection()">
+                <i class="bi bi-sticky"></i> {% if metadata.notes %}View Notes{% else %}Add Notes{% endif %}
+            </button>
+            <div class="btn-group me-2" role="group">
+                {% if prev_tasknet %}
+                <a href="/report/{{ prev_tasknet }}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left"></i> Previous
+                </a>
+                {% endif %}
+                {% if next_tasknet %}
+                <a href="/report/{{ next_tasknet }}" class="btn btn-outline-secondary">
+                    Next <i class="bi bi-arrow-right"></i>
+                </a>
+                {% endif %}
+            </div>
+            <button class="btn btn-outline-danger" onclick="deleteAndRedirect()">
+                <i class="bi bi-trash"></i> Delete
+            </button>
+        </div>
+    </div>
+
+    <!-- Notes Section (Hidden by default) -->
+    <div class="card mb-4" id="notesCard" style="display: none;">
+        <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-sticky"></i> Notes</span>
+            <div>
+                <button class="btn btn-sm btn-outline-light me-2" onclick="toggleEditNotes()" id="btnEditNotes">
+                    <i class="bi bi-pencil"></i> Edit
+                </button>
+                <button class="btn btn-sm btn-outline-light" onclick="hideNotesSection()">
+                    <i class="bi bi-x"></i> Close
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="notesDisplay" style="min-height: 50px; white-space: pre-wrap;">{{ metadata.notes or 'No notes added yet. Click Edit to add notes.' }}</div>
+            <div id="notesEdit" style="display: none;">
+                <textarea id="notesTextarea" class="form-control mb-2" rows="4" placeholder="Add notes about this verification run...">{{ metadata.notes or '' }}</textarea>
+                <button class="btn btn-sm btn-success" onclick="saveNotes()">
+                    <i class="bi bi-check"></i> Save
+                </button>
+                <button class="btn btn-sm btn-secondary ms-2" onclick="cancelEditNotes()">
+                    <i class="bi bi-x"></i> Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Source Code Section (Collapsible) -->
+    <div class="card mb-4">
+        <div class="card-header bg-dark text-white">
+            <span style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#sourceCode">
+                <i class="bi bi-code-square"></i> TaskNet Source Code
+                <small class="text-muted">click to collapse</small>
+            </span>
+            <button class="btn btn-sm btn-outline-light float-end" onclick="toggleEditMode()" id="btnEditCode">
+                <i class="bi bi-pencil"></i> Edit
+            </button>
+        </div>
+        <div id="sourceCode" class="collapse show">
+            <div class="card-body p-0 code-section">
+                <div id="codeDisplay">
+                    <pre class="mb-0 p-3"><code class="language-tasknet">{{ source }}</code></pre>
+                </div>
+                <div id="codeEditor" style="display: none; height: 600px; width: 100%;"></div>
+            </div>
+            <div id="editorActions" style="display: none; padding: 1rem; background-color: #f8f9fa; border-top: 1px solid #dee2e6;">
+                <button class="btn btn-primary" onclick="saveCodeOnly()">
+                    <i class="bi bi-floppy"></i> Save
+                </button>
+                <button class="btn btn-success ms-2" onclick="saveCode()">
+                    <i class="bi bi-check-circle"></i> Save & Re-verify
+                </button>
+                <button class="btn btn-secondary ms-2" onclick="cancelEditCode()">
+                    <i class="bi bi-x"></i> Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Uploaded File Warning -->
+    {% if '.tasksat/uploads/' in metadata.source_path %}
+    <div class="alert alert-info" role="alert">
+        <h5 class="alert-heading"><i class="bi bi-info-circle"></i> Working on Uploaded Copy</h5>
+        <p>This tasknet was uploaded through the web interface and is stored at:</p>
+        <code>{{ metadata.source_path }}</code>
+        <hr>
+        <p class="mb-0">
+            <strong>Note:</strong> Any edits you make here will modify the uploaded copy, not the original file.
+            If you want to work on the original file:
+            <ol>
+                <li>Run verification from the command line: <code>python src/smt/tasknet_verifier.py &lt;original-path&gt;</code></li>
+                <li>Or copy the uploaded version back to your desired location</li>
+            </ol>
+        </p>
+    </div>
+    {% endif %}
+
+    <!-- Syntax Error Alert Section -->
+    {% if metadata.status == 'syntax_error' %}
+    <div class="alert alert-danger" role="alert">
+        <h4 class="alert-heading"><i class="bi bi-code-slash"></i> Syntax Error</h4>
+        <p>The tasknet file contains syntax errors and could not be parsed.</p>
+        <hr>
+        <p class="mb-0"><strong>Error details:</strong></p>
+        <pre style="white-space: pre-wrap; background-color: #f8d7da; padding: 1rem; border-radius: 0.25rem;">{{ metadata.error_message or 'Unknown error' }}</pre>
+        <p class="mt-3 mb-0">
+            <strong>Next steps:</strong> Fix the syntax errors in the source code and re-verify. Common issues include:
+            <ul>
+                <li>Incorrect state timeline syntax (use unquoted identifiers: <code>state(idle, active)</code>)</li>
+                <li>Missing semicolons or braces</li>
+                <li>Invalid keywords or identifiers</li>
+            </ul>
+        </p>
+    </div>
+    {% endif %}
+
+    <!-- Wellformedness Error Alert Section -->
+    {% if metadata.status == 'wellformedness_error' %}
+    <div class="alert alert-warning" role="alert">
+        <h4 class="alert-heading"><i class="bi bi-exclamation-triangle-fill"></i> Wellformedness Error</h4>
+        <p>The tasknet parsed successfully but contains semantic errors (wellformedness violations).</p>
+        <hr>
+        <p class="mb-0"><strong>Error details:</strong></p>
+        <pre style="white-space: pre-wrap; background-color: #fff3cd; padding: 1rem; border-radius: 0.25rem;">{{ metadata.error_message or 'Unknown error' }}</pre>
+        <p class="mt-3 mb-0">
+            <strong>Next steps:</strong> Fix the wellformedness errors. Common issues include:
+            <ul>
+                <li>Duplicate property or constraint names</li>
+                <li>Invalid timeline references</li>
+                <li>Invalid task dependencies</li>
+            </ul>
+        </p>
+    </div>
+    {% endif %}
+
+    <!-- General Error Alert Section -->
+    {% if metadata.status == 'error' %}
+    <div class="alert alert-danger" role="alert">
+        <h4 class="alert-heading"><i class="bi bi-exclamation-circle-fill"></i> Verification Error</h4>
+        <p>The verification failed due to an error in the tasknet specification.</p>
+        <hr>
+        <p class="mb-0"><strong>Error details:</strong></p>
+        <pre style="white-space: pre-wrap; background-color: #f8d7da; padding: 1rem; border-radius: 0.25rem;">{{ metadata.error_message or 'Unknown error' }}</pre>
+        <p class="mt-3 mb-0">
+            <strong>Next steps:</strong> Fix the errors in the source code and re-verify.
+        </p>
+    </div>
+    {% endif %}
+
+    <!-- UNSAT Alert Section -->
+    {% if metadata.status == 'unsat' %}
+    <div class="alert alert-danger" role="alert">
+        <h4 class="alert-heading"><i class="bi bi-x-circle-fill"></i> UNSAT: No Valid Schedule Found</h4>
+        <p>The SMT solver could not find a valid schedule that satisfies all constraints in this tasknet.</p>
+        <hr>
+        <p class="mb-0">
+            <strong>Possible reasons:</strong>
+        </p>
+        <ul class="mb-0">
+            <li>Conflicting temporal constraints (e.g., task A must be after B and B must be after A)</li>
+            <li>Resource constraints that cannot be satisfied simultaneously</li>
+            <li>Timeline bounds that are too restrictive</li>
+            <li>Duration or time window constraints that are impossible to meet</li>
+        </ul>
+        <p class="mt-3 mb-0">
+            <strong>Next steps:</strong> Review the constraints in the source code above and consider relaxing or removing conflicting constraints.
+        </p>
+    </div>
+    {% endif %}
+
+    <!-- Property Verification Section -->
+    {% if properties %}
+    <div class="card mb-4">
+        <div class="card-header {% if properties|selectattr('status', 'equalto', 'violated')|list|length > 0 %}bg-danger{% else %}bg-success{% endif %} text-white">
+            <i class="bi {% if properties|selectattr('status', 'equalto', 'violated')|list|length > 0 %}bi-exclamation-triangle{% else %}bi-check-circle{% endif %}"></i> Property Verification Results
+            <button class="btn btn-sm btn-outline-light ms-2" onclick="viewJson('properties', '/static/report/{{ name }}/{{ timestamp }}/properties.json')" style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
+                <i class="bi bi-eye"></i> json
+            </button>
+            <a href="/static/report/{{ name }}/{{ timestamp }}/properties.json" class="btn btn-sm btn-outline-light ms-1" download style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
+                <i class="bi bi-download"></i> json
+            </a>
+            {% set total = properties|length %}
+            {% set passed = properties|selectattr('status', 'equalto', 'holds')|list|length %}
+            {% set failed = properties|selectattr('status', 'equalto', 'violated')|list|length %}
+            {% set unknown = properties|selectattr('status', 'equalto', 'unknown')|list|length %}
+            <span class="float-end">
+                <span class="badge bg-light text-dark">{{ passed }}/{{ total }} passed</span>
+                {% if failed > 0 %}<span class="badge bg-warning text-dark ms-1">{{ failed }} failed</span>{% endif %}
+                {% if unknown > 0 %}<span class="badge bg-secondary ms-1">{{ unknown }} unknown</span>{% endif %}
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th width="5%">Status</th>
+                            <th width="20%">Property Name</th>
+                            <th width="50%">Formula</th>
+                            <th width="15%">Time</th>
+                            <th width="10%">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for prop in properties %}
+                        <tr>
+                            <td class="text-center">
+                                {% if prop.status == 'holds' %}
+                                <i class="bi bi-check-circle-fill text-success" title="Property holds"></i>
+                                {% elif prop.status == 'violated' %}
+                                <i class="bi bi-x-circle-fill text-danger" title="Property violated"></i>
+                                {% else %}
+                                <i class="bi bi-question-circle-fill text-secondary" title="Unknown"></i>
+                                {% endif %}
+                            </td>
+                            <td><code>{{ prop.name }}</code></td>
+                            <td><small><code>{{ prop.formula }}</code></small></td>
+                            <td><small>{{ prop.duration_sec }}s</small></td>
+                            <td>
+                                {% if prop.status == 'violated' %}
+                                <button class="btn btn-sm btn-outline-danger" onclick="viewErrorTrace('{{ prop.name }}')">
+                                    <i class="bi bi-graph-down"></i> Error Trace
+                                </button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Schedule Section (only show if SAT) -->
+    {% if metadata.status != 'unsat' %}
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <i class="bi bi-calendar-event"></i> Schedule
+            <button class="btn btn-sm btn-outline-light ms-2" onclick="viewJson('schedule', '/static/report/{{ name }}/{{ timestamp }}/schedule.json')" style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
+                <i class="bi bi-eye"></i> json
+            </button>
+            <a href="/static/report/{{ name }}/{{ timestamp }}/schedule.json" class="btn btn-sm btn-outline-light ms-1" download style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
+                <i class="bi bi-download"></i> json
+            </a>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <!-- Gantt Chart -->
+                {% if has_gantt %}
+                <div class="col-lg-6 mb-3">
+                    <h6>Gantt Chart</h6>
+                    <img src="/static/report/{{ name }}/{{ timestamp }}/gantt.png"
+                         class="img-fluid border"
+                         alt="Gantt Chart"
+                         style="cursor: pointer;"
+                         onclick="openImageModal(this.src)">
+                </div>
+                {% endif %}
+
+                <!-- Schedule Table -->
+                {% if schedule %}
+                <div class="col-lg-6">
+                    <h6>Task Schedule</h6>
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>Task</th>
+                                    <th>Start</th>
+                                    <th>End</th>
+                                    <th>Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for task_id in schedule.keys()|sort %}
+                                {% set times = schedule[task_id] %}
+                                <tr>
+                                    <td><code>{{ task_id }}</code></td>
+                                    <td>{{ times[0] }}</td>
+                                    <td>{{ times[1] }}</td>
+                                    <td><strong>{{ times[1] - times[0] }}</strong></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Timeline Section (only show if SAT) -->
+    {% if metadata.status != 'unsat' %}
+    {% if has_timeline_viz %}
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <i class="bi bi-graph-up"></i> Timeline Evolution
+            <button class="btn btn-sm btn-outline-light ms-2" onclick="viewJson('timeline', '/static/report/{{ name }}/{{ timestamp }}/timeline.json')" style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
+                <i class="bi bi-eye"></i> json
+            </button>
+            <a href="/static/report/{{ name }}/{{ timestamp }}/timeline.json" class="btn btn-sm btn-outline-light ms-1" download style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
+                <i class="bi bi-download"></i> json
+            </a>
+        </div>
+        <div class="card-body">
+            <h6>Timeline Evolution with Rate Slopes</h6>
+            <img src="/static/report/{{ name }}/{{ timestamp }}/timeline.png?v={{ timestamp }}"
+                 class="img-fluid border"
+                 alt="Timeline Evolution"
+                 style="cursor: pointer; width: 100%;"
+                 onclick="openImageModal(this.src)">
+            <p class="text-muted small mt-2">
+                <i class="bi bi-info-circle"></i> Purple lines indicate rate timelines showing continuous evolution. Click to enlarge.
+            </p>
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <!-- Error Traces Section (at the end) -->
+    {% if errors %}
+    <div class="card mb-4">
+        <div class="card-header bg-danger text-white">
+            <i class="bi bi-exclamation-triangle"></i> Property Violations ({{ errors|length }})
+        </div>
+        <div class="card-body">
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle"></i>
+                <strong>{{ errors|length }}</strong> temporal propert{{ 'ies' if errors|length != 1 else 'y' }} violated
+            </div>
+
+            {% for error in errors %}
+            <div class="card mb-3 border-danger">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <strong>Property: {{ error.property }}</strong>
+                    <div>
+                        <span class="me-2">schedule:</span>
+                        <button class="btn btn-sm btn-outline-primary" onclick="viewJson('{{ error.property }}_schedule', '/static/report/{{ name }}/{{ timestamp }}/errors/{{ error.schedule }}')" style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
+                            <i class="bi bi-eye"></i> json
+                        </button>
+                        <a href="/static/report/{{ name }}/{{ timestamp }}/errors/{{ error.schedule }}" class="btn btn-sm btn-outline-primary ms-1" download style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
+                            <i class="bi bi-download"></i> json
+                        </a>
+                        <span class="ms-3 me-2">timeline:</span>
+                        <button class="btn btn-sm btn-outline-primary" onclick="viewJson('{{ error.property }}_timeline', '/static/report/{{ name }}/{{ timestamp }}/errors/{{ error.timeline }}')" style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
+                            <i class="bi bi-eye"></i> json
+                        </button>
+                        <a href="/static/report/{{ name }}/{{ timestamp }}/errors/{{ error.timeline }}" class="btn btn-sm btn-outline-primary ms-1" download style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
+                            <i class="bi bi-download"></i> json
+                        </a>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <img src="/static/report/{{ name }}/{{ timestamp }}/errors/{{ error.image }}"
+                         class="img-fluid border"
+                         alt="Error Trace for {{ error.property }}"
+                         style="cursor: pointer;"
+                         onclick="openImageModal(this.src)">
+                    <div class="mt-3">
+                        <small class="text-muted">
+                            <i class="bi bi-info-circle"></i>
+                            Red highlighted zones indicate where the violation occurs. Click image to enlarge.
+                        </small>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Image Modal -->
+<div class="modal fade" id="imageModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Image Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="modalImage" src="" class="img-fluid">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- JSON Viewer Modal -->
+<div class="modal fade" id="jsonModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="jsonModalTitle">JSON Viewer</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="jsonContent" style="background-color: #f8f9fa; padding: 1rem; border-radius: 0.25rem; max-height: 70vh; overflow: auto;"><code></code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
+<!-- Prism.js for syntax highlighting -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+
+<!-- Monaco Editor -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+
+<!-- Timeline Charts -->
+<script src="{{ url_for('static', filename='js/timeline_charts.js') }}"></script>
+
+<script>
+let monacoEditor = null;
+const originalSource = {{ source|tojson }};
+
+// Define TaskNet language for Prism.js
+Prism.languages.tasknet = {
+    'comment': [
+        {
+            pattern: /#.*/,
+            greedy: true
+        },
+        {
+            pattern: /\/\/.*/,
+            greedy: true
+        }
+    ],
+    'string': {
+        pattern: /"(?:[^"\\]|\\.)*"/,
+        greedy: true
+    },
+    'keyword': /\b(?:tasknet|task|taskdef|timelines|constraints|properties|impacts|pre|post|inv|maint|prop|after|containedin|sequence|id|duration|start|end|always|eventually|implies|active|time|true|false|rate|cumulative|state|atomic|bounds|and|or|not)\b/,
+    'number': /\b\d+(?:\.\d+)?\b/,
+    'operator': /[+\-*\/]=?|~|>=?|<=?|!=?|->|=>|::/,
+    'punctuation': /[{}[\];(),.:]/,
+    'property': /\b[a-z_]\w*(?=\s*:)/,
+    'function': /\b[A-Z]\w*\b/
+};
+
+// Apply syntax highlighting after page load
+document.addEventListener('DOMContentLoaded', function() {
+    Prism.highlightAll();
+});
+</script>
+
+<script>
+function copyPath() {
+    const pathElement = document.getElementById('sourcePath');
+    const path = pathElement.textContent;
+    navigator.clipboard.writeText(path).catch(err => {
+        console.error('Failed to copy:', err);
+    });
+}
+
+function copyCommand() {
+    const commandElement = document.getElementById('commandPath');
+    const command = commandElement.textContent;
+    navigator.clipboard.writeText(command).catch(err => {
+        console.error('Failed to copy:', err);
+    });
+}
+
+function openImageModal(src) {
+    document.getElementById('modalImage').src = src;
+    const modal = new bootstrap.Modal(document.getElementById('imageModal'));
+    modal.show();
+}
+
+function viewErrorTrace(propertyName) {
+    // Scroll to error traces section
+    const errorSection = document.querySelector('.bg-danger.text-white');
+    if (errorSection) {
+        errorSection.scrollIntoView({ behavior: 'smooth' });
+        // Highlight the specific error card briefly
+        setTimeout(() => {
+            const errorCards = document.querySelectorAll('.card-header.bg-light');
+            errorCards.forEach(card => {
+                if (card.textContent.includes(propertyName)) {
+                    card.closest('.card').classList.add('border-danger');
+                    card.closest('.card').style.animation = 'pulse 0.5s';
+                    setTimeout(() => {
+                        card.closest('.card').classList.remove('border-danger');
+                    }, 2000);
+                }
+            });
+        }, 500);
+    }
+}
+
+function updateTimeAgo() {
+    const timestamp = '{{ metadata.timestamp }}';
+    const verifiedDate = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - verifiedDate;
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    let timeAgo;
+    if (diffSecs < 60) {
+        timeAgo = 'just now';
+    } else if (diffMins < 60) {
+        timeAgo = `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+    } else if (diffHours < 24) {
+        timeAgo = `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+    } else {
+        timeAgo = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+    }
+
+    document.getElementById('timeAgo').textContent = timeAgo;
+}
+
+function runVerification() {
+    const btn = document.getElementById('btnReVerify');
+    const originalHtml = btn.innerHTML;
+
+    // Show loading state
+    btn.disabled = true;
+    btn.classList.add('loading');
+    btn.innerHTML = '<span class="invisible">Running...</span>';
+
+    showToast('Verification Started', 'Re-running verification...', 'info');
+
+    fetch('/api/verify/{{ name }}', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Show appropriate toast based on verification result
+            const vStatus = data.verification_status || 'success';
+            console.log('Verification status:', vStatus);
+            console.log('Full data:', data);
+
+            if (vStatus === 'syntax_error') {
+                showToast('Syntax Error', 'Found syntax errors in tasknet', 'error');
+                setTimeout(() => window.location.reload(), 3000);
+            } else if (vStatus === 'wellformedness_error') {
+                showToast('Wellformedness Error', 'Found semantic errors in tasknet', 'error');
+                setTimeout(() => window.location.reload(), 3000);
+            } else if (vStatus === 'unsat') {
+                showToast('UNSAT', 'No valid schedule found', 'warning');
+                setTimeout(() => window.location.reload(), 2000);
+            } else if (vStatus === 'violated') {
+                showToast('Property Violations', 'Found property violations. Check error traces.', 'warning');
+                setTimeout(() => window.location.reload(), 2500);
+            } else if (vStatus === 'success') {
+                showToast('Success', 'Valid schedule found!', 'success');
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                showToast('Verification Complete', 'Reloading results...', 'info');
+                setTimeout(() => window.location.reload(), 1500);
+            }
+        } else {
+            showToast('Verification Failed', data.message, 'error');
+            btn.disabled = false;
+            btn.classList.remove('loading');
+            btn.innerHTML = originalHtml;
+        }
+    })
+    .catch(error => {
+        showToast('Error', 'Error running verification: ' + error, 'error');
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        btn.innerHTML = originalHtml;
+    });
+}
+
+function deleteAndRedirect() {
+    if (!confirm('Delete verification for "{{ name }}"?\n\nThis will remove all verification data including schedules, timelines, and reports.')) {
+        return;
+    }
+
+    fetch('/api/delete/{{ name }}', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast('Deleted', 'Verification deleted. Redirecting...', 'success');
+            // Redirect to home page after short delay
+            setTimeout(() => window.location.href = '/', 1500);
+        } else {
+            showToast('Delete Failed', data.message, 'error');
+        }
+    })
+    .catch(error => {
+        showToast('Error', 'Error: ' + error, 'error');
+    });
+}
+
+function showNotesSection() {
+    document.getElementById('notesCard').style.display = 'block';
+    document.getElementById('btnShowNotes').style.display = 'none';
+}
+
+function hideNotesSection() {
+    document.getElementById('notesCard').style.display = 'none';
+    document.getElementById('btnShowNotes').style.display = 'inline-block';
+    // Also cancel edit mode if active
+    if (document.getElementById('notesEdit').style.display === 'block') {
+        cancelEditNotes();
+    }
+}
+
+function toggleEditNotes() {
+    document.getElementById('notesDisplay').style.display = 'none';
+    document.getElementById('notesEdit').style.display = 'block';
+    document.getElementById('btnEditNotes').style.display = 'none';
+    document.getElementById('notesTextarea').focus();
+}
+
+function cancelEditNotes() {
+    document.getElementById('notesDisplay').style.display = 'block';
+    document.getElementById('notesEdit').style.display = 'none';
+    document.getElementById('btnEditNotes').style.display = 'inline-block';
+}
+
+function saveNotes() {
+    const notes = document.getElementById('notesTextarea').value;
+
+    fetch('/api/notes/{{ name }}/{{ timestamp }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ notes: notes })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            document.getElementById('notesDisplay').textContent = notes || 'No notes added yet. Click Edit to add notes.';
+            cancelEditNotes();
+            showToast('Saved', 'Notes saved successfully', 'success');
+        } else {
+            showToast('Save Failed', data.message, 'error');
+        }
+    })
+    .catch(error => {
+        showToast('Error', 'Failed to save notes: ' + error, 'error');
+    });
+}
+
+function toggleEditMode() {
+    document.getElementById('codeDisplay').style.display = 'none';
+    document.getElementById('codeEditor').style.display = 'block';
+    document.getElementById('editorActions').style.display = 'block';
+    document.getElementById('btnEditCode').style.display = 'none';
+
+    // Initialize Monaco Editor if not already initialized
+    if (!monacoEditor) {
+        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+        require(['vs/editor/editor.main'], function () {
+            // Register custom language for TaskNet
+            monaco.languages.register({ id: 'tasknet' });
+
+            // Define syntax highlighting rules
+            monaco.languages.setMonarchTokensProvider('tasknet', {
+                keywords: [
+                    'tasknet', 'task', 'taskdef', 'timelines', 'constraints', 'properties', 'impacts',
+                    'pre', 'post', 'inv', 'maint', 'prop', 'after', 'containedin', 'sequence',
+                    'id', 'duration', 'start', 'end', 'always', 'eventually', 'implies',
+                    'active', 'time', 'true', 'false', 'rate', 'cumulative', 'state', 'atomic', 'bounds'
+                ],
+                operators: [
+                    '=', '>', '<', '>=', '<=', '!=', '+', '-', '*', '/', '+=', '-=', '*=', '/=',
+                    '+~', '-~', '~', '->', 'and', 'or', 'not'
+                ],
+                tokenizer: {
+                    root: [
+                        [/[a-z_$][\w$]*/, {
+                            cases: {
+                                '@keywords': 'keyword',
+                                '@default': 'identifier'
+                            }
+                        }],
+                        [/[A-Z][\w$]*/, 'type.identifier'],
+                        [/[0-9]+(\.[0-9]+)?/, 'number'],
+                        [/#.*$/, 'comment'],
+                        [/\/\/.*$/, 'comment'],
+                        [/"([^"\\]|\\.)*$/, 'string.invalid'],
+                        [/"/, 'string', '@string'],
+                        [/\{/, 'delimiter.bracket'],
+                        [/\}/, 'delimiter.bracket'],
+                        [/\[/, 'delimiter.square'],
+                        [/\]/, 'delimiter.square']
+                    ],
+                    string: [
+                        [/[^\\"]+/, 'string'],
+                        [/"/, 'string', '@pop']
+                    ]
+                }
+            });
+
+            // Create editor with custom language
+            monacoEditor = monaco.editor.create(document.getElementById('codeEditor'), {
+                value: originalSource,
+                language: 'tasknet',
+                theme: 'vs-dark',
+                automaticLayout: true,
+                minimap: { enabled: false },
+                fontSize: 16,
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                wordWrap: 'on',
+                tabSize: 2
+            });
+        });
+    }
+}
+
+function cancelEditCode() {
+    document.getElementById('codeDisplay').style.display = 'block';
+    document.getElementById('codeEditor').style.display = 'none';
+    document.getElementById('editorActions').style.display = 'none';
+    document.getElementById('btnEditCode').style.display = 'inline-block';
+
+    // Reset to original content
+    if (monacoEditor) {
+        monacoEditor.setValue(originalSource);
+    }
+}
+
+function saveCodeOnly() {
+    if (!monacoEditor) return;
+
+    const newCode = monacoEditor.getValue();
+
+    // Just save to file without verification
+    fetch('/api/save-source/{{ name }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            source: newCode
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast('Saved', 'Source file saved successfully', 'success');
+            cancelEditCode();
+        } else {
+            showToast('Save Failed', data.message, 'error');
+        }
+    })
+    .catch(error => {
+        showToast('Error', 'Failed to save: ' + error, 'error');
+    });
+}
+
+function saveCode() {
+    if (!monacoEditor) return;
+
+    const newCode = monacoEditor.getValue();
+
+    // Save to file and re-verify
+    fetch('/api/save-and-verify/{{ name }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            source: newCode,
+            mode: '{{ metadata.mode or "optimize" }}'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast('Verification Started', 'Saving changes and re-verifying...', 'info');
+            // Reload after a delay to show new verification
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            showToast('Save Failed', data.message, 'error');
+        }
+    })
+    .catch(error => {
+        showToast('Error', 'Failed to save and verify: ' + error, 'error');
+    });
+}
+
+function viewJson(title, url) {
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            const modal = document.getElementById('jsonModal');
+            const modalTitle = document.getElementById('jsonModalTitle');
+            const jsonContent = document.getElementById('jsonContent').querySelector('code');
+
+            modalTitle.textContent = title + '.json';
+            jsonContent.innerHTML = syntaxHighlight(JSON.stringify(data, null, 2));
+
+            const bsModal = new bootstrap.Modal(modal);
+            bsModal.show();
+        })
+        .catch(error => {
+            showToast('Error', 'Failed to load JSON: ' + error, 'error');
+        });
+}
+
+function syntaxHighlight(json) {
+    json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+        var cls = 'number';
+        if (/^"/.test(match)) {
+            if (/:$/.test(match)) {
+                cls = 'key';
+            } else {
+                cls = 'string';
+            }
+        } else if (/true|false/.test(match)) {
+            cls = 'boolean';
+        } else if (/null/.test(match)) {
+            cls = 'null';
+        }
+        return '<span class="json-' + cls + '">' + match + '</span>';
+    });
+}
+
+// Update time ago on page load
+updateTimeAgo();
+// Update every minute
+setInterval(updateTimeAgo, 60000);
+
+// Timeline charts are now displayed as PNG images instead of JavaScript rendering
+// This ensures correct visualization of rate timeline slopes
+</script>
+{% endblock %}

@@ -556,7 +556,7 @@ is true when the specified task is executing.
 - `not` φ
 - φ1 `and` φ2
 - φ1 `or` φ2
-- φ1 `->` φ2` (implication)
+- φ1 `->` φ2 (implication; can also use `implies` keyword)
 
 **Temporal operators**
 
@@ -659,8 +659,11 @@ constraints {
   # Rover must eventually reach the target
   prop reach_target: eventually location = target;
 
-  # If battery is low, we must eventually charge
+  # If battery is low, we must eventually charge (using -> syntax)
   prop charge_when_low: always(battery < 30.0 -> eventually active(charge));
+
+  # Alternative: using 'implies' keyword (equivalent to ->)
+  prop charge_when_low_alt: always(battery < 30.0 implies eventually active(charge));
 
   # Heating and cooling never happen simultaneously
   prop exclusive_thermal: always (not (active(heating) and active(cooling)));
@@ -681,6 +684,56 @@ constraints {
   prop early_completion: collect_data.end < 500;
   prop minimum_gap: transmit.start >= collect_data.end + 100;
   prop time_window: always (time > 1000 -> battery >= 40.0);
+```
+
+### Property Verification Output
+
+When you run the TaskSAT verifier, it checks all properties and generates detailed reports:
+
+**Console output:**
+```
+✓ Property battery_safe holds
+✗ Property battery_critical violated
+  Violation detected at zones: [0, 2, 4]
+  Error trace saved to: .tasksat/schedules/tasknet/2026-06-10_14-30-15/errors/
+```
+
+**Generated files** (in `.tasksat/schedules/<tasknet>/<timestamp>/`):
+- `properties.json` - Comprehensive property verification summary
+- `errors/<property>_timeline.png` - Visual error trace with violation zones highlighted
+- `errors/<property>_schedule.json` - Counterexample schedule
+- `errors/<property>_timeline.json` - Timeline evolution data
+
+**Properties JSON format:**
+```json
+[
+  {
+    "name": "battery_safe",
+    "status": "holds",
+    "duration_sec": 0.027,
+    "formula": "always (battery >= 20.0)"
+  },
+  {
+    "name": "battery_critical",
+    "status": "violated",
+    "duration_sec": 0.006,
+    "formula": "always (battery >= 0.0)",
+    "violation_zones": [0, 2, 4]
+  }
+]
+```
+
+**Status values:**
+- `holds` - Property is satisfied by the schedule
+- `violated` - Property is violated (counterexample generated)
+- `unknown` - Verification inconclusive
+
+**Violation zones:** For `always` formulas, the verifier identifies specific time zones where the property fails. These zones are highlighted in red in the error trace visualization.
+
+**Web UI:** Use the web interface to browse property results and compare error traces:
+```bash
+python src/smt/tasknet_web.py
+# Navigate to http://localhost:5000 to view verification reports
 ```
 
 ## User-Guided Scheduling

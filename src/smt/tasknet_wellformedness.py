@@ -52,6 +52,7 @@ class WellFormednessChecker:
         self._check_impact_types()
         self._check_condition_types()
         self._check_timeline_references()
+        self._check_property_names_unique()
 
         return self.errors
 
@@ -531,6 +532,24 @@ class WellFormednessChecker:
                 f"{kind} '{prop_name}' contains invalid temporal term: {term}"
             )
 
+    # ========== Property Checks ==========
+
+    def _check_property_names_unique(self):
+        """Check that all property names are unique within constraints and properties."""
+        # Check constraints
+        seen_constraints: Set[str] = set()
+        for prop in self.tn.constraints:
+            if prop.name in seen_constraints:
+                self._error("Property Name", f"Duplicate constraint name: '{prop.name}'")
+            seen_constraints.add(prop.name)
+
+        # Check properties
+        seen_properties: Set[str] = set()
+        for prop in self.tn.properties:
+            if prop.name in seen_properties:
+                self._error("Property Name", f"Duplicate property name: '{prop.name}'")
+            seen_properties.add(prop.name)
+
 
 def check_wellformedness(tn: TaskNet) -> bool:
     """
@@ -546,16 +565,18 @@ def check_wellformedness(tn: TaskNet) -> bool:
     errors = checker.check()
 
     if errors:
+        from color_utils import error as color_error, warning, bold
+
         print("\n" + "="*70)
-        print("WELL-FORMEDNESS ERRORS DETECTED")
+        print(color_error(bold("WELL-FORMEDNESS ERRORS DETECTED")))
         print("="*70)
-        print(f"\nFound {len(errors)} well-formedness violation(s):\n")
+        print(warning(f"\nFound {len(errors)} well-formedness violation(s):\n"))
 
-        for i, error in enumerate(errors, 1):
-            print(f"{i}. {error}")
+        for i, err in enumerate(errors, 1):
+            print(color_error(f"{i}. {err}"))
 
         print("\n" + "="*70)
-        print("Aborting: fix the errors above and try again.")
+        print(color_error("Aborting: fix the errors above and try again."))
         print("="*70 + "\n")
         return False
 

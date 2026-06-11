@@ -1,0 +1,19 @@
+// Test file with duplicate property names (should fail wellformedness check)
+
+tasknet test_duplicate_property_names {
+  end = 100;
+
+  timelines {
+    battery: rate = 50.0;
+  }
+
+  constraints {
+    prop order1: battery >= 30.0;
+    prop order1: battery >= 40.0;  // duplicate constraint name
+  }
+
+  properties {
+    prop check1: battery >= 20.0;
+    prop check1: battery >= 10.0;  // duplicate property name
+  }
+}

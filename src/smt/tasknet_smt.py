@@ -1900,13 +1900,128 @@ class TaskNetSMT:
             return None
         return self.solver.model()
 
-    def extract_schedule(self, model):
+    def extract_schedule(self, model, include_unscheduled=False):
+        """
+        Extract the schedule from the model.
+
+        Args:
+            model: Z3 model
+            include_unscheduled: If False (default), exclude optional/request tasks that weren't scheduled
+
+        Returns:
+            Dict mapping task_id -> (start, end)
+        """
         sched: Dict[str, Tuple[int, int]] = {}
         for t in self.all_scheduled_tasks:
+            # Skip optional/request tasks that weren't included, unless explicitly requested
+            if not include_unscheduled:
+                if t.kind == TaskKind.OPTIONAL:
+                    included = model[self.optional_included[t.id]]
+                    if not included:
+                        continue
+                elif t.kind == TaskKind.REQUEST:
+                    included = model[self.request_included[t.id]]
+                    if not included:
+                        continue
+
             s_val = model[self.start_vars[t.id]]
             e_val = model[self.end_vars[t.id]]
             sched[t.id] = (int(s_val.as_long()), int(e_val.as_long()))
         return sched
+
+    def extract_timeline_evolution(self, model) -> dict:
+        """
+        Extract timeline state evolution from the model for visualization.
+
+        Returns a dictionary containing:
+        - zones: List of zone boundary times
+        - timelines: Dict mapping timeline_id to {type, values}
+        - active_tasks: List of {zone, tasks} showing which tasks are active in each zone
+        """
+        sched = self.extract_schedule(model)
+        Z = self.zone_count
+
+        # Extract zone boundaries
+        zone_times = [model[self.zones[i]].as_long() for i in range(Z)]
+
+        # Extract timeline values for each zone
+        timelines = {}
+
+        for tl in self.tn.timelines:
+            timeline_data = {
+                'type': type(tl).__name__.replace('Timeline', '').lower(),
+                'values': []
+            }
+
+            # For each zone interval (z_j, z_{j+1}], we record the value at z_{j+1}
+            for j in range(Z - 1):
+                idx_interior = j + 1
+
+                if isinstance(tl, StateTimeline):
+                    _, _, i2s, vars_z = self.state_tl_zone[tl.id]
+                    idx = model[vars_z[idx_interior]].as_long()
+                    timeline_data['values'].append(i2s[idx])
+
+                elif isinstance(tl, AtomicTimeline):
+                    vars_z = self.atomic_tl_zone[tl.id]
+                    val = model[vars_z[idx_interior]]
+                    # Z3 boolean: check if it's True or False
+                    timeline_data['values'].append(str(val) == 'True' or str(val) == '1')
+
+                elif isinstance(tl, (ClaimableTimeline, CumulativeTimeline)):
+                    _, _, vars_z = self.numeric_tl_zone[tl.id]
+                    val = model[vars_z[idx_interior]]
+                    # Convert to float for JSON serialization
+                    timeline_data['values'].append(float(val.as_decimal(6)))
+
+                elif isinstance(tl, RateTimeline):
+                    _, _, vars_z = self.numeric_tl_zone[tl.id]
+                    v_start = model[vars_z[j]]
+                    v_end = model[vars_z[j + 1]]
+                    rate_vars = self.rate_tl_rate_zone[tl.id]
+                    rate = model[rate_vars[j]]
+
+                    # Store start value, end value, and rate for visualization
+                    timeline_data['values'].append({
+                        'start_value': float(v_start.as_decimal(6)),
+                        'end_value': float(v_end.as_decimal(6)),
+                        'rate': float(rate.as_decimal(6))
+                    })
+
+            timelines[tl.id] = timeline_data
+
+        # Extract active tasks per zone
+        active_tasks = []
+        for j in range(Z - 1):
+            t0 = zone_times[j]
+            active = []
+            for t in self.all_scheduled_tasks:
+                # Skip optional/request tasks that aren't included
+                if t.kind == TaskKind.OPTIONAL:
+                    included = model[self.optional_included[t.id]]
+                    if not included:
+                        continue
+                elif t.kind == TaskKind.REQUEST:
+                    included = model[self.request_included[t.id]]
+                    if not included:
+                        continue
+
+                s, e = sched[t.id]
+                if s <= t0 < e:
+                    active.append(t.id)
+
+            active_tasks.append({
+                'zone': j,
+                'time_start': zone_times[j],
+                'time_end': zone_times[j + 1],
+                'tasks': active
+            })
+
+        return {
+            'zones': zone_times,
+            'timelines': timelines,
+            'active_tasks': active_tasks
+        }
 
     def pretty_print(self, model):
         # 1) Schedule
@@ -2215,33 +2330,39 @@ class TaskNetTL(TaskNetSMT):
           - initial_constraints (zone 0)
           - temporal constraints (self.tn.constraints) at position 0
 
-        Additionally, report vacuity:
-          - If there is NO model satisfying the base constraints, then every
-            property "holds" vacuously, but the spec is UNREALIZABLE.
+        Returns: (property_results, violations)
+          - property_results: list of dicts with detailed results for each property
+          - violations: list of dicts with violation info for error trace generation
         """
         print()
 
         # 0) If no properties, done.
         if not getattr(self.tn, "properties", None):
             print("\nNo temporal properties attached to this TaskNet.")
-            return
+            return [], []
         else:
-            print(f"Checking {len(self.tn.properties)} temporal properties:")
+            from color_utils import header
+            print(header(f"\nChecking {len(self.tn.properties)} temporal properties:"))
 
         # Realizability already verified by initial validity check in tasknet_verifier.py
         # Skip redundant check to eliminate one solver call (optimization)
 
         # PROPERTY CHECKS: look for counterexamples
         import sys
+        import time
         total_props = len(self.tn.properties)
         holds_count = 0
         violated_count = 0
         unknown_count = 0
+        violations = []
+        property_results = []
 
         for idx, prop in enumerate(self.tn.properties, start=1):
             # Show progress indicator before checking - with newline to force flush
             print(f"[{idx}/{total_props}] Checking property '{prop.name}'...")
             sys.stdout.flush()
+
+            prop_start = time.time()
 
             # Always use Solver() for property checks (faster counterexample finding)
             # use_optimization=False ensures we use Solver() even if main schedule used Optimize()
@@ -2253,22 +2374,108 @@ class TaskNetTL(TaskNetSMT):
             enc.solver.set("timeout", 10000)
 
             res = enc.solver.check()
+            prop_duration = time.time() - prop_start
+
             if res == sat:
-                print("  → VIOLATED!")
+                from color_utils import error
+                print(error("  → VIOLATED!"))
                 violated_count += 1
+                model = enc.solver.model()
+
                 if self.error_trace:
                     print("Counterexample:\n")
-                    model = enc.solver.model()
                     enc.pretty_print(model)
+
+                # Identify violation zones by evaluating the original formula at each zone
+                # Note: model is a counterexample where Not(phi) holds, so we check where phi is false
+                violation_zones = self._identify_violation_zones(enc, model, phi)
+
+                # Store violation info for visualization
+                violations.append({
+                    'property_name': prop.name,
+                    'model': model,
+                    'encoder': enc,
+                    'violation_zones': violation_zones
+                })
+
+                # Pretty print formula
+                from tasknet_printer import TaskNetPrinter
+                printer = TaskNetPrinter()
+                formula_str = printer.print_tl_formula(prop.formula)
+
+                property_results.append({
+                    'name': prop.name,
+                    'status': 'violated',
+                    'duration_sec': round(prop_duration, 3),
+                    'formula': formula_str,
+                    'violation_zones': violation_zones
+                })
+
             elif str(res) == "unsat":
-                print("  → HOLDS")
+                from color_utils import success
+                print(success("  → HOLDS ✓"))
                 holds_count += 1
+
+                # Pretty print formula
+                from tasknet_printer import TaskNetPrinter
+                printer = TaskNetPrinter()
+                formula_str = printer.print_tl_formula(prop.formula)
+
+                property_results.append({
+                    'name': prop.name,
+                    'status': 'holds',
+                    'duration_sec': round(prop_duration, 3),
+                    'formula': formula_str
+                })
             else:
-                print("  → UNKNOWN")
+                from color_utils import warning
+                print(warning("  → UNKNOWN ⚠"))
                 unknown_count += 1
 
-        # Print summary
+                # Pretty print formula
+                from tasknet_printer import TaskNetPrinter
+                printer = TaskNetPrinter()
+                formula_str = printer.print_tl_formula(prop.formula)
+
+                property_results.append({
+                    'name': prop.name,
+                    'status': 'unknown',
+                    'duration_sec': round(prop_duration, 3),
+                    'formula': formula_str
+                })
+
+        # Print summary with colors
+        from color_utils import success, error, warning, bold
         print()
-        print(f"Summary: {holds_count} hold, {violated_count} violated, {unknown_count} unknown")
+
+        # Build colored summary
+        summary_parts = []
+        if holds_count > 0:
+            summary_parts.append(success(f"{holds_count} hold"))
+        if violated_count > 0:
+            summary_parts.append(error(f"{violated_count} violated"))
+        if unknown_count > 0:
+            summary_parts.append(warning(f"{unknown_count} unknown"))
+
+        summary = bold("Summary: ") + ", ".join(summary_parts)
+        print(summary)
         print()
+
+        return property_results, violations
+
+    def _identify_violation_zones(self, enc, model, formula):
+        """
+        Identify which zone boundaries violate a temporal property.
+
+        NOTE: This is a simplified implementation that doesn't highlight specific zones.
+        The error trace visualization itself shows where values violate constraints.
+
+        Returns an empty list (no zone highlighting).
+        """
+        # TODO: Implement proper zone-level violation detection
+        # The challenge is that the counterexample model has Not(formula) asserted,
+        # and we need to correctly map temporal logic positions to zone intervals.
+        # For now, we don't highlight specific zones - the timeline values themselves
+        # show where the violation occurs.
+        return []
    

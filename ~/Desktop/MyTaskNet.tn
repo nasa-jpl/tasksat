@@ -1,0 +1,105 @@
+tasknet MyTaskNet {
+  end = 200;
+
+  timelines {
+    // Rate timeline with bounds
+    battery: rate [-20.0, 10.0] bounds [0.0, 100.0] = 80.0;
+
+    // Cumulative timeline (data volume)
+    data: cumulative [0.0, 50.0] bounds [0.0, 500.0] = 0.0;
+
+    // State timeline (discrete states)
+    mode: state ["idle", "active", "sleep"] = "idle";
+
+    // Atomic timeline (boolean flag)
+    comm_lock: atomic = false;
+  }
+
+  // Task definition (template)
+  taskdef Downlink {
+    duration 15;
+    constraints {
+      pre { battery >= 40.0; }
+      inv { mode = "active"; }
+      post { data >= 100.0; }
+    }
+    impacts {
+      pre { mode += "active"; }
+      post { mode += "idle"; }
+      maint { battery +~ -5.0; data +~ 20.0; }
+    }
+  }
+
+  // Task instances with temporal constraints
+  task preheat {
+    id 1;
+    duration 5;
+    constraints {
+      pre { battery >= 20.0; }
+    }
+    impacts {
+      maint { battery +~ -2.0; }
+    }
+  }
+
+  task downlink1 {
+    id 2;
+    duration 15;
+    after preheat;  // Ordering constraint
+    constraints {
+      pre { battery >= 40.0; comm_lock = false; }
+    }
+    impacts {
+      pre { comm_lock += true; }
+      post { comm_lock += false; }
+      maint { battery +~ -5.0; data +~ 20.0; }
+    }
+  }
+
+  task downlink2 {
+    id 3;
+    duration 15;
+    after downlink1;
+    constraints {
+      pre { battery >= 40.0; }
+    }
+    impacts {
+      maint { battery +~ -5.0; data +~ 20.0; }
+    }
+  }
+
+  task recharge {
+    id 4;
+    duration 30;
+    constraints {
+      pre { mode = "idle"; }
+    }
+    impacts {
+      maint { battery +~ 8.0; }
+    }
+  }
+
+  // Global constraints
+  constraints {
+    // Sequence constraint
+    prop ordering: sequence [preheat, downlink1, downlink2];
+
+    // Time boundary constraint
+    prop early_start: downlink1.start >= 10;
+    prop finish_early: downlink2.end <= 150;
+  }
+
+  // Temporal properties to verify
+  properties {
+    // Safety property: battery never drops below 10%
+    prop battery_safe: always (battery >= 10.0);
+
+    // Liveness property: eventually collect enough data
+    prop data_collected: eventually (data >= 200.0);
+
+    // Implication: if downloading, battery must be sufficient
+    prop download_power: always (
+      (mode = "active") implies (battery >= 30.0)
+    );
+  }
+}

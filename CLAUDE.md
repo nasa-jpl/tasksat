@@ -18,7 +18,7 @@ TaskSAT is a domain-specific language and tool for modeling and verifying task s
 
 **Run SMT-based scheduler:**
 ```bash
-# Default (optimize mode)
+# Default (optimize mode) - automatically generates Gantt chart and JSON
 python src/smt/tasknet_verifier.py tasknet.tn
 
 # Satisfy mode (find any valid schedule)
@@ -27,6 +27,8 @@ python src/smt/tasknet_verifier.py tasknet.tn --mode satisfy
 # Generate transformed tasknet without verification (useful for inspecting auto-instantiation)
 python src/smt/tasknet_verifier.py tasknet.tn --transform-only
 ```
+
+**Note:** Gantt charts automatically saved to `.tasksat/schedules/<tasknet>_gantt.png` and schedule JSON to `.tasksat/schedules/<tasknet>_schedule.json`
 
 **Note:** When auto-instantiation occurs, the transformed tasknet is automatically written to `.tasksat/transformed/<filename>_transformed.tn` for inspection. Use `--transform-only` to generate this file without running verification.
 
@@ -44,8 +46,28 @@ python3 jpl/tools/llm_scheduler.py tasknet.tn --no-visualize
 
 **Visualize schedules:**
 ```bash
-# Create Gantt chart (grouped by task type)
+# SMT verifier: Gantt chart generated automatically during verification
+python src/smt/tasknet_verifier.py tasknet.tn
+# Output: .tasksat/schedules/<tasknet>_gantt.png
+#         .tasksat/schedules/<tasknet>_schedule.json
+
+# LLM scheduler: Create Gantt chart from schedule JSON (grouped by task type)
 python3 jpl/tools/visualize_schedule.py schedule.json --grouped -o gantt.png
+
+# Standalone: Create Gantt chart from schedule JSON
+python src/smt/tasknet_gantt.py schedule.json output.png
+```
+
+**Web UI:**
+```bash
+# Start the web interface (browse tasknets, view schedules, property results)
+python src/smt/tasknet_web.py
+
+# Open browser to http://localhost:5000
+# - Home page shows all tasknets with verification history
+# - Click tasknet name to view detailed report
+# - View Gantt charts, timelines, property verification results
+# - Compare error traces with valid schedules side-by-side
 ```
 
 ### Testing
@@ -199,6 +221,153 @@ git remote -v
 - **Validation**: Polynomial-time check vs NP-hard search
 
 ## Recent Improvements (2026)
+
+### Web UI (June 2026)
+Added Flask-based web interface for browsing tasknets and viewing verification results:
+
+**Features:**
+- Browse all tasknets with verification history
+- View detailed verification reports with Gantt charts and timelines
+- Property verification results with error traces
+- Side-by-side comparison of valid schedules vs counterexamples
+- Responsive design with interactive visualizations
+
+**Usage:**
+```bash
+python src/smt/tasknet_web.py
+# Open browser to http://localhost:5000
+```
+
+**Output structure:**
+```
+.tasksat/schedules/
+└── <tasknet_name>/
+    └── <timestamp>/          # e.g., 2026-06-10_14-30-15
+        ├── metadata.json     # Verification metadata
+        ├── schedule.json     # Valid schedule
+        ├── timeline.json     # Timeline evolution data
+        ├── gantt.png         # Gantt chart
+        ├── timeline.png      # Timeline visualization
+        ├── properties.json   # Property verification summary
+        └── errors/           # Error traces for violated properties
+            ├── <prop>_schedule.json
+            ├── <prop>_timeline.json
+            └── <prop>_timeline.png
+```
+
+### Property Verification Enhancements (June 2026)
+Comprehensive property verification reporting with error traces:
+
+**Features:**
+- Per-property verification results (holds/violated/unknown)
+- Violation zone identification for `always` formulas
+- Error trace generation for violated properties
+- Timeline visualizations highlighting violation zones
+- Timing breakdown per property
+
+**Output format** (`properties.json`):
+```json
+[
+  {
+    "name": "battery_safe",
+    "status": "violated",
+    "duration_sec": 0.027,
+    "formula": "always (battery >= 20.0)",
+    "violation_zones": [0, 2, 4]
+  },
+  {
+    "name": "battery_ok",
+    "status": "holds",
+    "duration_sec": 0.006,
+    "formula": "always (battery >= 0.0)"
+  }
+]
+```
+
+**Error traces** (when property violated):
+- Counterexample schedule showing violation
+- Timeline with violation zones highlighted in red
+- Side-by-side comparison with valid schedule in web UI
+
+### Schedule Visualization (June 2026)
+SMT verifier now **automatically generates** Gantt charts and JSON schedules:
+```bash
+# Verification automatically creates visualization and JSON
+python src/smt/tasknet_verifier.py tasknet.tn
+
+# Output files in .tasksat/schedules/<tasknet>/<timestamp>/:
+#   - gantt.png           # Visual Gantt chart
+#   - schedule.json       # Machine-readable schedule
+#   - timeline.png        # Timeline evolution
+#   - properties.json     # Property verification results
+```
+
+**Standalone tool** creates Gantt charts from schedule JSON:
+```bash
+# Explicit output path
+python src/smt/tasknet_gantt.py schedule.json output.png
+
+# Auto-generate output filename
+python src/smt/tasknet_gantt.py schedule.json
+```
+
+**JSON format**: Simple dict mapping task_id → [start, end]:
+```json
+{
+  "task1": [10, 20],
+  "task2": [30, 40]
+}
+```
+
+**Also fixed:** `tasknet_visualize.py` now works correctly (fixed import errors for `ImpactRateCumulative` and `ImpactRateAssignment`).
+
+### Duplicate Property Name Validation (June 2026)
+The wellformedness checker now detects duplicate constraint and property names:
+```
+constraints {
+  prop order1: battery >= 30.0;
+  prop order1: battery >= 40.0;  // Error: Duplicate constraint name
+}
+
+properties {
+  prop check1: battery >= 20.0;
+  prop check1: battery >= 10.0;  // Error: Duplicate property name
+}
+```
+Helps catch copy-paste errors and ensures property names are unique within their scope.
+
+### Empty Blocks Allowed (June 2026)
+All block types can now be empty, useful for incremental development:
+```
+task t1 {
+  constraints { }      // empty constraints
+  impacts { }          // empty impacts
+  constraints {
+    pre { }            // empty pre/inv/post
+    inv { }
+    post { }
+  }
+  impacts {
+    pre { }            // empty impact groups
+    maint { }
+    post { }
+  }
+}
+
+constraints { }        // empty top-level constraints
+properties { }         // empty properties
+```
+
+### Implies Keyword (June 2026)
+Added support for `implies` keyword as an alternative to `->` for implication in temporal logic formulas:
+```
+properties {
+  # Both syntaxes are equivalent
+  prop arrow: battery >= 40.0 -> battery >= 30.0;
+  prop keyword: battery >= 40.0 implies battery >= 30.0;
+}
+```
+More readable for users familiar with logical notation. Both syntaxes can be mixed in the same file.
 
 ### Sequence Construct (June 2026)
 Added `sequence [task1, task2, ...]` syntax for sequential task ordering:
