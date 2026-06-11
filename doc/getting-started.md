@@ -160,6 +160,31 @@ Specifically it shows that
 - The rover drove for 40 time units: battery: 90 → 30
 - The temporal property is satisfied: ✓
 
+## Explore the Web UI
+
+TaskSAT includes a web interface for browsing verification results, viewing schedules, and comparing error traces.
+
+**Start the web server:**
+```bash
+python src/smt/tasknet_web.py
+```
+
+**Open your browser to:** http://localhost:5000
+
+The web UI provides:
+- Browse all tasknets with verification history
+- View Gantt charts and timeline visualizations
+- Property verification results with error traces
+- Side-by-side comparison of valid schedules vs counterexamples
+
+**Tip:** Run the verifier on a few tasknets first to populate the results:
+```bash
+python src/smt/tasknet_verifier.py tests/tasknet_files/examples/rover1.tn
+python src/smt/tasknet_verifier.py tests/tasknet_files/examples/rover2.tn
+```
+
+Then explore them in the web UI!
+
 ### Optional: VS Code Syntax Highlighting
 
 For better editing experience with `.tn` files:
