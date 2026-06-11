@@ -166,10 +166,12 @@ TaskSAT includes a web interface for browsing verification results, viewing sche
 
 **Start the web server:**
 ```bash
-python src/smt/tasknet_web.py
+./start_web.sh
 ```
 
-**Open your browser to:** http://localhost:5000
+**Open your browser to:** http://localhost:5001
+
+**Note:** You can specify a custom port: `./start_web.sh 8080`
 
 The web UI provides:
 - Browse all tasknets with verification history
