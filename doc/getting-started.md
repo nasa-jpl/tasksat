@@ -178,14 +178,20 @@ The web UI provides:
 - View Gantt charts and timeline visualizations
 - Property verification results with error traces
 - Side-by-side comparison of valid schedules vs counterexamples
+- Upload or create new tasknets and verify them directly in the browser
 
-**Tip:** Run the verifier on a few tasknets first to populate the results:
+**How it works:**
+- Tasknets verified in the shell automatically appear in the web UI
+- You can also upload existing `.tn` files or create new tasknets directly on the website
+- Re-verify any tasknet from the web interface with different settings
+
+**Tip:** Run the verifier on a few tasknets first to see them in the web UI:
 ```bash
 python src/smt/tasknet_verifier.py tests/tasknet_files/examples/rover1.tn
 python src/smt/tasknet_verifier.py tests/tasknet_files/examples/rover2.tn
 ```
 
-Then explore them in the web UI!
+Then explore and experiment with them in the web interface!
 
 ### Optional: VS Code Syntax Highlighting
 
