@@ -1,0 +1,19 @@
+tasknet TestUNSAT {
+  end = 50;
+
+  task t1 {
+    id 1;
+    duration 10;
+  }
+
+  task t2 {
+    id 2;
+    duration 10;
+    after t1;  // t2 must be after t1
+  }
+
+  constraints {
+    // Impossible constraint: t1 must be after t2, but t2 is already after t1
+    prop circular: t1.start >= t2.end;
+  }
+}

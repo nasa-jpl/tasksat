@@ -3,3 +3,5 @@ ply==3.11
 z3-solver==4.15.4.0
 matplotlib
 pytest
+markdown
+flask

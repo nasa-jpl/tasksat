@@ -1,0 +1,29 @@
+// Test file verifying that unique property names are allowed
+// This ensures the duplicate check doesn't false-positive on unique names
+
+tasknet test_unique_property_names {
+  end = 100;
+
+  timelines {
+    battery: rate = 50.0;
+    flag: atomic = false;
+  }
+
+  task t1 {
+    duration 10;
+  }
+
+  // Multiple constraints with unique names
+  constraints {
+    prop order1: battery >= 30.0;
+    prop order2: battery >= 40.0;
+    prop order3: t1.start < 50;
+  }
+
+  // Multiple properties with unique names
+  properties {
+    prop check1: battery >= 20.0;
+    prop check2: battery >= 10.0;
+    prop check3: always (flag = false or battery >= 0.0);
+  }
+}

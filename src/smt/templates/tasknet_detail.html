@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}{{ name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- Header -->
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/">Home</a></li>
+                <li class="breadcrumb-item active">{{ name }}</li>
+            </ol>
+        </nav>
+
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1 class="display-5">
+                <i class="bi bi-file-earmark-code text-primary"></i>
+                {{ name }}
+            </h1>
+            {% if schedule %}
+            <a href="/report/{{ name }}" class="btn btn-success">
+                <i class="bi bi-file-earmark-check"></i> View Report
+            </a>
+            {% endif %}
+        </div>
+
+        <!-- Tabs -->
+        <ul class="nav nav-tabs mb-4" role="tablist">
+            <li class="nav-item">
+                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#source-tab">
+                    <i class="bi bi-code-square"></i> Source
+                </button>
+            </li>
+            {% if schedule %}
+            <li class="nav-item">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#schedule-tab">
+                    <i class="bi bi-calendar-event"></i> Schedule
+                </button>
+            </li>
+            {% endif %}
+            {% if timeline %}
+            <li class="nav-item">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#timeline-tab">
+                    <i class="bi bi-graph-up"></i> Timeline Evolution
+                </button>
+            </li>
+            {% endif %}
+            {% if errors %}
+            <li class="nav-item">
+                <button class="nav-link text-danger" data-bs-toggle="tab" data-bs-target="#errors-tab">
+                    <i class="bi bi-exclamation-triangle"></i> Error Traces ({{ errors|length }})
+                </button>
+            </li>
+            {% endif %}
+        </ul>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+            <!-- Source Tab -->
+            <div class="tab-pane fade show active" id="source-tab">
+                <div class="card">
+                    <div class="card-header bg-dark text-white">
+                        <i class="bi bi-code-slash"></i> TaskNet Source Code
+                    </div>
+                    <div class="card-body p-0">
+                        <pre class="mb-0 p-3"><code class="language-tasksat">{{ source }}</code></pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Schedule Tab -->
+            {% if schedule %}
+            <div class="tab-pane fade" id="schedule-tab">
+                <div class="row">
+                    {% if has_gantt %}
+                    <div class="col-lg-6 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-bar-chart"></i> Gantt Chart
+                            </div>
+                            <div class="card-body">
+                                <img src="/static/report/{{ name }}/latest/gantt.png"
+                                     class="img-fluid"
+                                     alt="Gantt Chart"
+                                     style="cursor: pointer;"
+                                     onclick="openImageModal(this.src)">
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="col-lg-6 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-list-check"></i> Task Schedule
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Task</th>
+                                                <th>Start</th>
+                                                <th>End</th>
+                                                <th>Duration</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for task_id, times in schedule.items() %}
+                                            <tr>
+                                                <td><code>{{ task_id }}</code></td>
+                                                <td>{{ times[0] }}</td>
+                                                <td>{{ times[1] }}</td>
+                                                <td><strong>{{ times[1] - times[0] }}</strong></td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Timeline Tab -->
+            {% if timeline %}
+            <div class="tab-pane fade" id="timeline-tab">
+                {% if has_timeline_viz %}
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <i class="bi bi-graph-up"></i> Timeline Evolution Visualization
+                    </div>
+                    <div class="card-body">
+                        <img src="/static/report/{{ name }}/latest/timeline.png"
+                             class="img-fluid"
+                             alt="Timeline Evolution"
+                             style="cursor: pointer;"
+                             onclick="openImageModal(this.src)">
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-info-circle"></i> Timeline Data
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Zones:</strong> {{ timeline.zones|length }} time intervals</p>
+                        <p><strong>Timelines:</strong> {{ timeline.timelines|length }} tracked</p>
+
+                        <h6 class="mt-3">Timelines:</h6>
+                        <ul>
+                            {% for tl_id, tl_data in timeline.timelines.items() %}
+                            <li>
+                                <code>{{ tl_id }}</code>
+                                <span class="badge bg-secondary">{{ tl_data.type }}</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Error Traces Tab -->
+            {% if errors %}
+            <div class="tab-pane fade" id="errors-tab">
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>{{ errors|length }}</strong> temporal propert{{ 'ies' if errors|length != 1 else 'y' }} violated
+                </div>
+
+                {% for error in errors %}
+                <div class="card mb-4">
+                    <div class="card-header bg-danger text-white">
+                        <i class="bi bi-x-circle"></i> Property Violation: <strong>{{ error.property }}</strong>
+                    </div>
+                    <div class="card-body">
+                        <img src="/static/errors/{{ error.image }}"
+                             class="img-fluid"
+                             alt="Error Trace"
+                             style="cursor: pointer;"
+                             onclick="openImageModal(this.src)">
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Image Modal -->
+<div class="modal fade" id="imageModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Image Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="modalImage" src="" class="img-fluid">
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function openImageModal(src) {
+    document.getElementById('modalImage').src = src;
+    const modal = new bootstrap.Modal(document.getElementById('imageModal'));
+    modal.show();
+}
+</script>
+{% endblock %}

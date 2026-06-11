@@ -25,7 +25,7 @@ from tasknet_ast import (
     TaskNet, Task, TaskKind,
     Timeline, StateTimeline, AtomicTimeline, ClaimableTimeline,
     CumulativeTimeline, RateTimeline,
-    Impact, ImpactAssign, ImpactCumulative, ImpactRate,
+    Impact, ImpactAssign, ImpactCumulative, ImpactRateCumulative, ImpactRateAssignment,
     TlCon, ConVal, ConRealRange, ConIntRange,
     IntVal, RealVal, StrVal, BoolVal
 )
@@ -361,8 +361,10 @@ def _create_impact_edge(task_id: str, impact: Impact, detail: bool) -> Edge:
         op = f"= {_format_value(impact.how.v)}"
     elif isinstance(impact.how, ImpactCumulative):
         op = f"+= {impact.how.v}"
-    elif isinstance(impact.how, ImpactRate):
+    elif isinstance(impact.how, ImpactRateCumulative):
         op = f"+~ {impact.how.r}"
+    elif isinstance(impact.how, ImpactRateAssignment):
+        op = f"=~ {impact.how.r}"
     else:
         op = "?"
 

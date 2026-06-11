@@ -1,3 +1,6 @@
+# TaskNet Grammar
+# Note: IMPLIES is the '->' token, IMPLIES_KW is the 'implies' keyword (both are equivalent)
+
 start :
    tasknet
 
@@ -143,7 +146,8 @@ constraints_block :
    CONSTRAINTS LBRACE constraints_items RBRACE
 
 constraints_items :
-   constraints_item
+   empty
+ | constraints_item
  | constraints_items constraints_item
 
 constraints_item :
@@ -198,7 +202,8 @@ impact_when :
  | POST
 
 impact_group_entries :
-   impact_group_entry
+   empty
+ | impact_group_entry
  | impact_group_entries impact_group_entry
 
 impact_group_entry :
@@ -218,7 +223,8 @@ properties_block :
    PROPERTIES LBRACE temporal_prop_list RBRACE
 
 temporal_prop_list :
-   temporal_prop
+   empty
+ | temporal_prop
  | temporal_prop_list temporal_prop
 
 temporal_prop :
@@ -230,6 +236,7 @@ tl_formula :
 tl_imp :
    tl_or
  | tl_or IMPLIES tl_imp
+ | tl_or IMPLIES_KW tl_imp
 
 tl_or :
    tl_and

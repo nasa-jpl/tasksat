@@ -8,6 +8,9 @@ TaskSAT can be applied to scheduling problems in autonomous systems, such as spa
 
 - **Auto-instantiation**: Automatically creates task instances from taskdefs when type-level dependencies exist, reducing manual specification (e.g., 2 downlinks → 6 tasks total with thermal management)
 - **Sequence construct**: Concise syntax for sequential task ordering - `sequence [t1, t2, t3]` desugars to pairwise constraints
+- **Automatic visualization**: Gantt charts, timelines, and JSON schedules generated automatically during verification
+- **Web UI**: Browse tasknets, view schedules, compare error traces with valid schedules side-by-side
+- **Property verification**: Comprehensive error traces for violated temporal properties with violation zone identification
 - **Rich state modeling**: Rate-based continuous resources, discrete states, Boolean flags
 - **Temporal logic**: LTL-style properties (always, eventually, until, since) for verification
 - **Zone-based encoding**: Efficient SMT encoding using time discretization at task boundaries
@@ -87,13 +90,30 @@ project/
   tasknet.tn
   .tasksat/
     transformed/      # Auto-instantiated tasknets (written automatically when auto-instantiation occurs)
-    schedules/        # Generated schedules and visualizations (LLM scheduler)
+    schedules/        # Generated schedules and visualizations
+      <tasknet_name>/
+        <timestamp>/  # e.g., 2026-06-10_14-30-15
+          metadata.json       # Verification metadata
+          schedule.json       # Valid schedule
+          timeline.json       # Timeline evolution
+          gantt.png           # Gantt chart
+          timeline.png        # Timeline visualization
+          properties.json     # Property verification results
+          errors/             # Error traces for violated properties
+            <prop>_schedule.json
+            <prop>_timeline.json
+            <prop>_timeline.png
 ```
 
 The `.tasksat/` directory is automatically added to `.gitignore`.
 
 **Transformed tasknets:** When the SMT-based verifier auto-instantiates task instances from taskdefs, it automatically writes the expanded tasknet to `.tasksat/transformed/<filename>_transformed.tn`. This makes it easy to inspect what tasks were created. Use `--transform-only` to generate this file without running verification.
 
+**Web UI:** Start the web interface to browse verification results:
+```bash
+python src/smt/tasknet_web.py
+# Open browser to http://localhost:5000
+```
 ## Running Examples in this Document
 
 All examples in this document are organized in 
