@@ -199,3 +199,6 @@ jpl/mexec/test/debug/
 
 # TaskSAT generated files
 .tasksat/
+
+# JPL-internal code (only in jpl-internal branch)
+jpl/
