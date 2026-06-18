@@ -195,10 +195,12 @@ def verification_report(name, timestamp='latest'):
     schedule_file = report_dir / 'schedule.json'
     timeline_file = report_dir / 'timeline.json'
     properties_file = report_dir / 'properties.json'
+    unsat_core_file = report_dir / 'unsat_core.json'
 
     schedule_data = None
     timeline_data = None
     properties_data = None
+    unsat_core_data = None
 
     if schedule_file.exists():
         with open(schedule_file, 'r') as f:
@@ -211,6 +213,10 @@ def verification_report(name, timestamp='latest'):
     if properties_file.exists():
         with open(properties_file, 'r') as f:
             properties_data = json.load(f)
+
+    if unsat_core_file.exists():
+        with open(unsat_core_file, 'r') as f:
+            unsat_core_data = json.load(f)
 
     # Check for visualization files
     has_gantt = (report_dir / 'gantt.png').exists()
@@ -260,6 +266,7 @@ def verification_report(name, timestamp='latest'):
         schedule=schedule_data,
         timeline=timeline_data,
         properties=properties_data,
+        unsat_core=unsat_core_data,
         has_gantt=has_gantt,
         has_timeline_viz=has_timeline_viz,
         metadata=metadata,

@@ -173,6 +173,138 @@ class TaskNetSMT:
                 parts.append(f"{tl_id} {', '.join(con_strs)}")
         return "; ".join(parts) if parts else "conditions"
 
+    def _build_unsat_analysis(self, by_category: dict) -> dict:
+        """
+        Build structured analysis of UNSAT core constraints.
+        Returns a dict that can be JSON-serialized and printed.
+        """
+        analysis = {
+            'categories': {},
+            'suggestions': []
+        }
+
+        # Analyze atomic capacity violations
+        if 'atomic_capacity' in by_category:
+            first_label = by_category['atomic_capacity'][0]
+            if "timeline '" in first_label:
+                tl_name = first_label.split("timeline '")[1].split("'")[0]
+
+                # Find all tasks that impact this timeline
+                impacting_tasks = []
+                for t in self.all_scheduled_tasks:
+                    if t.impacts:
+                        for imp in t.impacts:
+                            if imp.id == tl_name:
+                                impact_type = "maint" if imp.when == "maint" else imp.when
+                                if isinstance(imp.how, ImpactCumulative):
+                                    delta = imp.how.v
+                                    impacting_tasks.append({
+                                        'id': t.id,
+                                        'type': impact_type,
+                                        'delta': delta,
+                                        'start_range': f"[{t.startrng.low},{t.startrng.high}]" if t.startrng else "any",
+                                        'duration_range': f"[{t.durrng.low},{t.durrng.high}]" if t.durrng else "any"
+                                    })
+                                    break
+
+                if impacting_tasks:
+                    analysis['categories']['atomic_capacity'] = {
+                        'timeline': tl_name,
+                        'valid_range': '[0,1]',
+                        'impacting_tasks': impacting_tasks,
+                        'conflict': f'{len(impacting_tasks)} tasks claim the same atomic resource',
+                        'explanation': 'Since their time ranges overlap, they would simultaneously claim the resource, causing the value to exceed 1 (mutual exclusion violated).'
+                    }
+
+        # Analyze timeline range violations
+        if 'timeline_range' in by_category:
+            first_label = by_category['timeline_range'][0]
+            if "timeline '" in first_label:
+                tl_name = first_label.split("timeline '")[1].split("'")[0]
+                range_part = first_label.split("must stay in ")[1].split(" at zone")[0]
+
+                impacting_tasks = []
+                for t in self.all_scheduled_tasks:
+                    if t.impacts:
+                        for imp in t.impacts:
+                            if imp.id == tl_name:
+                                impact_type = imp.when
+                                if isinstance(imp.how, ImpactCumulative):
+                                    delta = imp.how.v
+                                    impacting_tasks.append({
+                                        'id': t.id,
+                                        'type': impact_type,
+                                        'delta': delta,
+                                        'start_range': f"[{t.startrng.low},{t.startrng.high}]" if t.startrng else "any",
+                                        'duration_range': f"[{t.durrng.low},{t.durrng.high}]" if t.durrng else "any"
+                                    })
+                                    break
+
+                tl_initial = None
+                for tl in self.tn.timelines:
+                    if tl.id == tl_name:
+                        if hasattr(tl, 'initial'):
+                            tl_initial = tl.initial
+                        break
+
+                if impacting_tasks:
+                    analysis['categories']['timeline_range'] = {
+                        'timeline': tl_name,
+                        'valid_range': range_part,
+                        'initial_value': tl_initial,
+                        'impacting_tasks': impacting_tasks,
+                        'conflict': 'The combined impacts push the timeline outside its valid range',
+                        'explanation': 'Adjust task impacts, timing, or increase the timeline range.'
+                    }
+
+        # Analyze precondition violations
+        if 'precondition' in by_category:
+            first_label = by_category['precondition'][0]
+            if "task '" in first_label and "requires " in first_label:
+                task_name = first_label.split("task '")[1].split("'")[0]
+                condition_part = first_label.split("requires ")[1].split(" at start")[0]
+                tl_name = condition_part.split()[0]
+
+                tl_range = None
+                tl_initial = None
+                for tl in self.tn.timelines:
+                    if tl.id == tl_name:
+                        if isinstance(tl, CumulativeTimeline):
+                            if hasattr(tl, 'range'):
+                                tl_range = f"[{tl.range.low},{tl.range.high}]"
+                            if hasattr(tl, 'initial'):
+                                tl_initial = tl.initial
+                        break
+
+                analysis['categories']['precondition'] = {
+                    'task': task_name,
+                    'condition': condition_part,
+                    'timeline': tl_name,
+                    'timeline_range': tl_range,
+                    'timeline_initial': tl_initial,
+                    'conflict': 'The required range is outside the timeline\'s valid range',
+                    'explanation': 'This precondition can never be satisfied.'
+                }
+
+        # Add suggestions based on categories present
+        if any('dependency' in cat for cat in by_category):
+            analysis['suggestions'].extend([
+                "Check task start/end ranges for conflicts",
+                "Review task ordering constraints (after, containedin)"
+            ])
+        if any(cat in by_category for cat in ['atomic_capacity', 'timeline_range']):
+            analysis['suggestions'].extend([
+                "Check timeline capacity and resource bounds",
+                "Verify tasks don't exceed timeline limits"
+            ])
+        if any('precondition' in cat or 'postcondition' in cat or 'invariant' in cat for cat in by_category):
+            analysis['suggestions'].extend([
+                "Review task pre/post/inv conditions",
+                "Check if timeline values can satisfy required conditions"
+            ])
+
+        return analysis
+
     def _analyze_unsat_core(self, by_category: dict):
         """Provide detailed analysis of unsat core constraints."""
         print("\nDetailed Analysis:")
@@ -1843,12 +1975,17 @@ class TaskNetSMT:
         if res != sat:
             print("TaskNet constraints (schedule + zone trace):", res)
 
+            unsat_core_data = None
             # If using Solver (not Optimize), retrieve and display unsat core
             if isinstance(self.solver, Solver):
                 core = self.solver.unsat_core()
                 if len(core) == 0:
                     print("\nUNSAT CORE: Empty (constraints not tracked)")
                     print("Hint: The conflict involves untracked constraints.")
+                    unsat_core_data = {
+                        'empty': True,
+                        'hint': 'The conflict involves untracked constraints.'
+                    }
                 else:
                     print(f"\nUNSAT CORE ({len(core)} conflicting constraints)")
 
@@ -1869,7 +2006,10 @@ class TaskNetSMT:
                             category = 'other'
                         by_category.setdefault(category, []).append(label)
 
-                    # Provide detailed analysis
+                    # Build structured analysis
+                    analysis = self._build_unsat_analysis(by_category)
+
+                    # Provide detailed analysis (print to console)
                     self._analyze_unsat_core(by_category)
 
                     # Suggest actions
@@ -1897,8 +2037,17 @@ class TaskNetSMT:
                     for i, constraint in enumerate(core, 1):
                         print(f"{i}. {constraint}")
 
-            return None
-        return self.solver.model()
+                    # Build complete UNSAT core data structure
+                    unsat_core_data = {
+                        'empty': False,
+                        'core_size': len(core),
+                        'by_category': {cat: constraints for cat, constraints in by_category.items()},
+                        'analysis': analysis,
+                        'raw_core': [str(c) for c in core]
+                    }
+
+            return None, unsat_core_data
+        return self.solver.model(), None
 
     def extract_schedule(self, model, include_unscheduled=False):
         """

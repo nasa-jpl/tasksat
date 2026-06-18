@@ -3,7 +3,6 @@ TODO
 
 SHORT TERM
 
-- Check out diagram process, why not from JSON?
 - We need access to the ASCII output on the website
 - taskdef predrive {
     duration_range [300, 300];
@@ -30,6 +29,7 @@ SHORT TERM
 - parameters, such as tc.SOC_TYPE, tc.SOC_INITIAL, tc.SOC_BACKGROUND, local to tasks, numbered (MEXEC TASKNET HAS THIS)
 - Task decompositions, Compositional reasoning (methodology?)
 - Check for non-existence of plan in any initial state (negation like for properties)
+- Change documentation look
 
 MID TERM
 
@@ -49,6 +49,7 @@ LONG TERM
 - Modules
 - right-after or give time constraints
 - Non-deterministic rates
+- Translator to Python
 
 MEXEC:
 

@@ -340,6 +340,97 @@ code[class*="language-"] {
     <div class="alert alert-danger" role="alert">
         <h4 class="alert-heading"><i class="bi bi-x-circle-fill"></i> UNSAT: No Valid Schedule Found</h4>
         <p>The SMT solver could not find a valid schedule that satisfies all constraints in this tasknet.</p>
+
+        {% if unsat_core and not unsat_core.empty %}
+        <hr>
+        <details open>
+            <summary style="cursor: pointer; font-weight: bold; margin-bottom: 1rem;">
+                <i class="bi bi-diagram-3-fill"></i> UNSAT Core Analysis ({{ unsat_core.core_size }} conflicting constraints)
+            </summary>
+
+            <!-- Analysis Categories -->
+            {% if unsat_core.analysis.categories %}
+            <div class="mb-3">
+                <h6>Conflict Analysis:</h6>
+
+                {% if unsat_core.analysis.categories.atomic_capacity %}
+                <div class="card mb-2">
+                    <div class="card-body">
+                        <h6 class="card-title text-danger"><i class="bi bi-exclamation-triangle"></i> Atomic Resource Conflict</h6>
+                        <p><strong>Timeline:</strong> '{{ unsat_core.analysis.categories.atomic_capacity.timeline }}' (valid range: {{ unsat_core.analysis.categories.atomic_capacity.valid_range }})</p>
+                        <p><strong>Conflict:</strong> {{ unsat_core.analysis.categories.atomic_capacity.conflict }}</p>
+                        <p class="text-muted small">{{ unsat_core.analysis.categories.atomic_capacity.explanation }}</p>
+                        <details>
+                            <summary style="cursor: pointer;" class="small">Show impacting tasks ({{ unsat_core.analysis.categories.atomic_capacity.impacting_tasks|length }})</summary>
+                            <ul class="small mt-2">
+                            {% for task in unsat_core.analysis.categories.atomic_capacity.impacting_tasks %}
+                                <li>Task '<strong>{{ task.id }}</strong>': {{ task.type }} impact {{ task.delta }}, start {{ task.start_range }}, duration {{ task.duration_range }}</li>
+                            {% endfor %}
+                            </ul>
+                        </details>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if unsat_core.analysis.categories.timeline_range %}
+                <div class="card mb-2">
+                    <div class="card-body">
+                        <h6 class="card-title text-danger"><i class="bi bi-exclamation-triangle"></i> Timeline Range Violation</h6>
+                        <p><strong>Timeline:</strong> '{{ unsat_core.analysis.categories.timeline_range.timeline }}' (valid range: {{ unsat_core.analysis.categories.timeline_range.valid_range }})</p>
+                        {% if unsat_core.analysis.categories.timeline_range.initial_value %}
+                        <p><strong>Initial value:</strong> {{ unsat_core.analysis.categories.timeline_range.initial_value }}</p>
+                        {% endif %}
+                        <p><strong>Conflict:</strong> {{ unsat_core.analysis.categories.timeline_range.conflict }}</p>
+                        <p class="text-muted small">{{ unsat_core.analysis.categories.timeline_range.explanation }}</p>
+                        <details>
+                            <summary style="cursor: pointer;" class="small">Show impacting tasks ({{ unsat_core.analysis.categories.timeline_range.impacting_tasks|length }})</summary>
+                            <ul class="small mt-2">
+                            {% for task in unsat_core.analysis.categories.timeline_range.impacting_tasks %}
+                                <li>Task '<strong>{{ task.id }}</strong>': {{ task.type }} impact {{ task.delta }}, start {{ task.start_range }}, duration {{ task.duration_range }}</li>
+                            {% endfor %}
+                            </ul>
+                        </details>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if unsat_core.analysis.categories.precondition %}
+                <div class="card mb-2">
+                    <div class="card-body">
+                        <h6 class="card-title text-danger"><i class="bi bi-exclamation-triangle"></i> Precondition Violation</h6>
+                        <p><strong>Task:</strong> '{{ unsat_core.analysis.categories.precondition.task }}'</p>
+                        <p><strong>Requires:</strong> {{ unsat_core.analysis.categories.precondition.condition }}</p>
+                        {% if unsat_core.analysis.categories.precondition.timeline_range %}
+                        <p><strong>But timeline '{{ unsat_core.analysis.categories.precondition.timeline }}' has range:</strong> {{ unsat_core.analysis.categories.precondition.timeline_range }}</p>
+                        {% endif %}
+                        <p><strong>Conflict:</strong> {{ unsat_core.analysis.categories.precondition.conflict }}</p>
+                        <p class="text-muted small">{{ unsat_core.analysis.categories.precondition.explanation }}</p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <!-- Suggestions -->
+            {% if unsat_core.analysis.suggestions %}
+            <div class="mb-3">
+                <h6>Suggestions:</h6>
+                <ul>
+                {% for suggestion in unsat_core.analysis.suggestions %}
+                    <li>{{ suggestion }}</li>
+                {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            <!-- Raw Z3 Core (collapsed by default) -->
+            <details>
+                <summary style="cursor: pointer;" class="small text-muted">Show raw Z3 UNSAT core ({{ unsat_core.core_size }} constraints)</summary>
+                <pre class="small mt-2" style="max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 1rem; border-radius: 4px;">{% for constraint in unsat_core.raw_core %}{{ loop.index }}. {{ constraint }}
+{% endfor %}</pre>
+            </details>
+        </details>
+        {% else %}
         <hr>
         <p class="mb-0">
             <strong>Possible reasons:</strong>
@@ -353,6 +444,7 @@ code[class*="language-"] {
         <p class="mt-3 mb-0">
             <strong>Next steps:</strong> Review the constraints in the source code above and consider relaxing or removing conflicting constraints.
         </p>
+        {% endif %}
     </div>
     {% endif %}
 

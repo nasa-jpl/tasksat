@@ -180,7 +180,7 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False):
 
     # Phase 1: Validity checking
     validity_start = time.time()
-    m = enc.solve()
+    m, unsat_core_data = enc.solve()
     validity_end = time.time()
 
     if m is None:
@@ -228,6 +228,14 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False):
             json.dump(metadata, f, indent=2)
         with open(latest_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
+
+        # Save UNSAT core analysis if available
+        if unsat_core_data:
+            with open(run_dir / "unsat_core.json", 'w') as f:
+                json.dump(unsat_core_data, f, indent=2)
+            with open(latest_dir / "unsat_core.json", 'w') as f:
+                json.dump(unsat_core_data, f, indent=2)
+            print(dim(f"📄 UNSAT core analysis saved to: {run_dir}/unsat_core.json"))
 
         print(dim(f"\n📄 UNSAT result saved to: {run_dir}"))
         print(dim(f"📄 Latest at: {latest_dir}"))
