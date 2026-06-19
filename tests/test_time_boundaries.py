@@ -26,7 +26,7 @@ def test_time_variable_simple():
     '''
     tn = parse_tasknet(code)
     smt = TaskNetTL(tn, use_optimization=False)
-    model = smt.solve()
+    model, _ = smt.solve()
     assert model is not None, "Should find schedule with time < 50"
 
 
@@ -44,7 +44,7 @@ def test_task_boundary_ordering():
     '''
     tn = parse_tasknet(code)
     smt = TaskNetTL(tn, use_optimization=False)
-    model = smt.solve()
+    model, _ = smt.solve()
     assert model is not None, "Should find schedule with T1 after T2"
 
     # Verify ordering in schedule
@@ -67,7 +67,7 @@ def test_task_boundary_time_window():
     '''
     tn = parse_tasknet(code)
     smt = TaskNetTL(tn, use_optimization=False)
-    model = smt.solve()
+    model, _ = smt.solve()
     assert model is not None, "Should find schedule in time window"
 
     # Verify ordering in schedule
@@ -93,7 +93,7 @@ def test_task_boundary_comparison():
     '''
     tn = parse_tasknet(code)
     smt = TaskNetTL(tn, use_optimization=False)
-    model = smt.solve()
+    model, _ = smt.solve()
     assert model is not None, "Should find sequential schedule"
 
     # Verify ordering in schedule
@@ -122,7 +122,7 @@ def test_time_and_task_boundary_mixed():
     '''
     tn = parse_tasknet(code)
     smt = TaskNetTL(tn, use_optimization=False)
-    model = smt.solve()
+    model, _ = smt.solve()
     assert model is not None, "Should find schedule satisfying all constraints"
 
 
@@ -140,7 +140,7 @@ def test_optional_task_conditional_boundary():
     '''
     tn = parse_tasknet(code)
     smt = TaskNetTL(tn, use_optimization=True)
-    model = smt.solve()
+    model, _ = smt.solve()
     assert model is not None, "Should find schedule"
 
     # Verify optional task is NOT forced (optimizer minimizes optional tasks)
@@ -163,7 +163,7 @@ def test_request_task_conditional_boundary():
     '''
     tn = parse_tasknet(code)
     smt = TaskNetTL(tn, use_optimization=True)
-    model = smt.solve()
+    model, _ = smt.solve()
     assert model is not None, "Should find schedule"
 
     # Verify request task CAN be included (optimizer maximizes request tasks)
@@ -192,7 +192,7 @@ def test_unsat_impossible_ordering():
     '''
     tn = parse_tasknet(code)
     smt = TaskNetTL(tn, use_optimization=False)
-    model = smt.solve()
+    model, _ = smt.solve()
     assert model is None, "Circular dependency should be UNSAT"
 
 
@@ -209,10 +209,11 @@ def test_time_before_task_start():
     '''
     tn = parse_tasknet(code)
     smt = TaskNetTL(tn, use_optimization=False)
-    model = smt.solve()
+    result = smt.solve()
     # This should be UNSAT because time ranges over all zones with 'always',
     # and some zones will be >= T1.start
-    assert model is None, "always (time < T1.start) cannot hold at all zones"
+    # When UNSAT, solve() returns (None, unsat_core_data) tuple
+    assert result[0] is None, "always (time < T1.start) cannot hold at all zones"
 
 
 def test_complex_boundary_constraints():
@@ -233,7 +234,7 @@ def test_complex_boundary_constraints():
     '''
     tn = parse_tasknet(code)
     smt = TaskNetTL(tn, use_optimization=False)
-    model = smt.solve()
+    model, _ = smt.solve()
     assert model is not None, "Should find schedule satisfying all constraints"
 
     # Verify ordering in schedule

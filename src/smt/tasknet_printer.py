@@ -251,7 +251,7 @@ class TaskNetPrinter:
 
         # Logical operators
         elif isinstance(f, TLNot):
-            return f"not {self.print_tl_formula(f.arg)}"
+            return f"not {self.print_tl_formula(f.sub)}"
         elif isinstance(f, TLAnd):
             left = self.print_tl_formula(f.left)
             right = self.print_tl_formula(f.right)

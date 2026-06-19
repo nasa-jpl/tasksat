@@ -2619,14 +2619,11 @@ class TaskNetTL(TaskNetSMT):
         from color_utils import success, error, warning, bold
         print()
 
-        # Build colored summary
+        # Build colored summary (always show all counts)
         summary_parts = []
-        if holds_count > 0:
-            summary_parts.append(success(f"{holds_count} hold"))
-        if violated_count > 0:
-            summary_parts.append(error(f"{violated_count} violated"))
-        if unknown_count > 0:
-            summary_parts.append(warning(f"{unknown_count} unknown"))
+        summary_parts.append(success(f"{holds_count} hold") if holds_count > 0 else f"{holds_count} hold")
+        summary_parts.append(error(f"{violated_count} violated") if violated_count > 0 else f"{violated_count} violated")
+        summary_parts.append(warning(f"{unknown_count} unknown") if unknown_count > 0 else f"{unknown_count} unknown")
 
         summary = bold("Summary: ") + ", ".join(summary_parts)
         print(summary)
