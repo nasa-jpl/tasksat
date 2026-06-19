@@ -50,6 +50,9 @@ class TaskNetSMT:
             # Enable unsat core tracking for Solver (not available for Optimize)
             self.solver.set(unsat_core=True)
 
+        # Store mapping from labels to raw Z3 constraints for UNSAT core debugging
+        self.constraint_map: Dict[str, object] = {}
+
         # === Schedule variables ===
         self.start_vars: Dict[str, object] = {}
         self.end_vars: Dict[str, object] = {}
@@ -147,6 +150,8 @@ class TaskNetSMT:
         if isinstance(self.solver, Solver):
             # Use assert_and_track for Solver (supports unsat cores)
             self.solver.assert_and_track(constraint, label)
+            # Store the mapping from label to raw Z3 constraint for debugging
+            self.constraint_map[label] = constraint
             if not hasattr(self, '_tracked_count'):
                 self._tracked_count = 0
             self._tracked_count += 1
@@ -2037,13 +2042,30 @@ class TaskNetSMT:
                     for i, constraint in enumerate(core, 1):
                         print(f"{i}. {constraint}")
 
+                    # Extract raw SMT formulas from constraint map
+                    raw_smt_formulas = []
+                    for constraint in core:
+                        label = str(constraint)
+                        if label in self.constraint_map:
+                            smt_expr = self.constraint_map[label]
+                            # Use sexpr() for S-expression format (more standard SMT-LIB)
+                            raw_smt_formulas.append(smt_expr.sexpr())
+                        else:
+                            raw_smt_formulas.append("(unknown - constraint not tracked)")
+
+                    # Optionally print raw SMT formulas to console
+                    print(f"\n--- Raw SMT Formulas ({len(raw_smt_formulas)} expressions) ---")
+                    for i, formula in enumerate(raw_smt_formulas, 1):
+                        print(f"{i}. {formula}")
+
                     # Build complete UNSAT core data structure
                     unsat_core_data = {
                         'empty': False,
                         'core_size': len(core),
                         'by_category': {cat: constraints for cat, constraints in by_category.items()},
                         'analysis': analysis,
-                        'raw_core': [str(c) for c in core]
+                        'raw_core': [str(c) for c in core],
+                        'raw_smt_formulas': raw_smt_formulas
                     }
 
             return None, unsat_core_data

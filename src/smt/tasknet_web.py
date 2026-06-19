@@ -640,9 +640,47 @@ def api_save_and_verify(name):
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/api/delete-all', methods=['POST'])
+def api_delete_all():
+    """API endpoint to delete ALL verification reports.
+
+    IMPORTANT: This route must be defined BEFORE /api/delete/<name>
+    to prevent Flask from matching 'all' as a tasknet name.
+    """
+    import shutil
+
+    if not SCHEDULES_DIR.exists():
+        return jsonify({
+            'status': 'success',
+            'count': 0,
+            'message': 'No reports to delete'
+        })
+
+    try:
+        # Count how many reports exist
+        count = sum(1 for folder in SCHEDULES_DIR.iterdir() if folder.is_dir())
+
+        # Delete the entire schedules directory
+        shutil.rmtree(str(SCHEDULES_DIR))
+
+        # Recreate the empty directory
+        SCHEDULES_DIR.mkdir(parents=True, exist_ok=True)
+
+        return jsonify({
+            'status': 'success',
+            'count': count,
+            'message': f'Deleted all {count} verification report(s)'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to delete reports: {str(e)}'
+        }), 500
+
+
 @app.route('/api/delete/<name>', methods=['POST'])
 def api_delete(name):
-    """API endpoint to delete a verification."""
+    """API endpoint to delete a single verification."""
     import shutil
 
     # Check if verification exists

@@ -3,27 +3,9 @@ TODO
 
 SHORT TERM
 
-- We need access to the ASCII output on the website
-- taskdef predrive {
-    duration_range [300, 300];
-  }
-
-  taskdef drive {
-    after predrive; <=== it does not make an instance
-    inv {
-        distance in [0,2000];
-        covariance in [0, 140];
-    }
-    impacts {
-      maint {
-        distance +~ 0.3;
-        covariance +~ 0.01;
-      }
-    }
-  }
+-> mexec/xml: preferred-duration not translated  
 - Easier way to write exclusion constraints, active and activetype
 - Optimization: understand the zone concept better
-- mexec/xml: preferred-duration not translated  
 - atomic: B or N (MEXEC distinguishes between atomic and Boolean timelines.) mexec/xml: pre-condition 0 is translated to false
 - min/max instances of optional tasks (MEXEC TASKNET HAS THIS)
 - parameters, such as tc.SOC_TYPE, tc.SOC_INITIAL, tc.SOC_BACKGROUND, local to tasks, numbered (MEXEC TASKNET HAS THIS)
@@ -44,6 +26,7 @@ MINOR
 
 LONG TERM
 
+- VS code extension
 - Allow option to only run safety check (they can be faster)
 - Python API to the tool.
 - Modules
@@ -64,17 +47,7 @@ MEXEC:
 
 DONE:
 
-- // comments
-- implies keyword
-- Pre{ ... cannot be empty ...} etc.
-- static check does not check duplicates of constraint names
-- Store results in a JSON file
-- Visualizing a schedule (e.g. Gant chart)/webpage
-- Would be nice if timelines matched schedule
-- Write task names on tasks on website
-- Rates not shown correctly
-- Tasks of the same kind should be the same color
-- generation of .tn with auto instances
-- sequence [...]
-
+- Improved output on website for usat
+- Added delete all report buttons
+- fixed XML translation of preferred duration
 

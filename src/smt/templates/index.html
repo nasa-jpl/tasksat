@@ -18,13 +18,22 @@
             Verified task schedules - view reports and timeline evolution.
         </p>
 
-        <div class="mb-4">
-            <button class="btn btn-success me-2" onclick="showCreateModal()">
-                <i class="bi bi-plus-circle"></i> Create New Tasknet
-            </button>
-            <button class="btn btn-primary" onclick="showBrowseModal()">
-                <i class="bi bi-folder-open"></i> Open File
-            </button>
+        <div class="mb-4 d-flex justify-content-between align-items-center">
+            <div>
+                <button class="btn btn-success me-2" onclick="showCreateModal()">
+                    <i class="bi bi-plus-circle"></i> Create New Tasknet
+                </button>
+                <button class="btn btn-primary me-2" onclick="showBrowseModal()">
+                    <i class="bi bi-folder-open"></i> Open File
+                </button>
+            </div>
+            {% if tasknets %}
+            <div>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteAllReports()" title="Delete all verification reports (source files are preserved)">
+                    <i class="bi bi-trash3"></i> Delete All Reports
+                </button>
+            </div>
+            {% endif %}
         </div>
 
         <hr class="my-4">
@@ -706,6 +715,54 @@ function deleteVerification(name) {
     })
     .catch(error => {
         showToast('Error', `${error}`, 'error');
+    });
+}
+
+// Delete all reports
+function deleteAllReports() {
+    const count = {{ tasknets|length }};
+
+    if (!confirm(`⚠️  DELETE ALL VERIFICATION REPORTS?\n\nThis will permanently delete ALL ${count} verification report(s) including:\n• Schedules and timelines\n• Gantt charts and visualizations\n• UNSAT core analysis\n• Property verification results\n• Console outputs\n\n⚠️  NOTE: Your original .tn source files will NOT be deleted.\nOnly the verification results will be removed.\n\nThis action CANNOT be undone!\n\nAre you absolutely sure?`)) {
+        return;
+    }
+
+    // Second confirmation for safety
+    if (!confirm(`Final confirmation: Delete all ${count} report(s)?\n\n(Source .tn files will be preserved)`)) {
+        return;
+    }
+
+    showToast('Deleting', `Deleting ${count} report(s)...`, 'info');
+
+    fetch('/api/delete-all', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.text().then(text => {
+                throw new Error(`HTTP ${response.status}: ${text}`);
+            });
+        }
+        return response.json().catch(err => {
+            console.error('JSON parse error:', err);
+            throw new Error('Invalid JSON response from server');
+        });
+    })
+    .then(data => {
+        if (data && data.status === 'success') {
+            showToast('Success', `Deleted ${data.count} report(s). Reloading...`, 'success');
+            setTimeout(() => window.location.reload(), 1500);
+        } else if (data && data.status === 'error') {
+            showToast('Delete Failed', data.message || 'Unknown error', 'error');
+        } else {
+            throw new Error('Unexpected response format');
+        }
+    })
+    .catch(error => {
+        console.error('Delete all error:', error);
+        showToast('Error', `Failed to delete reports: ${error.message || String(error)}`, 'error');
     });
 }
 </script>

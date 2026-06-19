@@ -265,6 +265,24 @@ code[class*="language-"] {
         </div>
     </div>
 
+    <!-- Console Output Section (Collapsible) -->
+    <div class="card mb-4">
+        <div class="card-header bg-secondary text-white">
+            <span style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#consoleOutput">
+                <i class="bi bi-terminal"></i> Console Output
+                <small class="text-muted">click to expand</small>
+            </span>
+            <a href="/static/report/{{ name }}/{{ timestamp }}/console_output.txt" class="btn btn-sm btn-outline-light float-end" download>
+                <i class="bi bi-download"></i> Download
+            </a>
+        </div>
+        <div id="consoleOutput" class="collapse">
+            <div class="card-body p-0">
+                <pre class="mb-0 p-3" style="background: #1e1e1e; color: #d4d4d4; max-height: 600px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.4;"><code id="consoleOutputContent">Loading console output...</code></pre>
+            </div>
+        </div>
+    </div>
+
     <!-- Uploaded File Warning -->
     {% if '.tasksat/uploads/' in metadata.source_path %}
     <div class="alert alert-info" role="alert">
@@ -423,12 +441,24 @@ code[class*="language-"] {
             </div>
             {% endif %}
 
-            <!-- Raw Z3 Core (collapsed by default) -->
+            <!-- Constraint Labels (collapsed by default) -->
             <details>
-                <summary style="cursor: pointer;" class="small text-muted">Show raw Z3 UNSAT core ({{ unsat_core.core_size }} constraints)</summary>
+                <summary style="cursor: pointer;" class="small text-muted">Show constraint labels from Z3 UNSAT core ({{ unsat_core.core_size }} constraints)</summary>
                 <pre class="small mt-2" style="max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 1rem; border-radius: 4px;">{% for constraint in unsat_core.raw_core %}{{ loop.index }}. {{ constraint }}
 {% endfor %}</pre>
             </details>
+
+            <!-- Raw SMT Formulas (collapsed by default) -->
+            {% if unsat_core.raw_smt_formulas %}
+            <details class="mt-2">
+                <summary style="cursor: pointer;" class="small text-muted">Show raw Z3 SMT formulas ({{ unsat_core.raw_smt_formulas|length }} expressions)</summary>
+                <pre class="small mt-2" style="max-height: 300px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; font-family: 'Courier New', monospace;">{% for formula in unsat_core.raw_smt_formulas %}{{ loop.index }}. {{ formula }}
+{% endfor %}</pre>
+                <p class="text-muted small mt-2">
+                    <i class="bi bi-info-circle"></i> These are the actual Z3 SMT-LIB expressions that conflict. S-expression format shows the internal constraint structure.
+                </p>
+            </details>
+            {% endif %}
         </details>
         {% else %}
         <hr>
@@ -1114,6 +1144,26 @@ function syntaxHighlight(json) {
 updateTimeAgo();
 // Update every minute
 setInterval(updateTimeAgo, 60000);
+
+// Load console output when section is expanded
+document.getElementById('consoleOutput').addEventListener('show.bs.collapse', function () {
+    const consoleContent = document.getElementById('consoleOutputContent');
+    if (consoleContent.textContent === 'Loading console output...') {
+        fetch('/static/report/{{ name }}/{{ timestamp }}/console_output.txt')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Console output not available');
+                }
+                return response.text();
+            })
+            .then(text => {
+                consoleContent.textContent = text || 'No console output available';
+            })
+            .catch(error => {
+                consoleContent.textContent = 'Error loading console output: ' + error.message;
+            });
+    }
+});
 
 // Timeline charts are now displayed as PNG images instead of JavaScript rendering
 // This ensures correct visualization of rate timeline slopes

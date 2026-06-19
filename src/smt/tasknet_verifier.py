@@ -11,6 +11,7 @@ import os
 import sys
 import time
 from pprint import pprint
+from io import StringIO
 
 # Set environment variable to request unbuffered mode
 os.environ['PYTHONUNBUFFERED'] = '1'
@@ -20,6 +21,38 @@ from tasknet_transforms import apply_transforms
 from tasknet_smt import TaskNetSMT, TaskNetTL
 from tasknet_wellformedness import check_wellformedness
 from color_utils import error, success, warning, info, header, bold, dim, Colors
+
+
+class TeeOutput:
+    """Capture output while still displaying it to the terminal."""
+    def __init__(self):
+        self.terminal = sys.stdout
+        self.log = StringIO()
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+
+    def getvalue(self):
+        return self.log.getvalue()
+
+
+# Global variable to capture console output
+_console_output = None
+
+
+def save_console_output(run_dir, latest_dir):
+    """Save captured console output to both timestamped and latest directories."""
+    global _console_output
+    if _console_output:
+        output_text = _console_output.getvalue()
+        with open(run_dir / 'console_output.txt', 'w') as f:
+            f.write(output_text)
+        with open(latest_dir / 'console_output.txt', 'w') as f:
+            f.write(output_text)
 
 def save_failed_verification(path: str, mode: str, start_time: float, error_message: str, error_type: str = "error"):
     """Save metadata for failed verification attempts.
@@ -67,6 +100,9 @@ def save_failed_verification(path: str, mode: str, start_time: float, error_mess
         json.dump(metadata, f, indent=2)
     with open(latest_dir / "metadata.json", 'w') as f:
         json.dump(metadata, f, indent=2)
+
+    # Save console output
+    save_console_output(run_dir, latest_dir)
 
     print(f"\n📄 Failed verification saved to: {run_dir}")
     print(f"📄 Latest at: {latest_dir}")
@@ -237,6 +273,9 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False):
                 json.dump(unsat_core_data, f, indent=2)
             print(dim(f"📄 UNSAT core analysis saved to: {run_dir}/unsat_core.json"))
 
+        # Save console output
+        save_console_output(run_dir, latest_dir)
+
         print(dim(f"\n📄 UNSAT result saved to: {run_dir}"))
         print(dim(f"📄 Latest at: {latest_dir}"))
         return
@@ -364,6 +403,9 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False):
     except ImportError:
         print("⚠️  Timeline evolution chart skipped (matplotlib not installed)")
 
+    # Save console output
+    save_console_output(run_dir, latest_dir)
+
     print(f"📄 Verification results saved to: {run_dir}")
     print(f"📄 Latest results at: {latest_dir}")
 
@@ -451,6 +493,14 @@ if __name__ == "__main__":
                         help='Only write transformed tasknet (if auto-instantiation occurs) and exit without verification')
     args = parser.parse_args()
 
-    main(args.tasknet_file, args.mode, args.transform_only)
+    # Capture console output
+    _console_output = TeeOutput()
+    old_stdout = sys.stdout
+    sys.stdout = _console_output
+
+    try:
+        main(args.tasknet_file, args.mode, args.transform_only)
+    finally:
+        sys.stdout = old_stdout
 
 
