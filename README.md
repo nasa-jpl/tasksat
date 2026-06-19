@@ -9,7 +9,7 @@ TaskSAT can be applied to scheduling problems in autonomous systems, such as spa
 - **Auto-instantiation**: Automatically creates task instances from taskdefs when type-level dependencies exist, reducing manual specification (e.g., 2 downlinks → 6 tasks total with thermal management)
 - **Sequence construct**: Concise syntax for sequential task ordering - `sequence [t1, t2, t3]` desugars to pairwise constraints
 - **Automatic visualization**: Gantt charts, timelines, and JSON schedules generated automatically during verification
-- **Web UI**: Browse tasknets, view schedules, compare error traces with valid schedules side-by-side
+- **Web UI**: Browse tasknets, view schedules, UNSAT core analysis with raw SMT formulas, console output display, bulk deletion
 - **Property verification**: Comprehensive error traces for violated temporal properties with violation zone identification
 - **Rich state modeling**: Rate-based continuous resources, discrete states, Boolean flags
 - **Temporal logic**: LTL-style properties (always, eventually, until, since) for verification
@@ -99,6 +99,8 @@ project/
           gantt.png           # Gantt chart
           timeline.png        # Timeline visualization
           properties.json     # Property verification results
+          unsat_core.json     # UNSAT core analysis (if UNSAT)
+          console_output.txt  # Full console output
           errors/             # Error traces for violated properties
             <prop>_schedule.json
             <prop>_timeline.json
@@ -111,9 +113,21 @@ The `.tasksat/` directory is automatically added to `.gitignore`.
 
 **Web UI:** Start the web interface to browse verification results:
 ```bash
-python src/smt/tasknet_web.py
-# Open browser to http://localhost:5000
+./start_web.sh
+# Open browser to http://localhost:5001
 ```
+
+The web UI provides:
+- Browse all verification results with status indicators
+- View Gantt charts and timeline visualizations
+- **UNSAT core analysis** with three levels:
+  1. Human-readable conflict explanations and suggestions
+  2. TaskSAT constraint labels
+  3. Raw Z3 SMT formulas (S-expressions)
+- **Console output** - Full verifier text output
+- Property verification results with error traces
+- Create and verify tasknets directly in the browser
+- **Bulk deletion** of verification reports (source files preserved)
 ## Running Examples in this Document
 
 All examples in this document are organized in 

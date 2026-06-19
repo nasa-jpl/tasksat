@@ -179,6 +179,12 @@ The web UI provides:
 - Property verification results with error traces
 - Side-by-side comparison of valid schedules vs counterexamples
 - Upload or create new tasknets and verify them directly in the browser
+- **UNSAT Core Analysis** with three levels of detail:
+  - Human-readable conflict explanations and suggestions
+  - TaskSAT constraint labels showing which constraints conflict
+  - Raw Z3 SMT formulas in S-expression format for advanced debugging
+- **Console Output** - Full ASCII text output from the verifier
+- **Delete All Reports** - Bulk deletion of verification results (source files are preserved)
 
 **How it works:**
 - Tasknets verified in the shell automatically appear in the web UI
