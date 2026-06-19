@@ -3,7 +3,6 @@ TODO
 
 SHORT TERM
 
--> mexec/xml: preferred-duration not translated  
 - Easier way to write exclusion constraints, active and activetype
 - Optimization: understand the zone concept better
 - atomic: B or N (MEXEC distinguishes between atomic and Boolean timelines.) mexec/xml: pre-condition 0 is translated to false
