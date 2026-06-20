@@ -1,0 +1,15 @@
+tasknet ZoneRateSimple {
+  end = 100;
+
+  timelines {
+    fuel : rate [0.0, 100.0] bounds [0.0, 100.0] = 80.0;
+  }
+
+  task Burn {
+    duration 10;
+    start 10;
+    impacts {
+      maint { fuel +~ -2.0; }
+    }
+  }
+}

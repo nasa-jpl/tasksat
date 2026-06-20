@@ -1,0 +1,25 @@
+tasknet TestMaintOnly {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0.0, 100.0] bounds [0.0, 100.0] = 60.0;
+  }
+
+  task Charge {
+    duration 10;
+    pre {
+      battery in [50.0, 100.0];
+    }
+    inv {
+      battery in [20.0, 100.0];
+    }
+    post {
+      battery in [0.0, 100.0];
+    }
+    impacts {
+      maint {
+        battery += 5.0;
+      }
+    }
+  }
+}

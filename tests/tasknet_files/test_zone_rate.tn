@@ -1,0 +1,25 @@
+tasknet ZoneRateTest {
+  end = 20;
+
+  timelines {
+    fuel : rate [0.0, 100.0] bounds [0.0, 100.0] = 80.0;
+  }
+
+  task Burn {
+    duration 5;
+    pre {
+      fuel in [70.0, 90.0];
+    }
+    inv {
+      fuel in [0.0, 100.0];
+    }
+    post {
+      fuel in [0.0, 100.0];
+    }
+    impacts {
+      pre { fuel = 60.0; }
+      maint { fuel +~ -2.0; }
+      post { fuel = 100.0; }
+    }
+  }
+}

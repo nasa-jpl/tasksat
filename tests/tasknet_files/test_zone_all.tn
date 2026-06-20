@@ -1,0 +1,33 @@
+tasknet ZoneAllTypes {
+  end = 50;
+
+  timelines {
+    power : state(off, on) = off;
+    flag : atomic = false;
+    mem : cumulative [0.0, 200.0] bounds [0.0, 200.0] = 100.0;
+    fuel : rate [0.0, 200.0] bounds [0.0, 200.0] = 80.0;
+  }
+
+  task T {
+    duration 10;
+    impacts {
+      pre {
+        power = on;
+        flag = true;
+        mem = 40.0;
+        fuel = 60.0;
+      }
+      maint {
+        flag += 1;
+        mem += 10.0;
+        fuel +~ -2.0;
+      }
+      post {
+        power = off;
+        flag = false;
+        mem = 150.0;
+        fuel = 100.0;
+      }
+    }
+  }
+}

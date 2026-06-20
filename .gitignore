@@ -186,6 +186,9 @@ visualizations/
 # Paper drafts
 doc/papers/uppaal30/
 
+# Zone model documentation (work in progress)
+doc/zone-model/
+
 # Test artifacts
 jpl/mexec/test/debug/
 
