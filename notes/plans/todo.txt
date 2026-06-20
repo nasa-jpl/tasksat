@@ -3,7 +3,7 @@ TODO
 
 SHORT TERM
 
-- Understand the zone concept better
+-> Understand the zone concept better
 - atomic: B or N (MEXEC distinguishes between atomic and Boolean timelines.) mexec/xml: pre-condition 0 is translated to false
 - min/max instances of optional tasks (MEXEC TASKNET HAS THIS)
 - parameters, such as tc.SOC_TYPE, tc.SOC_INITIAL, tc.SOC_BACKGROUND, local to tasks, numbered (MEXEC TASKNET HAS THIS)
