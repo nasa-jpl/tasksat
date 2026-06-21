@@ -235,6 +235,8 @@ This task is also optional
 
 The `collect` task shows some new concepts. It has a pre-condition containing a couple of equalities: the `location` be at the `target` and the arm must not aleady be deployed. We also now see a pre-impact, executed at the beginning of the task exection, namely that the `arm` is deployed (becoming true). At the end of the execution, the `data` timelines is augmented with 40.
 
+**Important note on impact timing:** Pre-impacts take effect *during* task execution, not before the pre-condition is checked. In this example, the pre-condition checks `arm = false` before the pre-impact sets `arm = true`. This allows the pre-condition to verify the "input state" (arm not deployed) before the task modifies it. The task then executes with `arm = true` (the modified state). Similarly, post-impacts take effect *after* the post-condition is checked, so the next task sees the modified state.
+
 ```  
   task collect {
     duration_range  [20, 30];
@@ -242,12 +244,12 @@ The `collect` task shows some new concepts. It has a pre-condition containing a 
     pre {
       location = target;
       battery in [60.0, 100.0];
-      arm = false;
+      arm = false;           // Checks BEFORE pre-impact modifies it
     }
 
     impacts {
       pre {
-        arm = true; 
+        arm = true;          // Takes effect during execution
       }
       maint {
         battery -~ 0.5;  
@@ -255,7 +257,7 @@ The `collect` task shows some new concepts. It has a pre-condition containing a 
       }
       post {
         data += 40.0;  
-        arm = false; 
+        arm = false;         // Takes effect after task completes
       }
     }
   }

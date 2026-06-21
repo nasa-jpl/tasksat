@@ -1,0 +1,31 @@
+// Test: Rate timeline value impacts write to zone s+1 (consistent with other timeline types)
+// Verifies the s+1 design where value impacts (+=) write to zone s+1,
+// while rate impacts (+~) write to zone s for correct evolution.
+//
+// Expected behavior:
+// - Pre-condition checks battery < 30 at zone s (sees initial value 20)
+// - Value impact (battery += 30) writes to zone s+1
+// - Rate impact (battery +~ 1) writes to zone s
+// - Invariant checks zone s+1 onwards (sees 20+30+evolution = 50+)
+
+tasknet RateValueImpactZoneTest {
+  end = 30;
+
+  timelines {
+    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 20.0;
+  }
+
+  task charge_battery {
+    duration_range [10, 10];
+    impacts {
+      pre { battery += 30.0; }  // Cumulative value impact - should write to zone s+1
+      maint { battery +~ 1.0; }   // Rate impact - should write to zone s (correct behavior)
+    }
+    pre {
+      battery in [0.0, 29.9];  // Check zone s (before value impact) - should see 20
+    }
+    inv {
+      battery in [40.0, 100.0]; // Check zone s+1 onwards (after value impact starts at 50, then increases)
+    }
+  }
+}

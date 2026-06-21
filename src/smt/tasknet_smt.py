@@ -1586,11 +1586,11 @@ class TaskNetSMT:
                             if isinstance(imp.how, ImpactCumulative):
                                 v = imp.how.v
                                 if imp.when == "pre":
-                                    term = If(zi1 == s, v, 0.0)
+                                    term = If(zi == s, v, 0.0)
                                 elif imp.when == "maint":
-                                    term = If(zi1 == s, v, If(zi1 == e, -v, 0.0))
+                                    term = If(zi == s, v, If(zi == e, -v, 0.0))
                                 elif imp.when == "post":
-                                    term = If(zi1 == e, v, 0.0)
+                                    term = If(zi == e, v, 0.0)
                                 else:
                                     continue
 
@@ -1632,18 +1632,18 @@ class TaskNetSMT:
 
                                 if imp.when == "pre":
                                     if t.kind == TaskKind.OPTIONAL:
-                                        value_expr = If(And(self.optional_included[t.id], zi1 == s), val, value_expr)
+                                        value_expr = If(And(self.optional_included[t.id], zi == s), val, value_expr)
                                     elif t.kind == TaskKind.REQUEST:
-                                        value_expr = If(And(self.request_included[t.id], zi1 == s), val, value_expr)
+                                        value_expr = If(And(self.request_included[t.id], zi == s), val, value_expr)
                                     else:
-                                        value_expr = If(zi1 == s, val, value_expr)
+                                        value_expr = If(zi == s, val, value_expr)
                                 elif imp.when == "post":
                                     if t.kind == TaskKind.OPTIONAL:
-                                        value_expr = If(And(self.optional_included[t.id], zi1 == e), val, value_expr)
+                                        value_expr = If(And(self.optional_included[t.id], zi == e), val, value_expr)
                                     elif t.kind == TaskKind.REQUEST:
-                                        value_expr = If(And(self.request_included[t.id], zi1 == e), val, value_expr)
+                                        value_expr = If(And(self.request_included[t.id], zi == e), val, value_expr)
                                     else:
-                                        value_expr = If(zi1 == e, val, value_expr)
+                                        value_expr = If(zi == e, val, value_expr)
                                 # MAINT not allowed for value assignments on rate timelines
 
                     # Track rate timeline value evolution

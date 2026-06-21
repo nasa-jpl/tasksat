@@ -275,6 +275,36 @@ This table shows which impact operations are allowed on each timeline type:
 - **Atomic timelines** now support cumulative impacts (typically `+= 1` to claim, `-= 1` to release) for mutual exclusion patterns. Use MAINT timing for automatic claim/release at task start/end.
 - **Rate assignment (`=~`) with MAINT** is not supported due to restoration complexity in the zone-based model. Use cumulative rate impacts (`+~`/`-~`) with MAINT, which automatically restore (e.g., `+~ 2.0` at start, `-~ 2.0` at end).
 
+### Impact Timing: When Do Changes Take Effect?
+
+**Important:** Impacts do not modify timeline values at the exact moment they fire—they take effect in the "next" zone.
+
+When a task starts, its PRE impacts modify the timeline values that will be used *during* task execution (not before). Similarly, POST impacts modify values that *next* tasks will see (not during the current task).
+
+**Example:**
+```tasknet
+timeline battery : cumulative [0, 100] = 100;
+
+task discharge {
+  pre { battery >= 50; }        // Checks: do we have enough battery?
+  impacts { pre { battery = 0; } }  // Discharge it
+}
+```
+
+**What happens:**
+1. Pre-condition checks `battery = 100` (the value *before* the impact) ✓
+2. Impact sets `battery = 0` for use *during* task execution
+3. Task executes with `battery = 0`
+
+If impacts modified values immediately, the pre-condition would check `battery = 0` and fail, even though we *did* have enough battery to start!
+
+**Why this matters:**
+- Pre-conditions see the "input state" (before task modifies anything)
+- Invariants see the "execution state" (after pre/maint impacts take effect)
+- Post-conditions see the "end state" (before post impacts and cleanup)
+
+**Exception for rate impacts:** Rate changes (`+~`, `-~`, `=~`) take effect immediately so the task executes with the new rate from the start. This is necessary for correct rate evolution. Value impacts on rate timelines (`+=`, `-=`, `=`) follow the standard delayed timing.
+
 ## Task Definitions and Instances
 
 TaskSAT supports reusable task definitions that can be instantiated multiple times.

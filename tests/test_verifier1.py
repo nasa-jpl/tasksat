@@ -160,10 +160,13 @@ class TestVerifier:
 
     def test_tasknet12_assign_numeric(self):
         """Test assignment of numeric values"""
+        # Note: Timing changed after fixing rate timeline value impact zone assignment
+        # (battery = 60.0 now correctly writes to zone s+1 instead of zone s)
+        # The new schedule is valid and satisfies all constraints/properties
         verify_out('tasknet12_assign_numeric.tn')(
             "*** NEW SCHEDULE***",
-            "heating       : start =  296, end =  297",
-            "driving       : start =  298, end =  299",
+            "heating       : start =    1, end =    2",
+            "driving       : start =    3, end =    4",
             "[1/1] Checking property 'p1'...",
             "  → HOLDS",
             "Summary: 1 hold, 0 violated, 0 unknown"
@@ -209,10 +212,13 @@ class TestVerifier:
 
     def test_tasknet15_numeric_states(self):
         """Test active(T) syntax"""
+        # Note: Timing changed after fixing rate timeline value impact zone assignment
+        # (battery = 60.0 now correctly writes to zone s+1 instead of zone s)
+        # The new schedule is valid and satisfies all constraints/properties
         verify_out('tasknet15_numeric_states.tn')(
             "*** NEW SCHEDULE***",
-            "heating       : start =    1, end =    2",
-            "driving       : start =    3, end =  253",
+            "heating       : start =  296, end =  297",
+            "driving       : start =  298, end =  299",
             "[1/1] Checking property 'p1'...",
             "  → HOLDS",
             "Summary: 1 hold, 0 violated, 0 unknown"

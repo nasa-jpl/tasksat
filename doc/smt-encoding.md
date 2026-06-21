@@ -248,13 +248,43 @@ Tasks modify timelines through three impact mechanisms:
 **Delta ($\pm$):** Instantaneous change by a fixed amount
 **Rate ($\pm\!\!\sim$):** Continuous change at a fixed rate
 
-### 6.2 State and Atomic Timelines
+### 6.2 Impact Timing: The s+1 Design
+
+**Core Principle:** Value impacts do not modify the zone where they fire—they modify the next zone.
+
+When a task starts at zone index $s$ (meaning $z_s = s_t$), its pre-impacts fire during the zone transition from $s$ to $s+1$, computing the value at zone boundary $s+1$. Similarly, post-impacts fire during the transition from $e$ to $e+1$.
+
+**Timeline of Events:**
+
+For a task starting at zone $s$ and ending at zone $e$:
+- **Zone $s$**: Input state — pre-conditions check here, seeing values *before* the task modifies them
+- **Zone $s+1$**: Execution begins — invariants check here, *after* pre/maint impacts take effect
+- **Zone $e$**: Execution ends — post-conditions check here, *before* post-impacts and cleanup
+- **Zone $e+1$**: Output state — next tasks see this, *after* all task effects complete
+
+**Why This Design:**
+
+If impacts modified zone $s$ directly, pre-conditions would see the post-impact value, not the pre-impact value. Consider:
+
+```
+battery[s] = 100  // initial value
+task T {
+  pre { battery >= 50 }             // Check we have enough
+  impacts { pre { battery = 0 } }   // Discharge it
+}
+```
+
+If pre-impact wrote to zone $s$: pre-condition would check `battery[s] = 0` and fail (0 ≱ 50), even though we *did* have enough battery before the task started.
+
+With the s+1 design: pre-condition checks `battery[s] = 100` ✓, and the impact writes to `battery[s+1] = 0`.
+
+**Exception for Rate Impacts:** Rate timeline *rate* impacts (operations `+~`, `-~`, `=~`) write to zone $s$, not $s+1$. This is necessary because rate evolution `value[i+1] = value[i] + rate[i] × (z[i+1] - z[i])` requires the rate at zone $s$ to correctly compute the value over the interval $(z_s, z_{s+1}]$. If rate impacts wrote to $s+1$, the first execution interval would use the old rate value. Rate timeline *value* impacts (operations `+=`, `-=`, `=`) follow the standard s+1 design.
+
+### 6.3 State and Atomic Timelines
 
 For state timeline $\ell$ and atomic timeline $\alpha$, only assignments are permitted at boundaries (no maint assignments).
 
-**Important:** Timeline values are updated at zone boundaries, meaning that changes take effect at the **end** of zone $i$ (equivalently, at the start of zone $i+1$). This may be counterintuitive: an impact occurring "at" time $z_i$ affects the value starting from zone $i+1$, not within zone $i$ itself.
-
-The transition from zone $i$ to zone $i+1$ is:
+The transition from zone $i$ to zone $i+1$ follows the s+1 design: impacts check zone $i$'s time but write to zone $i+1$:
 
 $$\sigma^{\ell}[i+1] = \begin{cases}
 v & \text{if } \exists t : z_i = s_t \land (t, \ell, \mathtt{pre}, =, v) \in I \\
@@ -262,9 +292,9 @@ v & \text{if } \exists t : z_i = e_t \land (t, \ell, \mathtt{post}, =, v) \in I 
 \sigma^{\ell}[i] & \text{otherwise}
 \end{cases}$$
 
-where $I$ denotes the set of all impacts. Multiple assignments to the same timeline at the same time are disallowed.
+where $I$ denotes the set of all impacts. Note that when $z_i = s_t$ (zone $i$ equals task start time), the pre-impact writes to $\sigma^{\ell}[i+1]$, not $\sigma^{\ell}[i]$. This implements the s+1 design: pre-conditions can check $\sigma^{\ell}[s]$ before the pre-impact modifies $\sigma^{\ell}[s+1]$. Multiple assignments to the same timeline at the same time are disallowed.
 
-### 6.3 Numeric Timelines: Delta Accumulation
+### 6.4 Numeric Timelines: Delta Accumulation
 
 **Impact Notation:** We represent impacts as tuples $(t, \ell, w, \textit{op}, v)$ where:
 - $t$ is the task performing the impact
@@ -273,13 +303,13 @@ where $I$ denotes the set of all impacts. Multiple assignments to the same timel
 - $\textit{op}$ is the operation type ($=$, $\delta$, or $\sim$ for assignment, delta, or rate respectively)
 - $v$ is the value (the amount for delta/rate, or the target value for assignment)
 
-We use $I_{\Delta}$ for the set of all delta impacts and $I_R$ for all rate impacts.
+We use $I_{\Delta}$ for the set of all delta (value) impacts and $I_R$ for all rate impacts.
 
-For numeric timeline $\nu^{\ell}$ over zone $i$ spanning interval $(z_i, z_{i+1}]$, define the accumulated delta:
+For numeric timeline $\nu^{\ell}$ over zone transition $i \to i+1$, define the accumulated delta that will be applied to $\nu^{\ell}[i+1]$:
 
 $$\Delta^{\ell}[i] = \sum_{(t,\ell,w,\delta,v) \in I_{\Delta}} \mathtt{active}(t, w, i) \cdot v$$
 
-where:
+where the $\mathtt{active}$ predicate implements the s+1 design (checking zone $i$ time, writing to zone $i+1$):
 
 $$\mathtt{active}(t, \mathtt{pre}, i) = \begin{cases} 1 & \text{if } z_i = s_t \\ 0 & \text{otherwise} \end{cases}$$
 
@@ -291,9 +321,22 @@ $$\mathtt{active}(t, \mathtt{maint}, i) = \begin{cases}
 
 $$\mathtt{active}(t, \mathtt{post}, i) = \begin{cases} 1 & \text{if } z_i = e_t \\ 0 & \text{otherwise} \end{cases}$$
 
-### 6.4 Numeric Timelines: Rate Integration
+Note: When $z_i = s_t$, the delta is accumulated and applied to $\nu^{\ell}[i+1]$ (not $\nu^{\ell}[i]$), implementing the s+1 design.
 
-**Note:** The formulas below describe a simplified model where rate impacts directly affect value evolution. The actual implementation uses **dual tracking**: rate timelines maintain separate RATE and VALUE variables. The RATE variable is modified by cumulative rate impacts ($+\sim$, $-\sim$) and rate assignments ($=\sim$), while the VALUE evolves as the integral of RATE over time. Cumulative rate impacts on MAINT automatically restore (e.g., $+r$ at task start, $-r$ at task end). Rate assignments ($=\sim$) are only permitted on PRE and POST (not MAINT) due to restoration complexity.
+### 6.5 Numeric Timelines: Rate Integration
+
+**Note:** The formulas below describe a simplified model where rate impacts directly affect value evolution. The actual implementation uses **dual tracking**: rate timelines maintain separate RATE and VALUE variables. 
+
+- **RATE variable** is modified by cumulative rate impacts ($+\sim$, $-\sim$) and rate assignments ($=\sim$)
+- **VALUE variable** evolves as the integral of RATE over time plus cumulative value impacts ($+=$, $-=$) and value assignments ($=$)
+
+**Important timing distinction:**
+- **Rate impacts** (`+~`, `-~`, `=~`) check $z_{i+1} = s_t$ and write to `rate[i+1]`, which equals `rate[s]` (exception to s+1 design)
+- **Value impacts** (`+=`, `-=`, `=`) check $z_i = s_t$ and write to `value[i+1]`, which equals `value[s+1]` (follows s+1 design)
+
+This asymmetry is necessary: rate evolution needs `rate[s]` to compute value over interval $(z_s, z_{s+1}]$. If rate impacts wrote to $s+1$, the first interval would use the old rate.
+
+Cumulative rate impacts on MAINT automatically restore (e.g., $+r$ at task start, $-r$ at task end). Rate assignments ($=\sim$) are only permitted on PRE and POST (not MAINT) due to restoration complexity.
 
 For rate timeline $\nu^{\ell}$ over zone $i$ with duration $\Delta t_i = z_{i+1} - z_i$, define the rate contribution:
 
@@ -307,9 +350,9 @@ $$\mathtt{rate\_active}(t, \mathtt{maint}, i) = \begin{cases} 1 & \text{if } s_t
 
 $$\mathtt{rate\_active}(t, \mathtt{post}, i) = \begin{cases} 1 & \text{if } z_i \geq e_t \\ 0 & \text{otherwise} \end{cases}$$
 
-### 6.5 Zone Transition for Numeric Timelines
+### 6.6 Zone Transition for Numeric Timelines
 
-The value at zone boundary $i+1$ is computed as:
+The value at zone boundary $i+1$ is computed by combining evolution, cumulative impacts, and assignments:
 
 $$\nu^{\ell}_{\mathtt{raw}}[i+1] = \nu^{\ell}[i] + \Delta^{\ell}[i] + R^{\ell}[i]$$
 
@@ -317,13 +360,15 @@ If bounds $[b_{\min}, b_{\max}]$ are specified, apply clamping (i.e., constrain 
 
 $$\mathtt{clamped}(\nu^{\ell}[i+1]) = \max(b_{\min}, \min(b_{\max}, \nu^{\ell}_{\mathtt{raw}}[i+1]))$$
 
-Finally, assignments override the accumulated value:
+Finally, value assignments override the accumulated value (implementing the s+1 design):
 
 $$\nu^{\ell}[i+1] = \begin{cases}
-v & \text{if } \exists t : z_i = s_t \land (t, \ell, \mathtt{pre}, =v) \in I \\
-v & \text{if } \exists t : z_i = e_t \land (t, \ell, \mathtt{post}, =v) \in I \\
+v & \text{if } \exists t : z_i = s_t \land (t, \ell, \mathtt{pre}, =, v) \in I \\
+v & \text{if } \exists t : z_i = e_t \land (t, \ell, \mathtt{post}, =, v) \in I \\
 \mathtt{clamped}(\nu^{\ell}[i+1]) & \text{otherwise}
 \end{cases}$$
+
+The assignment checks $z_i$ (zone $i$ time) but writes to $\nu^{\ell}[i+1]$ (zone $i+1$ value). When $z_i = s_t$, the assignment writes to zone $s+1$, not zone $s$, allowing pre-conditions to check the unmodified value at zone $s$.
 
 ## 7. Temporal Logic Encoding
 
