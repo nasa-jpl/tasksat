@@ -52,7 +52,7 @@ class StateTimeline:
 @dataclass
 class AtomicTimeline:
     id: TimeLineName
-    initial: Optional[bool] = None
+    initial: Optional[int] = 0  # 0 or 1
 
 @dataclass
 class ClaimableTimeline:

@@ -2,7 +2,7 @@ tasknet RequestTest {
   end = 100;
 
   timelines {
-    flag : atomic = false;
+    flag : atomic = 0;
   }
 
   # Required task
@@ -11,7 +11,7 @@ tasknet RequestTest {
     duration 10;
     start_range [0, 20];
     impacts {
-      pre { flag = true; }
+      maint { flag += 1; }
     }
   }
 
@@ -22,8 +22,7 @@ tasknet RequestTest {
     duration 10;
     start_range [30, 50];
     impacts {
-      pre { flag = false; }
-      post { flag = true; }
+      maint { flag += 1; }
     }
   }
 

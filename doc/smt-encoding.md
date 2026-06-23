@@ -48,7 +48,7 @@ Timelines represent **state variables** that evolve over time as tasks execute. 
 
 1. **State Timeline**: $\sigma \in L_{\mathtt{state}}$ with finite value set $\Sigma$ and optional initial value $v_0 \in \Sigma$
 
-2. **Atomic Timeline**: $\alpha \in L_{\mathtt{atomic}}$ with boolean values $\{\mathtt{true}, \mathtt{false}\}$ (internally represented as integers $\{0, 1\}$ to support cumulative MAINT impacts for claim/release patterns) and optional initial value $v_0 \in \{\mathtt{true}, \mathtt{false}\}$
+2. **Atomic Timeline**: $\alpha \in L_{\mathtt{atomic}}$ with integer values $\{0, 1\}$ for mutual exclusion patterns (0 = unclaimed, 1 = claimed). Only cumulative impacts (`+= 1`, `-= 1`) are allowed. Optional initial value $v_0 \in \{0, 1\}$ (defaults to 0).
 
 3. **Claimable Timeline**: $\kappa \in L_{\text{claim}}$ with real values $\mathbb{R}$, range $[r_{\min}, r_{\max}]$, and optional initial value $v_0 \in \mathbb{R}$
 

@@ -6,7 +6,7 @@ tasknet test_unique_property_names {
 
   timelines {
     battery: rate = 50.0;
-    flag: atomic = false;
+    flag: atomic = 0;
   }
 
   task t1 {
@@ -24,6 +24,6 @@ tasknet test_unique_property_names {
   properties {
     prop check1: battery >= 20.0;
     prop check2: battery >= 10.0;
-    prop check3: always (flag = false or battery >= 0.0);
+    prop check3: always (flag = 0 or battery >= 0.0);
   }
 }

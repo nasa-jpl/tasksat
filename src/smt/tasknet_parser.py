@@ -330,8 +330,9 @@ def p_state_list_many_number(p):
     p[0] = p[1] + [num_str]
 
 def p_timeline_kind_atomic(p):
-    "timeline_kind : ATOMIC init_bool_opt"
+    "timeline_kind : ATOMIC init_int_opt"
     p[0] = AtomicTimeline(id=None, initial=p[2])
+
 
 def p_claim_kw(p):
     "claim_kw : CLAIM"
@@ -398,17 +399,19 @@ def p_initial_rate_opt_some(p):
     p[0] = float(p[3])
 
 
-def p_init_bool_opt_empty(p):
-    "init_bool_opt : empty"
-    p[0] = None
+def p_init_int_opt_empty(p):
+    "init_int_opt : empty"
+    p[0] = 0  # Default to 0
 
-def p_init_bool_opt_true(p):
-    "init_bool_opt : EQ TRUE"
-    p[0] = True
+def p_init_int_opt_some(p):
+    "init_int_opt : EQ NUMBER"
+    val = int(p[2])
+    if val not in (0, 1):
+        print(f"Error: Atomic timeline initialization must be 0 or 1, got {val}")
+        raise SyntaxError(f"Invalid atomic timeline initial value: {val}")
+    p[0] = val
 
-def p_init_bool_opt_false(p):
-    "init_bool_opt : EQ FALSE"
-    p[0] = False
+
 
 
 def p_timeline_kind_claimlike(p):
@@ -1194,23 +1197,23 @@ def p_tl_atom_state_eq_name(p):
     p[0] = TLStateIs(tl=tl_name, value=value_name)
 
 
-def p_tl_atom_state_eq_number(p):
-    "tl_atom : NAME EQ NUMBER"
-    tl_name = p[1]
-    value_str = str(int(p[3])) if float(p[3]).is_integer() else str(p[3])
-    p[0] = TLStateIs(tl=tl_name, value=value_str)
+# Removed: NAME EQ NUMBER now goes through NAME cmp_op NUMBER -> TLNumCmp
+# This makes atomic timelines (A = 0, A = 1) use numeric syntax consistently
+# State timelines with numeric state names still work via NAME EQ NAME -> TLStateIs
 
 
-def p_tl_atom_bool_true(p):
+# Parser rules for state timelines with "true"/"false" state names
+# (e.g., bool timelines which desugar to state(true, false))
+def p_tl_atom_state_eq_true(p):
     "tl_atom : NAME EQ TRUE"
     tl_name = p[1]
-    p[0] = TLBoolIs(tl=tl_name, value=True)
+    p[0] = TLStateIs(tl=tl_name, value="true")
 
 
-def p_tl_atom_bool_false(p):
+def p_tl_atom_state_eq_false(p):
     "tl_atom : NAME EQ FALSE"
     tl_name = p[1]
-    p[0] = TLBoolIs(tl=tl_name, value=False)
+    p[0] = TLStateIs(tl=tl_name, value="false")
 
 
 def p_tl_atom_active(p):

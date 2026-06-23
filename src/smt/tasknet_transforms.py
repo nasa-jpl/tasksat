@@ -32,7 +32,7 @@ def apply_transforms(tn: TaskNet) -> tuple[TaskNet, bool]:
     # Pass 1: Desugar sequence [task1, task2, ...] to pairwise ordering constraints
     tn = desugar_sequence(tn)
 
-    # Pass 2: Desugar active(T) syntax to __T_active = true
+    # Pass 2: Desugar active(T) syntax to __T_active = 1
     tn = desugar_active_predicate(tn)
 
     # Pass 3: Inject task state timelines for __taskname_active references
@@ -149,21 +149,21 @@ def _desugar_sequence_formula(f: Formula) -> Formula:
 
 def desugar_active_predicate(tn: TaskNet) -> TaskNet:
     """
-    Transform active(taskname) predicates to __taskname_active = true.
+    Transform active(taskname) predicates to __taskname_active = 1.
 
     This is syntactic sugar that makes properties more readable:
-        always (active(T1) -> A = true)
+        always (active(T1) -> A = 1)
     becomes:
-        always (__T1_active = true -> A = true)
+        always (__T1_active = 1 -> A = 1)
 
     The transformation recursively walks all temporal formulas in constraints
-    and properties, replacing TLTaskActive nodes with TLBoolIs nodes.
+    and properties, replacing TLTaskActive nodes with TLNumCmp nodes.
 
     Args:
         tn: The TaskNet AST
 
     Returns:
-        TaskNet with active(T) syntax desugared to __T_active = true
+        TaskNet with active(T) syntax desugared to __T_active = 1
     """
     # Transform constraints
     for prop in tn.constraints:
@@ -178,11 +178,11 @@ def desugar_active_predicate(tn: TaskNet) -> TaskNet:
 
 def _desugar_formula(f: Formula) -> Formula:
     """
-    Recursively desugar active(T) to __T_active = true in a formula.
+    Recursively desugar active(T) to __T_active = 1 in a formula.
     """
-    # Base case: TLTaskActive desugars to TLBoolIs
+    # Base case: TLTaskActive desugars to TLNumCmp
     if isinstance(f, TLTaskActive):
-        return TLBoolIs(tl=f"__{f.task}_active", value=True)
+        return TLNumCmp(tl=f"__{f.task}_active", op="=", bound=1)
 
     # Recursive cases: process subformulas
     elif isinstance(f, (TLAnd, TLOr, TLUntil, TLSince)):
@@ -218,8 +218,7 @@ def inject_task_state_timelines(tn: TaskNet) -> TaskNet:
 
     For each referenced task T, this creates:
     - An atomic timeline __T_active with initial value false
-    - A PRE impact on T that sets __T_active to true
-    - A POST impact on T that sets __T_active to false
+    - A MAINT impact on T that claims __T_active (+=1) during execution
 
     Args:
         tn: The TaskNet AST
@@ -248,29 +247,24 @@ def inject_task_state_timelines(tn: TaskNet) -> TaskNet:
         if any(tl.id == timeline_id for tl in tn.timelines):
             continue
 
-        # Create atomic timeline: false initially, true when task is active
+        # Create atomic timeline: 0 initially, 1 when task is active
         tl = AtomicTimeline(
             id=timeline_id,
-            initial=False
+            initial=0
         )
         tn.timelines.append(tl)
 
-        # Inject impacts to set timeline true at start, false at end
+        # Inject cumulative impact to claim timeline during task execution
         if task.impacts is None:
             task.impacts = []
 
-        task.impacts.extend([
+        task.impacts.append(
             Impact(
                 id=timeline_id,
-                when="pre",
-                how=ImpactAssign(BoolVal(True))
-            ),
-            Impact(
-                id=timeline_id,
-                when="post",
-                how=ImpactAssign(BoolVal(False))
+                when="maint",
+                how=ImpactCumulative(1)
             )
-        ])
+        )
 
     return tn
 

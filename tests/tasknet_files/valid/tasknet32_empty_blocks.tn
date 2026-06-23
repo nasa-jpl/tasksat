@@ -6,7 +6,7 @@ tasknet test_empty_blocks {
 
   timelines {
     battery: rate = 50.0;
-    flag: atomic = false;
+    flag: atomic = 0;
   }
 
   // Task with empty constraints block

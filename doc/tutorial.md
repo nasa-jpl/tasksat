@@ -15,7 +15,7 @@ tasknet Rover2 {
   end = 400;
 
   timelines {
-    arm : atomic = false;
+    arm : atomic = 0;
     location : state(home, target) = home;
     data : cumulative [0.0, 50.0] bounds [0.0, 100.0] = 0.0;
     battery : rate [10.0, 100.0] bounds [0.0, 100.0] = 60.0;
@@ -134,7 +134,7 @@ Next we define the timelines. Timelines are global variables that tasks can read
 
 ```
   timelines {
-    arm : atomic = false;
+    arm : atomic = 0;
     location : state(home, target) = home;
     data : cumulative [0.0, 50.0] bounds [0.0, 100.0] = 0.0;
     battery : rate [10.0, 100.0] bounds [0.0, 100.0] = 60.0;
@@ -144,7 +144,7 @@ Next we define the timelines. Timelines are global variables that tasks can read
 
 There are different kinds of timelines, four of which are shown here: atomic, state, cumulative, and rate.
 
-- The `arm` timeline is atomic, which means a Boolean that can be assigned the values `true` and `false`.
+- The `arm` timeline is atomic, which means an integer [0,1] timeline for mutual exclusion patterns (0 = unclaimed, 1 = claimed). Only cumulative impacts (`+= 1` to claim, `-= 1` to release) are allowed.
 - The `location` timeline is a state, which means an enumerated type, here with two possible states `home` and `target`.
 - The `data` timeline is cumulative, which means a floating point value which always will be within the bounds 0 to 100, but which we want to stay within the range 0 to 50. This means that a schedule where it goes outside the interval [0,50] is not acceptable. The bounds interval ensures that it always clamped to be in this interval. A task can either assign values to this timeline or add values to/subtract values from this timeline.
 - The `battery` and `temperature` timelines are rate timelines, with the same interpretations of the intervals as cumulative timelines. In addition to assignment and addition/subtraction, rate timelines can also be given a rate with which they change per time unit, as we shall see.

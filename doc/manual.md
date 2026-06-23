@@ -167,14 +167,15 @@ There are five kinds of timelines, shown here in schematic form:
 
 ```
 name : state(value1, value2, ...) = initial_value;
-name : atomic = true/false;
+name : bool = true/false;           # Syntactic sugar for state(true, false)
+name : atomic = 0/1;
 name : claim [min, max] = initial_value;
 name : cumulative [min_rate, max_rate] bounds [min, max] = initial_value;
 name : rate [min_rate, max_rate] bounds [min, max] = initial_value initial_rate = rate_value;
 ```
 
 The state timeline is an enumerate type of a finite number of values, which
-can be names or numbers. The atomic timeline is a special case where the values are Booleans (internally represented as Int[0,1] to support claim/release patterns). The three other timelines denote floating point numbers and allow different kinds of operations. They each have an optional range of values that a schdule must stay within. In addition, the cumulative and rate timelines have an optional minimal and maximal bound, and any value computed during the execution of a schedule will be clamped to stay in that interval. It is effectively the type of the timeline, whereas the first interval is a subtype of that.
+can be names or numbers. The **bool timeline** is syntactic sugar for `state(true, false)` - a TaskSAT-specific convenience feature (MEXEC uses explicit STATE_TIMELINE). The atomic timeline is an integer [0,1] timeline with cumulative-only semantics for mutual exclusion patterns (0 = unclaimed, 1 = claimed). The three other timelines denote floating point numbers and allow different kinds of operations. They each have an optional range of values that a schdule must stay within. In addition, the cumulative and rate timelines have an optional minimal and maximal bound, and any value computed during the execution of a schedule will be clamped to stay in that interval. It is effectively the type of the timeline, whereas the first interval is a subtype of that.
 
 **Rate Timelines with Initial Rate:**
 
@@ -266,13 +267,13 @@ This table shows which impact operations are allowed on each timeline type:
 | Timeline Type | Assignment (`=`) | Delta (`+=`/`-=`) | Rate Cumulative (`+~`/`-~`) | Rate Assignment (`=~`) | When Allowed |
 |---------------|------------------|-------------------|-----------------------------|------------------------|--------------|
 | **State** | ✓ | ✗ | ✗ | ✗ | Assignment: pre/post only |
-| **Atomic** | ✓ | ✓ | ✗ | ✗ | Assignment: pre/post only<br>Delta: pre/maint/post (for claim/release) |
+| **Atomic** | ✗ | ✓ | ✗ | ✗ | Assignment: **not allowed** (use cumulative instead)<br>Delta: pre/maint/post (for claim/release) |
 | **Claimable** | ✗ | ✓ | ✗ | ✗ | Delta: maint only |
 | **Cumulative** | ✓ | ✓ | ✗ | ✗ | Delta: pre/maint/post<br>Assignment: pre/post only |
 | **Rate** | ✓ | ✓ | ✓ | ✓ | Delta/Rate Cumulative: pre/maint/post<br>Assignment (value or rate): pre/post only |
 
 **Notes:**
-- **Atomic timelines** now support cumulative impacts (typically `+= 1` to claim, `-= 1` to release) for mutual exclusion patterns. Use MAINT timing for automatic claim/release at task start/end.
+- **Atomic timelines** support **only cumulative impacts** (`+= 1` to claim, `-= 1` to release) for mutual exclusion patterns. Assignment (`= 0` or `= 1`) is not allowed because it doesn't enforce mutual exclusion—multiple tasks can assign the same value without conflict. Use MAINT timing for automatic claim/release at task start/end.
 - **Rate assignment (`=~`) with MAINT** is not supported due to restoration complexity in the zone-based model. Use cumulative rate impacts (`+~`/`-~`) with MAINT, which automatically restore (e.g., `+~ 2.0` at start, `-~ 2.0` at end).
 
 ### Impact Timing: When Do Changes Take Effect?

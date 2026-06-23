@@ -6,7 +6,7 @@ tasknet HeatDriveCommunicate {
     driving       : state(off, on) = off;
     communicating : state(off, on) = off;
 
-    radio         : atomic = false;
+    radio         : atomic = 0;
 
     memory        : claim [0.0, 100.0] = 100.0;
 
@@ -104,7 +104,7 @@ tasknet HeatDriveCommunicate {
 
     pre {
       driving = off;
-      radio   = false;
+      radio   = 0;
       memory  in [40.0, 100.0];
       battery in [50.0, 100.0];
     }
@@ -120,15 +120,14 @@ tasknet HeatDriveCommunicate {
     impacts {
       pre {
         communicating = on;
-        radio         = true;
       }
       maint {
         battery +~ -0.2;
         memory  += -100.0;
+        radio   += 1;
       }
       post {
         communicating = off;
-        radio         = false;
       }
     }
   }

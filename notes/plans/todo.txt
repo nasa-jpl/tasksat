@@ -14,6 +14,7 @@ MID TERM
 - Check for non-existence of plan in any initial state (negation like for properties)
 - Change documentation look
 - Check again effects of soft constraints (priorities, start, end, optional)
+- Research MEXEC documentation
 
 LONG TERM
 

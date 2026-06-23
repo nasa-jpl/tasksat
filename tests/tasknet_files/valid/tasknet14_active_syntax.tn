@@ -5,7 +5,7 @@ tasknet ActiveSyntaxTest {
   end = 100;
 
   timelines {
-    A : atomic = false;
+    A : atomic = 0;
   }
 
   task T1 {
@@ -14,11 +14,8 @@ tasknet ActiveSyntaxTest {
     start 10;
 
     impacts {
-      pre {
-        A = true;
-      }
-      post {
-        A = false;
+      maint {
+        A += 1;
       }
     }
   }
@@ -30,19 +27,16 @@ tasknet ActiveSyntaxTest {
     after T1;
 
     impacts {
-      pre {
-        A = true;
-      }
-      post {
-        A = false;
+      maint {
+        A += 1;
       }
     }
   }
 
   properties {
-    # Using active(T) syntax - much cleaner than __T1_active = true
-    prop p1: always (active(T1) -> A = true);
-    prop p2: always (active(T2) -> A = true);
+    # Using active(T) syntax - much cleaner than __T1_active = 1
+    prop p1: always (active(T1) -> A = 1);
+    prop p2: always (active(T2) -> A = 1);
 
     # T1 and T2 never overlap
     prop p3: always (active(T1) -> not active(T2));

@@ -7,7 +7,7 @@ tasknet MexecAtomicPattern {
   end = 200;
 
   timelines {
-    resource : atomic = false;
+    resource : atomic = 0;
   }
 
   task claim_resource {
@@ -16,11 +16,11 @@ tasknet MexecAtomicPattern {
     duration_range [30, 50];
 
     pre {
-      resource = false;  # Resource must be free before task starts
+      resource = 0;  # Resource must be free before task starts
     }
 
     inv {
-      resource = true;  # Resource must be claimed during execution
+      resource = 1;  # Resource must be claimed during execution
     }
 
     impacts {

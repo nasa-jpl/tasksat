@@ -1368,25 +1368,11 @@ class TaskNetSMT:
                             if imp.id != tl.id:
                                 continue
 
-                            # Assignment impacts (pre/post only, NOT maint)
+                            # Assignment impacts should be rejected by wellformedness
                             if isinstance(imp.how, ImpactAssign):
-                                v = imp.how.v
-                                # Accept both IntVal (0/1) and BoolVal (true/false)
-                                if isinstance(v, IntVal):
-                                    int_val = v.v
-                                elif isinstance(v, BoolVal):
-                                    # Convert BoolVal to Int (true -> 1, false -> 0)
-                                    int_val = 1 if v.v else 0
-                                else:
-                                    self.solver.add(False)
-                                    continue
-
-                                if imp.when == "pre":
-                                    expr = If(zi == s, int_val, expr)
-                                elif imp.when == "post":
-                                    expr = If(zi == e, int_val, expr)
-                                else:  # maint
-                                    self.solver.add(False)  # Still reject maint+assign for atomic
+                                # This should never be reached - wellformedness rejects assignments on atomic timelines
+                                self.solver.add(False)
+                                continue
 
                     # Track atomic timeline evolution
                     if isinstance(self.solver, Solver):
@@ -1704,14 +1690,20 @@ class TaskNetSMT:
                 return expr == idx
 
             if isinstance(v, BoolVal):
-                if kind != "atomic":
-                    self.solver.add(False)
-                    return False
-                return expr == (1 if v.v else 0)
+                # BoolVal should no longer appear - parser doesn't create them anymore
+                # Reject with constraint failure
+                self.solver.add(False)
+                return False
 
             if isinstance(v, IntVal):
+                # Atomic timeline: IntVal 0 or 1
+                if kind == "atomic":
+                    if v.v not in (0, 1):
+                        self.solver.add(False)
+                        return False
+                    return expr == v.v
                 # Check if it's a state timeline with numeric states
-                if kind == "state":
+                elif kind == "state":
                     _, s2i, _, _ = self.state_tl_zone[tl_id]
                     idx = s2i[str(v.v)]
                     return expr == idx

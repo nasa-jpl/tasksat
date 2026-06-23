@@ -107,6 +107,56 @@ git remote -v
 # origin: github.com/nasa-jpl/tasksat (public)
 ```
 
+## Timeline Semantics
+
+### Atomic Timelines
+
+Atomic timelines enforce mutual exclusion using integer [0,1] values (0 = unclaimed, 1 = claimed).
+
+**Syntax:**
+```tasknet
+resource : atomic = 0;  // Initialize to 0 (unclaimed), default is 0 if omitted
+```
+
+**Impacts:**
+- **Only cumulative impacts allowed**: `+= 1` (claim), `-= 1` (release)
+- **Assignment impacts rejected**: `= 0`, `= 1` are not allowed - they don't enforce mutual exclusion
+- **All timings allowed**: `pre`, `maint`, `post`
+- **Most common pattern**: `maint { resource += 1; }` for automatic claim/release
+
+**Constraints:**
+- **Use numeric syntax**: `resource = 0`, `resource = 1`, `resource >= 1`, etc.
+- **Boolean syntax rejected**: `resource = true/false` is not allowed
+
+**Why cumulative-only?**
+Assignment allows conflicts: if Task A does `resource = 1` at time 10 and Task B does `resource = 1` at time 15, both succeed without detecting the conflict (the timeline just stays at 1). Cumulative impacts with [0,1] bounds enforce mutual exclusion via overflow detection: if both tasks try `+= 1`, the value goes to 2, violating the [0,1] constraint.
+
+**Auto-generated task state timelines:**
+When you use `active(T)` syntax or reference `__T_active` timelines, the system automatically generates atomic timelines with `maint { __T_active += 1; }` impacts.
+
+### Rate Timeline Value vs Rate Impacts
+
+Rate timelines track both a VALUE (resource level) and a RATE (how fast it changes). Impacts can modify either:
+
+**Value impacts** (write to zone s+1):
+```tasknet
+impacts {
+  pre { battery += 30.0; }    // Adds to value at zone s+1
+  maint { battery += 10.0; }  // Adds to value at start (s+1), subtracts at end
+}
+```
+
+**Rate impacts** (write to zone s):
+```tasknet
+impacts {
+  maint { battery +~ 2.0; }   // Adds to rate at zone s (affects entire execution)
+  pre { battery =~ 1.0; }     // Sets rate at zone s
+}
+```
+
+**Why the difference?**
+Rate impacts must write to zone s to affect the entire task execution interval [s, e]. Value impacts write to zone s+1 to maintain the separation between "input state" (zone s) and "execution state" (zone s+1), consistent with all other timeline types.
+
 ## Dependencies
 
 **Python:**

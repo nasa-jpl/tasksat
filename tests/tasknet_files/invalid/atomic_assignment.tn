@@ -1,0 +1,18 @@
+# Test: Assignment to atomic timeline should be rejected
+# Expected: Wellformedness error
+
+tasknet AtomicAssignmentError {
+  end = 100;
+
+  timelines {
+    resource : atomic;
+  }
+
+  task bad_task {
+    start_range [10, 20];
+    duration_range [10, 15];
+    impacts {
+      pre { resource = 1; }  # Should be rejected - use += 1 instead
+    }
+  }
+}

@@ -5,7 +5,7 @@ tasknet TaskActiveTest {
   end = 100;
 
   timelines {
-    A : atomic = false;
+    A : atomic = 0;
   }
 
   task T1 {
@@ -14,11 +14,8 @@ tasknet TaskActiveTest {
     start 10;
 
     impacts {
-      pre {
-        A = true;
-      }
-      post {
-        A = false;
+      maint {
+        A += 1;
       }
     }
   }
@@ -30,29 +27,26 @@ tasknet TaskActiveTest {
     after T1;  # T2 must start after T1 ends
 
     impacts {
-      pre {
-        A = true;
-      }
-      post {
-        A = false;
+      maint {
+        A += 1;
       }
     }
   }
 
   properties {
-    # While T1 is active, A must be true
-    prop p1: always (__T1_active = true -> A = true);
+    # While T1 is active, A must be 1
+    prop p1: always (__T1_active = 1 -> A = 1);
 
-    # While T2 is active, A must be true
-    prop p2: always (__T2_active = true -> A = true);
+    # While T2 is active, A must be 1
+    prop p2: always (__T2_active = 1 -> A = 1);
 
     # T1 and T2 never overlap (enforced by 'after' dependency)
-    prop p3: always (__T1_active = true -> __T2_active = false);
+    prop p3: always (__T1_active = 1 -> __T2_active = 0);
 
     # T1 eventually becomes active
-    prop p4: eventually __T1_active = true;
+    prop p4: eventually __T1_active = 1;
 
     # T2 eventually becomes active
-    prop p5: eventually __T2_active = true;
+    prop p5: eventually __T2_active = 1;
   }
 }

@@ -219,34 +219,15 @@ class WellFormednessChecker:
                     "Only assignments are allowed."
                 )
 
-        # AtomicTimeline: ImpactAssign (pre/post only) or ImpactCumulative (for MAINT claim/release)
+        # AtomicTimeline: Only ImpactCumulative allowed (for claim/release pattern)
         elif isinstance(tl, AtomicTimeline):
             if isinstance(imp.how, ImpactAssign):
-                # Atomic timelines now use Int[0,1]
-                # Accept both IntVal (0/1) and BoolVal (true/false) for backwards compatibility
-                if isinstance(imp.how.v, IntVal):
-                    if imp.how.v.v not in (0, 1):
-                        self._error(
-                            "Impact Value",
-                            f"Task '{task_id}' assigns value {imp.how.v.v} to atomic timeline '{imp.id}' "
-                            "(expected 0 or 1)"
-                        )
-                elif isinstance(imp.how.v, BoolVal):
-                    # BoolVal is allowed for backwards compatibility (true/false syntax)
-                    pass
-                else:
-                    self._error(
-                        "Impact Type",
-                        f"Task '{task_id}' assigns non-integer/boolean value to atomic timeline '{imp.id}' "
-                        "(expected 0, 1, true, or false)"
-                    )
-                # Check timing: only pre/post allowed for assignment
-                if imp.when == "maint":
-                    self._error(
-                        "Impact Timing",
-                        f"Task '{task_id}' has 'maint' assignment on atomic timeline '{imp.id}'. "
-                        "Only 'pre' and 'post' are allowed for assignment. Use cumulative for MAINT."
-                    )
+                # Assignment defeats mutual exclusion - reject it entirely
+                self._error(
+                    "Impact Type",
+                    f"Task '{task_id}': Assignment impacts (=) not allowed on atomic timeline '{imp.id}'. "
+                    "Use cumulative impacts (+= 1 to claim, -= 1 to release) for mutual exclusion."
+                )
             elif isinstance(imp.how, ImpactCumulative):
                 # NEW: Allow cumulative impacts for claim/release pattern
                 # Typically +1 (claim) or -1 (release), but validate it's reasonable
@@ -393,13 +374,19 @@ class WellFormednessChecker:
                             f"on timeline '{tlcon.id}'. Valid states: {tl.states}"
                         )
 
-                # AtomicTimeline: expect BoolVal
+                # AtomicTimeline: expect IntVal (0 or 1)
                 elif isinstance(tl, AtomicTimeline):
-                    if not isinstance(v, BoolVal):
+                    if not isinstance(v, IntVal):
                         self._error(
                             "Condition Type",
                             f"{context} {cond_type} condition on atomic timeline '{tlcon.id}' "
-                            f"uses non-boolean value"
+                            f"uses non-integer value (expected 0 or 1)"
+                        )
+                    elif v.v not in (0, 1):
+                        self._error(
+                            "Condition Type",
+                            f"{context} {cond_type} condition on atomic timeline '{tlcon.id}' "
+                            f"has invalid value {v.v} (expected 0 or 1)"
                         )
 
                 # Numeric timelines: expect IntVal or RealVal
@@ -441,7 +428,20 @@ class WellFormednessChecker:
                 )
             else:
                 tl = self.timeline_map[formula.tl]
-                if not isinstance(tl, (ClaimableTimeline, CumulativeTimeline, RateTimeline)):
+                # Allow numeric comparisons on:
+                # - Atomic timelines (numeric [0,1])
+                # - Claimable, Cumulative, Rate timelines (numeric)
+                # - State timelines with numeric state names (e.g., state(0, 1, 2))
+                if isinstance(tl, StateTimeline):
+                    # Check if the bound matches a numeric state name
+                    bound_str = str(int(formula.bound)) if float(formula.bound).is_integer() else str(formula.bound)
+                    if bound_str not in tl.states:
+                        self._error(
+                            "Formula Type",
+                            f"{kind} '{prop_name}' uses numeric comparison '{formula.tl} {formula.op} {formula.bound}' "
+                            f"but '{bound_str}' is not a valid state. Valid states: {tl.states}"
+                        )
+                elif not isinstance(tl, (AtomicTimeline, ClaimableTimeline, CumulativeTimeline, RateTimeline)):
                     self._error(
                         "Formula Type",
                         f"{kind} '{prop_name}' uses numeric comparison on non-numeric timeline '{formula.tl}'"
@@ -468,18 +468,15 @@ class WellFormednessChecker:
                     )
 
         elif isinstance(formula, TLBoolIs):
-            if formula.tl not in self.timeline_map:
-                self._error(
-                    "Formula Reference",
-                    f"{kind} '{prop_name}' references non-existent timeline '{formula.tl}'"
-                )
-            else:
-                tl = self.timeline_map[formula.tl]
-                if not isinstance(tl, AtomicTimeline):
-                    self._error(
-                        "Formula Type",
-                        f"{kind} '{prop_name}' uses boolean comparison on non-atomic timeline '{formula.tl}'"
-                    )
+            # TLBoolIs should no longer be created by the parser (boolean syntax removed)
+            # If this appears, it's likely a parser bug or old code
+            val_str = "true" if formula.value else "false"
+            self._error(
+                "Formula Type",
+                f"{kind} '{prop_name}' uses boolean syntax '{formula.tl} = {val_str}' which is no longer supported. "
+                f"Use numeric syntax (e.g., '{formula.tl} = 0' or '{formula.tl} = 1') or define boolean state names explicitly "
+                f"(e.g., 'timeline : state(true, false) = false')"
+            )
 
         # Recursively check compound formulas
         elif isinstance(formula, (TLAnd, TLOr, TLUntil, TLSince)):
