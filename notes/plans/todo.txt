@@ -3,8 +3,8 @@ TODO
 
 SHORT TERM
 
+-> Easier way to write exclusion constraints, active and activetype
 - parameters, such as tc.SOC_TYPE, tc.SOC_INITIAL, tc.SOC_BACKGROUND, local to tasks, numbered (MEXEC TASKNET HAS THIS)
-- Easier way to write exclusion constraints, active and activetype
 
 MID TERM
 
@@ -29,11 +29,9 @@ MEXEC:
 
 - Types
 - Timeline and task ids are used for reference
-- Instances might not even be scheduled.
-- MEXEC uses completion timelines for chaining
-- TILs: environment updates to timelines.
+- MEXEC uses completion timelines for chaining (not sure what it means)
+- TILs: environment updates to timelines (not sure what it means)
 - Most V&V efforts focus on the execution. where tasks can be re-arranged.
-- Maybe one exactly wants to know what MEXEC does.
 
 MINOR:
 
