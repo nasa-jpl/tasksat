@@ -29,6 +29,10 @@ def apply_transforms(tn: TaskNet) -> tuple[TaskNet, bool]:
         - Transformed TaskNet with all derived constructs desugared to core primitives
         - Boolean indicating whether auto-instantiation created new task instances
     """
+    # Pass 0: Expand task ranges FIRST (before other transforms that operate on tasks)
+    # Example: task T[2..4] → T_0, T_1, T_2, T_3
+    tn = expand_task_ranges(tn)
+
     # Pass 1: Desugar sequence [task1, task2, ...] to pairwise ordering constraints
     tn = desugar_sequence(tn)
 
@@ -757,3 +761,90 @@ def link_auto_instances(tn: TaskNet) -> TaskNet:
 #   - Default value injection: add missing default values
 #   - Syntactic sugar: desugar high-level syntax to core primitives
 #
+
+
+def expand_task_ranges(tn: TaskNet) -> TaskNet:
+    """
+    Expand TaskRange nodes into individual Task nodes.
+
+    For task T[2..4]:
+        - Creates T_0, T_1 (required, kind=INSTANCE)
+        - Creates T_2, T_3 (optional, kind=OPTIONAL)
+
+    For request task R[2..4]:
+        - Creates R_0, R_1 (required, kind=INSTANCE)
+        - Creates R_2, R_3 (request, kind=REQUEST)
+
+    Args:
+        tn: TaskNet AST (may contain TaskRange nodes)
+
+    Returns:
+        TaskNet with all TaskRange nodes expanded to Task nodes
+    """
+    expanded_tasks = []
+
+    for task in tn.tasks:
+        if isinstance(task, TaskRange):
+            # Expand range to individual tasks
+            base_name = task.id
+            min_inst = task.min_instances
+            max_inst = task.max_instances
+
+            # Validate range
+            if min_inst > max_inst:
+                raise ValueError(f"Invalid range for task '{base_name}': min ({min_inst}) > max ({max_inst})")
+            if min_inst < 0 or max_inst < 0:
+                raise ValueError(f"Invalid range for task '{base_name}': indices must be non-negative")
+
+            # Create required instances (0 to min_instances-1)
+            for i in range(min_inst):
+                expanded_tasks.append(Task(
+                    id=f"{base_name}_{i}",
+                    ident=task.ident + i if task.ident else i,
+                    kind=TaskKind.INSTANCE,
+                    definition=task.definition,
+                    priority=task.priority,
+                    startrng=task.startrng,
+                    endrng=task.endrng,
+                    durrng=task.durrng,
+                    dur=task.dur,
+                    start=task.start,
+                    after_instances=task.after_instances,
+                    after_definitions=task.after_definitions,
+                    containedin_instances=task.containedin_instances,
+                    containedin_definitions=task.containedin_definitions,
+                    pre=task.pre,
+                    inv=task.inv,
+                    post=task.post,
+                    impacts=task.impacts
+                ))
+
+            # Create optional/request instances (min_instances to max_instances-1)
+            for i in range(min_inst, max_inst):
+                expanded_tasks.append(Task(
+                    id=f"{base_name}_{i}",
+                    ident=task.ident + i if task.ident else i,
+                    kind=TaskKind.REQUEST if task.is_request else TaskKind.OPTIONAL,
+                    definition=task.definition,
+                    priority=task.priority,
+                    startrng=task.startrng,
+                    endrng=task.endrng,
+                    durrng=task.durrng,
+                    dur=task.dur,
+                    start=task.start,
+                    after_instances=task.after_instances,
+                    after_definitions=task.after_definitions,
+                    containedin_instances=task.containedin_instances,
+                    containedin_definitions=task.containedin_definitions,
+                    pre=task.pre,
+                    inv=task.inv,
+                    post=task.post,
+                    impacts=task.impacts
+                ))
+        else:
+            # Regular task, keep as-is
+            expanded_tasks.append(task)
+
+    tn.tasks = expanded_tasks
+    return tn
+

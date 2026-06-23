@@ -170,6 +170,35 @@ class Task:
     post: Optional[List[TlCon]] = None
     impacts: Optional[List[Impact]] = None
 
+@dataclass
+class TaskRange:
+    """Task instance range - expands to multiple Task instances in transform pass.
+
+    Example: task T[2..4] : def { } creates:
+        - T_0, T_1 (required, kind=INSTANCE)
+        - T_2, T_3 (optional, kind=OPTIONAL or REQUEST depending on is_request)
+    """
+    id: TaskName                      # Base name (e.g., "science")
+    min_instances: int                # Required instances
+    max_instances: int                # Total instances (required + optional/request)
+    definition: TaskName              # Task definition name
+    is_request: bool                  # True if request task, False for regular task
+    ident: Optional[TaskId] = None    # Base ID for auto-increment
+    priority: Optional[int] = None
+    startrng: Optional[IntRange] = None
+    endrng: Optional[IntRange] = None
+    durrng: Optional[IntRange] = None
+    dur: Optional[int] = None
+    start: Optional[int] = None
+    after_instances: Optional[List[str]] = None
+    containedin_instances: Optional[List[str]] = None
+    after_definitions: Optional[List[str]] = None
+    containedin_definitions: Optional[List[str]] = None
+    pre: Optional[List[TlCon]] = None
+    inv: Optional[List[TlCon]] = None
+    post: Optional[List[TlCon]] = None
+    impacts: Optional[List[Impact]] = None
+
 # ----- Temporal-logic formulas -----
 
 class Formula(ABC):

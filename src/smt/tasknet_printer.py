@@ -150,6 +150,70 @@ class TaskNetPrinter:
 
     # ===== Tasks =====
 
+    def print_task_range(self, out: TextIO, task_range: TaskRange):
+        """Print unexpanded TaskRange syntax"""
+        ind = self._indent()
+
+        # Task range header
+        kind_prefix = "request " if task_range.is_request else ""
+        range_str = f"[{task_range.min_instances}..{task_range.max_instances}]"
+        extends = f" : {task_range.definition}" if task_range.definition else ""
+        self._writeln(out, f"{ind}{kind_prefix}task {task_range.id}{range_str}{extends} {{")
+
+        self.indent_level += 1
+        ind = self._indent()
+
+        # Print all fields same as regular task
+        if task_range.ident is not None and task_range.ident != 0:
+            self._writeln(out, f"{ind}id {task_range.ident};")
+        if task_range.priority is not None:
+            self._writeln(out, f"{ind}priority {task_range.priority};")
+        if task_range.start is not None:
+            self._writeln(out, f"{ind}start {task_range.start};")
+        if task_range.dur is not None:
+            self._writeln(out, f"{ind}duration {task_range.dur};")
+        if task_range.startrng:
+            self._writeln(out, f"{ind}start_range {self.print_int_range(task_range.startrng)};")
+        if task_range.endrng:
+            self._writeln(out, f"{ind}end_range {self.print_int_range(task_range.endrng)};")
+        if task_range.durrng:
+            self._writeln(out, f"{ind}duration_range {self.print_int_range(task_range.durrng)};")
+
+        # Dependencies
+        if task_range.after_instances:
+            names = ", ".join(task_range.after_instances)
+            self._writeln(out, f"{ind}after {names};")
+        if task_range.after_definitions:
+            names = ", ".join(task_range.after_definitions)
+            self._writeln(out, f"{ind}after {names};")
+        if task_range.containedin_instances:
+            names = ", ".join(task_range.containedin_instances)
+            self._writeln(out, f"{ind}containedin {names};")
+        if task_range.containedin_definitions:
+            names = ", ".join(task_range.containedin_definitions)
+            self._writeln(out, f"{ind}containedin {names};")
+
+        # Constraints and impacts (same as regular task)
+        if task_range.pre or task_range.inv or task_range.post:
+            self._writeln(out, f"{ind}constraints {{")
+            self.indent_level += 1
+            if task_range.pre:
+                self.print_con_block(out, "pre", task_range.pre)
+            if task_range.inv:
+                self.print_con_block(out, "inv", task_range.inv)
+            if task_range.post:
+                self.print_con_block(out, "post", task_range.post)
+            self.indent_level -= 1
+            ind = self._indent()
+            self._writeln(out, f"{ind}}}")
+
+        if task_range.impacts:
+            self.print_impacts_block(out, task_range.impacts)
+
+        self.indent_level -= 1
+        ind = self._indent()
+        self._writeln(out, f"{ind}}}")
+
     def print_task(self, out: TextIO, task: Task):
         ind = self._indent()
 
@@ -316,16 +380,19 @@ class TaskNetPrinter:
             self._writeln(out, f"{ind}}}")
             self._writeln(out)
 
-        # Tasks (definitions first, then instances)
-        definitions = [t for t in tn.tasks if t.kind == TaskKind.DEFINITION]
-        instances = [t for t in tn.tasks if t.kind != TaskKind.DEFINITION]
+        # Tasks (definitions first, then instances/ranges)
+        definitions = [t for t in tn.tasks if isinstance(t, Task) and t.kind == TaskKind.DEFINITION]
+        others = [t for t in tn.tasks if isinstance(t, TaskRange) or (isinstance(t, Task) and t.kind != TaskKind.DEFINITION)]
 
         for task in definitions:
             self.print_task(out, task)
             self._writeln(out)
 
-        for task in instances:
-            self.print_task(out, task)
+        for task in others:
+            if isinstance(task, TaskRange):
+                self.print_task_range(out, task)
+            else:
+                self.print_task(out, task)
             self._writeln(out)
 
         # Constraints

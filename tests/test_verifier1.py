@@ -285,3 +285,21 @@ class TestVerifier:
             "preheat_auto_1: start =",  # Auto-instances inherit INSTANCE kind
             "No temporal properties attached to this TaskNet."
         )
+
+    def test_tasknet35_instance_range(self):
+        """Test instance range expansion (task T[min..max] syntax)"""
+        verify_out('tasknet35_instance_range.tn')(
+            "*** NEW SCHEDULE***",
+            "mission_0",       # Required from task mission[2..4]
+            "mission_1",       # Required from task mission[2..4]
+            "bonus_0",         # Required from request task bonus[1..3]
+            # mission_2, mission_3 are optional (may or may not be scheduled)
+            # bonus_1, bonus_2 are request (should be scheduled in optimize mode)
+            "[1/3] Checking property 'required1'...",
+            "  → HOLDS",
+            "[2/3] Checking property 'required2'...",
+            "  → HOLDS",
+            "[3/3] Checking property 'required3'...",
+            "  → HOLDS",
+            "Summary: 3 hold, 0 violated, 0 unknown"
+        )

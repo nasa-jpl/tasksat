@@ -87,6 +87,7 @@ tokens = [
     "SEMI",
     "COMMA",
     "DOT",
+    "DOTDOT",
     "EQ",
     "PLUS_EQ",
     "MINUS_EQ",
@@ -123,6 +124,11 @@ t_EQ        = r"="
 t_IMPLIES   = r"->"
 
 t_ignore = " \t\r"
+
+
+def t_DOTDOT(t):
+    r'\.\.'
+    return t
 
 
 def t_COMMENT(t):
@@ -538,6 +544,69 @@ def p_task_modifier_opt_optional(p):
     "task_modifier_opt : OPTIONAL"
     p[0] = "optional"
 
+# Task range syntax: task T[min..max] or task T[count]
+def p_task_def_range_with_body(p):
+    "task_def : task_modifier_opt TASK NAME LBRACKET NUMBER DOTDOT NUMBER RBRACKET extends_opt LBRACE task_body_items RBRACE"
+    # task T[2..4] : def { ... } or request task T[2..4] : def { ... }
+    modifier = p[1]
+    name = p[3]
+    min_inst = int(p[5])
+    max_inst = int(p[7])
+    extends = p[9]
+    items = p[11]
+
+    if modifier == "optional":
+        raise SyntaxError(f"Cannot use 'optional' keyword with range syntax at task '{name}'. Use 'task {name}[{min_inst}..{max_inst}]' for optional instances.")
+
+    is_request = (modifier == "request")
+    p[0] = _build_task_range(name, min_inst, max_inst, extends, items, is_request)
+
+def p_task_def_count_with_body(p):
+    "task_def : task_modifier_opt TASK NAME LBRACKET NUMBER RBRACKET extends_opt LBRACE task_body_items RBRACE"
+    # task T[3] : def { ... } equivalent to task T[0..3] : def { ... }
+    modifier = p[1]
+    name = p[3]
+    count = int(p[5])
+    extends = p[7]
+    items = p[9]
+
+    if modifier == "optional":
+        raise SyntaxError(f"Cannot use 'optional' keyword with range syntax at task '{name}'. Use 'task {name}[{count}]' for optional instances.")
+
+    is_request = (modifier == "request")
+    p[0] = _build_task_range(name, 0, count, extends, items, is_request)
+
+def p_task_def_range_no_body(p):
+    "task_def : task_modifier_opt TASK NAME LBRACKET NUMBER DOTDOT NUMBER RBRACKET extends_opt SEMI"
+    # task T[2..4] : def;
+    modifier = p[1]
+    name = p[3]
+    min_inst = int(p[5])
+    max_inst = int(p[7])
+    extends = p[9]
+    items = []
+
+    if modifier == "optional":
+        raise SyntaxError(f"Cannot use 'optional' keyword with range syntax at task '{name}'. Use 'task {name}[{min_inst}..{max_inst}]' for optional instances.")
+
+    is_request = (modifier == "request")
+    p[0] = _build_task_range(name, min_inst, max_inst, extends, items, is_request)
+
+def p_task_def_count_no_body(p):
+    "task_def : task_modifier_opt TASK NAME LBRACKET NUMBER RBRACKET extends_opt SEMI"
+    # task T[3] : def;
+    modifier = p[1]
+    name = p[3]
+    count = int(p[5])
+    extends = p[7]
+    items = []
+
+    if modifier == "optional":
+        raise SyntaxError(f"Cannot use 'optional' keyword with range syntax at task '{name}'. Use 'task {name}[{count}]' for optional instances.")
+
+    is_request = (modifier == "request")
+    p[0] = _build_task_range(name, 0, count, extends, items, is_request)
+
 def p_task_modifier_opt_request(p):
     "task_modifier_opt : REQUEST"
     p[0] = "request"
@@ -646,6 +715,118 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
         ident=ident,
         kind=kind,
         definition=definition,
+        priority=priority,
+        startrng=startrng,
+        endrng=endrng,
+        durrng=durrng,
+        dur=dur,
+        start=start,
+        after_instances=after_instances,
+        after_definitions=after_definitions,
+        containedin_instances=containedin_instances,
+        containedin_definitions=containedin_definitions,
+        pre=pre,
+        inv=inv,
+        post=post,
+        impacts=impacts,
+    )
+
+
+def _build_task_range(name: str, min_instances: int, max_instances: int,
+                      definition: Optional[str], items: List, is_request: bool) -> TaskRange:
+    """Helper function to build a TaskRange from parsed items"""
+    # Reuse same extraction logic as _build_task
+    ident = None
+    priority = None
+    startrng = None
+    endrng = None
+    durrng = None
+    dur = None
+    start = None
+    after_instances = None
+    after_definitions = None
+    containedin_instances = None
+    containedin_definitions = None
+    pre = None
+    inv = None
+    post = None
+    impacts = None
+
+    # Extract values from items (same logic as _build_task)
+    after_instances_list: List[str] = []
+    after_definitions_list: List[str] = []
+    containedin_instances_list: List[str] = []
+    containedin_definitions_list: List[str] = []
+    pre_list: List[TlCon] = []
+    inv_list: List[TlCon] = []
+    post_list: List[TlCon] = []
+    impacts_list: List[Impact] = []
+
+    for item_kind, value in items:
+        if item_kind == "id":
+            ident = value
+        elif item_kind == "priority":
+            priority = value
+        elif item_kind == "start_range":
+            startrng = value
+        elif item_kind == "end_range":
+            endrng = value
+        elif item_kind == "duration_range":
+            durrng = value
+        elif item_kind == "duration":
+            dur = value
+        elif item_kind == "start":
+            start = value
+        elif item_kind == "after":
+            # For ranges, we'll expand these later in the transform
+            after_instances_list.extend(value)
+        elif item_kind == "containedin":
+            containedin_instances_list.extend(value)
+        elif item_kind == "constraints":
+            pre_c, inv_c, post_c = value
+            pre_list.extend(pre_c)
+            inv_list.extend(inv_c)
+            post_list.extend(post_c)
+        elif item_kind == "pre":
+            pre_list.extend(value)
+        elif item_kind == "inv":
+            inv_list.extend(value)
+        elif item_kind == "post":
+            post_list.extend(value)
+        elif item_kind == "impacts":
+            impacts_list.extend(value)
+        else:
+            raise ValueError(f"Unknown task_body_item kind: {item_kind!r}")
+
+    # Set optional fields if they have values
+    if after_instances_list:
+        after_instances = after_instances_list
+    if after_definitions_list:
+        after_definitions = after_definitions_list
+    if containedin_instances_list:
+        containedin_instances = containedin_instances_list
+    if containedin_definitions_list:
+        containedin_definitions = containedin_definitions_list
+    if pre_list:
+        pre = pre_list
+    if inv_list:
+        inv = inv_list
+    if post_list:
+        post = post_list
+    if impacts_list:
+        impacts = impacts_list
+
+    # Set default ident if not specified
+    if ident is None:
+        ident = 0
+
+    return TaskRange(
+        id=name,
+        min_instances=min_instances,
+        max_instances=max_instances,
+        definition=definition,
+        is_request=is_request,
+        ident=ident,
         priority=priority,
         startrng=startrng,
         endrng=endrng,

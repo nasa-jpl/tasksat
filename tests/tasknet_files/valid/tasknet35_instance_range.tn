@@ -1,0 +1,43 @@
+# Test instance range syntax
+# Tests: task T[min..max] and task T[count] notation
+
+tasknet InstanceRangeTest {
+  end = 100;
+
+  taskdef work {
+    duration_range [10, 20];
+  }
+
+  # Test 1: Basic range (2 required + 2 optional)
+  # Should create: mission_0, mission_1 (required), mission_2, mission_3 (optional)
+  task mission[2..4] : work {
+    id 100;
+    priority 50;
+  }
+
+  # Test 2: Count notation (all optional)
+  # Should create: optional_work_0, optional_work_1, optional_work_2 (all optional)
+  task optional_work[3] : work {
+    id 200;
+  }
+
+  # Test 3: Request range (1 required + 2 request)
+  # Should create: bonus_0 (required), bonus_1, bonus_2 (request)
+  request task bonus[1..3] : work {
+    id 300;
+    priority 100;
+  }
+
+  # Test 4: All optional (min=0)
+  # Should create: flex_0, flex_1 (both optional)
+  task flex[0..2] : work {
+    id 400;
+  }
+
+  properties {
+    # Verify required tasks are eventually scheduled (at least once)
+    prop required1: eventually active(mission_0);
+    prop required2: eventually active(mission_1);
+    prop required3: eventually active(bonus_0);
+  }
+}

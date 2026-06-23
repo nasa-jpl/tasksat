@@ -97,6 +97,22 @@ tasksat/
 └── doc/              # Documentation (getting-started, tutorial, manual)
 ```
 
+### Task Instance Ranges
+
+TaskSAT supports compact syntax for creating multiple task instances:
+- `task T[min..max]` expands to `min` required tasks + `(max-min)` optional tasks
+- `request task T[min..max]` expands to `min` required tasks + `(max-min)` request tasks
+- `task T[count]` is shorthand for `task T[0..count]` (all optional)
+- Expansion happens in `tasknet_transforms.py:expand_task_ranges()`
+- Creates `TaskRange` AST nodes in parser, expands in transform pass (before other transforms)
+- Use `--transform-only` to inspect expanded tasks
+
+**Example:**
+```tasknet
+task science[2..4] : science_def { id 100; }
+```
+Expands to: `science_0`, `science_1` (required), `science_2`, `science_3` (optional)
+
 ## Working with Branches
 
 - **main** - Public repository (github.com/nasa-jpl/tasksat)

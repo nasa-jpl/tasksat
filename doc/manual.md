@@ -556,6 +556,80 @@ request task bonus_objective {
 
 Priority values further refine the optimization among optional and request tasks (higher priority = more important).
 
+### Instance Range Syntax
+
+TaskSAT supports compact syntax for creating multiple task instances with a mix of required and optional/request instances.
+
+#### Range Notation
+
+**Syntax:**
+```tasknet
+task <name>[<min>..<max>] : <taskdef> { ... }
+request task <name>[<min>..<max>] : <taskdef> { ... }
+```
+
+Creates `min` required instances and `(max - min)` optional/request instances, numbered sequentially from 0 to (max-1).
+
+**Example:**
+```tasknet
+task science[2..4] : science_def {
+  id 100;
+  priority 50;
+}
+```
+
+Expands to:
+```tasknet
+task science_0 : science_def { id 100; priority 50; }  # required
+task science_1 : science_def { id 101; priority 50; }  # required
+optional task science_2 : science_def { id 102; priority 50; }
+optional task science_3 : science_def { id 103; priority 50; }
+```
+
+#### Count Notation
+
+**Syntax:**
+```tasknet
+task <name>[<count>] : <taskdef> { ... }
+```
+
+Equivalent to `task <name>[0..<count>]` - creates all optional instances (min=0).
+
+**Example:**
+```tasknet
+request task bonus[3] : work { }
+```
+
+Expands to:
+```tasknet
+request task bonus_0 : work { }
+request task bonus_1 : work { }
+request task bonus_2 : work { }
+```
+
+#### Optimization Behavior
+
+- **`task T[min..max]`**: Creates required + optional instances. Optional instances are minimized (scheduled only if needed).
+- **`request task T[min..max]`**: Creates required + request instances. Request instances are maximized (scheduled if possible).
+
+In satisfy mode (default), both behave the same - instances may or may not be scheduled based on constraints.
+
+#### ID Assignment
+
+When an `id` is specified in a range declaration, IDs are auto-incremented for each instance:
+
+```tasknet
+task T[2..4] { id 100; }
+# Assigns: T_0=100, T_1=101, T_2=102, T_3=103
+```
+
+#### Constraints
+
+- Cannot use `optional` keyword with ranges: `optional task T[2..4]` is invalid
+- Use `task T[2..4]` for optional instances or `request task T[2..4]` for request instances
+- `min` must be ≤ `max`
+- Both `min` and `max` must be non-negative
+
 ### Temporal Constraints
 
 Temporal constraints mentioned just above are 
