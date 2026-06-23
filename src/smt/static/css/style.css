@@ -141,6 +141,23 @@ img[style*="cursor: pointer"]:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
+.btn:active {
+    transform: translateY(1px) scale(0.98);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    transition: all 0.1s ease;
+}
+
+/* Pop animation for clicked buttons */
+@keyframes btnPop {
+    0% { transform: scale(1); }
+    50% { transform: scale(0.95); }
+    100% { transform: scale(1); }
+}
+
+.btn.clicked {
+    animation: btnPop 0.2s ease;
+}
+
 /* Alerts */
 .alert {
     border-radius: 10px;

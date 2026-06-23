@@ -8,6 +8,19 @@ document.addEventListener('DOMContentLoaded', function() {
         return new bootstrap.Tooltip(tooltipTriggerEl);
     });
 
+    // Add click feedback to all buttons
+    document.querySelectorAll('.btn').forEach(button => {
+        button.addEventListener('click', function() {
+            // Add clicked class for animation
+            this.classList.add('clicked');
+
+            // Remove class after animation completes
+            setTimeout(() => {
+                this.classList.remove('clicked');
+            }, 200);
+        });
+    });
+
     console.log('TaskSAT Web Interface loaded');
 });
 

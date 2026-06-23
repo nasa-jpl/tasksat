@@ -2300,7 +2300,7 @@ class TaskNetTL(TaskNetSMT):
         # Atomic
         if isinstance(f, TLNumCmp):
             kind, expr = self._tl_value_at_zone(f.tl, j)
-            if kind != "real":
+            if kind not in ("real", "atomic"):
                 self.solver.add(False)
                 return False
             if f.op == "<":

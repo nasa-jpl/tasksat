@@ -3,8 +3,7 @@ TODO
 
 SHORT TERM
 
--> atomic: B or N (MEXEC distinguishes between atomic and Boolean timelines.) mexec/xml: pre-condition 0 is translated to false
-- min/max instances of optional tasks (MEXEC TASKNET HAS THIS)
+-> min/max instances of optional tasks (MEXEC TASKNET HAS THIS)
 - parameters, such as tc.SOC_TYPE, tc.SOC_INITIAL, tc.SOC_BACKGROUND, local to tasks, numbered (MEXEC TASKNET HAS THIS)
 - Easier way to write exclusion constraints, active and activetype
 
@@ -48,5 +47,5 @@ DONE:
 - Improved output on website for usat
 - Added delete all report buttons
 - fixed XML translation of preferred duration
--> Understand the zone concept better, fixed rate updates
-
+- Understand the zone concept better, fixed rate updates
+- atomic: B or N (MEXEC distinguishes between atomic and Boolean timelines.) mexec/xml: pre-condition 0 is translated to false
