@@ -308,6 +308,18 @@ class TLSequence(Formula):
     tasks: List[TaskName]
 
 @dataclass
+class TLMutex(Formula):
+    """Mutual exclusion constraint: tasks cannot overlap.
+
+    - mutex [T1, T2, T3]: within-group (all pairs mutually exclusive)
+    - mutex [T1, T2] with [T3, T4]: between-group (cross-product)
+
+    Desugared to: (A.end <= B.start) or (B.end <= A.start) for all pairs
+    """
+    group_a: List[TaskName]           # First group of tasks
+    group_b: Optional[List[TaskName]] # Second group (None for within-group)
+
+@dataclass
 class TemporalProperty:
     name: str
     formula: Formula

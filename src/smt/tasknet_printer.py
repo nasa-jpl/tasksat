@@ -347,6 +347,15 @@ class TaskNetPrinter:
             right = self.print_tl_formula(f.right)
             return f"({left} since {right})"
 
+        # Derived constructs (normally desugared before printing)
+        elif isinstance(f, TLMutex):
+            group_a_str = ", ".join(f.group_a)
+            if f.group_b is None:
+                return f"mutex [{group_a_str}]"
+            else:
+                group_b_str = ", ".join(f.group_b)
+                return f"mutex [{group_a_str}] with [{group_b_str}]"
+
         return str(f)
 
     # ===== TaskNet =====

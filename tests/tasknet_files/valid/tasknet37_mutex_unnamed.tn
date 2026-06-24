@@ -1,0 +1,27 @@
+// Test unnamed mutex constraints with auto-generated names
+
+tasknet MutexUnnamedTest {
+  end = 100;
+
+  taskdef work {
+    duration 10;
+  }
+
+  task A1 : work {}
+  task A2 : work {}
+  task B1 : work {}
+  task B2 : work {}
+
+  constraints {
+    // Unnamed constraints - more concise
+    mutex [A1, A2];
+    mutex [B1, B2];
+    mutex [A1, A2] with [B1, B2];
+  }
+
+  properties {
+    // Verify constraints work
+    prop check_a: (A1.end <= A2.start) or (A2.end <= A1.start);
+    prop check_b: (B1.end <= B2.start) or (B2.end <= B1.start);
+  }
+}

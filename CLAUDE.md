@@ -173,6 +173,42 @@ impacts {
 **Why the difference?**
 Rate impacts must write to zone s to affect the entire task execution interval [s, e]. Value impacts write to zone s+1 to maintain the separation between "input state" (zone s) and "execution state" (zone s+1), consistent with all other timeline types.
 
+## Language Features
+
+### Mutex Syntax
+
+TaskSAT supports concise mutex syntax for expressing mutual exclusion between tasks:
+
+```tasknet
+constraints {
+  mutex [science1, science2];  // Within-group: no two tasks can overlap
+  mutex [drive1, drive2] with [science1, science2];  // Between-group: cross-product exclusion
+}
+```
+
+**Implementation:**
+- Parsed as `TLMutex` AST node (tasknet_parser.py)
+- Desugared to task boundary comparisons in `desugar_mutex()` transform (tasknet_transforms.py)
+- Desugars BEFORE `desugar_active_predicate()` to avoid creating `__task_active` timelines
+- More efficient than `always (active(A) -> not active(B))` syntax
+
+### Unnamed Constraints
+
+Both named and unnamed constraints are supported:
+
+```tasknet
+constraints {
+  prop my_constraint: mutex [A, B];  // Named
+  mutex [C, D];  // Unnamed (auto-named as "mutex_C_D")
+  always (battery >= 20.0);  // Unnamed (auto-named as "constraint_1")
+}
+```
+
+**Auto-naming:**
+- `mutex [A, B]` → `"mutex_A_B"`
+- `sequence [A, B]` → `"sequence_A_B"`
+- Generic formulas → `"constraint_N"` (counter-based)
+
 ## Dependencies
 
 **Python:**

@@ -36,6 +36,10 @@ def apply_transforms(tn: TaskNet) -> tuple[TaskNet, bool]:
     # Pass 1: Desugar sequence [task1, task2, ...] to pairwise ordering constraints
     tn = desugar_sequence(tn)
 
+    # Pass 1.5: Desugar mutex [task1, task2, ...] to non-overlap constraints
+    # (Must come BEFORE active() desugaring to avoid creating active timelines)
+    tn = desugar_mutex(tn)
+
     # Pass 2: Desugar active(T) syntax to __T_active = 1
     tn = desugar_active_predicate(tn)
 
@@ -145,6 +149,118 @@ def _desugar_sequence_formula(f: Formula) -> Formula:
     # Atomic formulas: no transformation needed
     else:
         return f
+
+
+# ==============================================================================
+# Transformation Pass 1.5: Desugar Mutex Constraints
+# ==============================================================================
+
+def desugar_mutex(tn: TaskNet) -> TaskNet:
+    """
+    Transform mutex [task1, task2, ...] constructs into non-overlap constraints.
+
+    This is syntactic sugar for mutual exclusion:
+        mutex [T1, T2]
+    becomes:
+        (T1.end <= T2.start) or (T2.end <= T1.start)
+
+    And between-group exclusion:
+        mutex [T1, T2] with [T3, T4]
+    becomes the cross-product of all pairs from both groups.
+
+    The transformation recursively walks all temporal formulas in constraints
+    and properties, replacing TLMutex nodes with disjunctions of non-overlap conditions.
+
+    Args:
+        tn: The TaskNet AST
+
+    Returns:
+        TaskNet with mutex constructs desugared to non-overlap constraints
+    """
+    # Transform constraints
+    for prop in tn.constraints:
+        prop.formula = _desugar_mutex_formula(prop.formula)
+
+    # Transform properties
+    for prop in tn.properties:
+        prop.formula = _desugar_mutex_formula(prop.formula)
+
+    return tn
+
+
+def _desugar_mutex_formula(f: Formula) -> Formula:
+    """
+    Recursively desugar mutex [T1, T2, ...] to non-overlap disjunctions.
+    """
+    # Base case: TLMutex desugars to conjunction of non-overlap disjunctions
+    if isinstance(f, TLMutex):
+        constraints = []
+
+        if f.group_b is None:
+            # Within-group: all pairs
+            tasks = f.group_a
+            for i in range(len(tasks)):
+                for j in range(i+1, len(tasks)):
+                    constraints.append(_make_non_overlap_formula(tasks[i], tasks[j]))
+        else:
+            # Between-group: cross-product
+            for task_a in f.group_a:
+                for task_b in f.group_b:
+                    constraints.append(_make_non_overlap_formula(task_a, task_b))
+
+        # Empty list: trivially true
+        if not constraints:
+            return TLTrue()
+
+        # Single constraint: return it
+        if len(constraints) == 1:
+            return constraints[0]
+
+        # Multiple constraints: AND them together
+        result = constraints[0]
+        for c in constraints[1:]:
+            result = TLAnd(left=result, right=c)
+        return result
+
+    # Recursive cases: process subformulas
+    elif isinstance(f, (TLAnd, TLOr, TLUntil, TLSince)):
+        return type(f)(
+            left=_desugar_mutex_formula(f.left),
+            right=_desugar_mutex_formula(f.right)
+        )
+    elif isinstance(f, (TLNot, TLAlways, TLEventually, TLSoFar, TLOnce)):
+        return type(f)(sub=_desugar_mutex_formula(f.sub))
+    elif isinstance(f, TLImplies):
+        return TLImplies(
+            left=_desugar_mutex_formula(f.left),
+            right=_desugar_mutex_formula(f.right)
+        )
+
+    # Atomic formulas: no transformation needed
+    else:
+        return f
+
+
+def _make_non_overlap_formula(task_a: str, task_b: str) -> Formula:
+    """
+    Create non-overlap formula: (A.end <= B.start) or (B.end <= A.start)
+    """
+    # A.end <= B.start
+    a_before_b = TLTimeCmp(
+        left=TLTaskBoundary(task=task_a, boundary="end"),
+        op="<=",
+        right=TLTaskBoundary(task=task_b, boundary="start")
+    )
+
+    # B.end <= A.start
+    b_before_a = TLTimeCmp(
+        left=TLTaskBoundary(task=task_b, boundary="end"),
+        op="<=",
+        right=TLTaskBoundary(task=task_a, boundary="start")
+    )
+
+    # (A.end <= B.start) or (B.end <= A.start)
+    return TLOr(left=a_before_b, right=b_before_a)
 
 
 # ==============================================================================

@@ -730,6 +730,56 @@ The `sequence` construct:
 - Desugars to pairwise `.end <= .start` constraints
 - Can be used in both `constraints` and `properties` blocks
 - Is more concise and less error-prone than manually writing pairwise constraints
+
+**Mutex construct**
+
+For mutual exclusion (tasks that cannot overlap in time), TaskNet provides the `mutex` construct:
+
+```tasknet
+# Within-group exclusion: no two tasks in the list can overlap
+mutex [science1, science2, science3];
+
+# Between-group exclusion: no task from group A can overlap with any task from group B
+mutex [drive1, drive2] with [science1, science2];
+```
+
+Within-group mutex `[A, B, C]` desugars to:
+```tasknet
+(A.end <= B.start or B.end <= A.start) and
+(A.end <= C.start or C.end <= A.start) and
+(B.end <= C.start or C.end <= B.start)
+```
+
+Between-group mutex `[A, B] with [C, D]` desugars to the cross-product of non-overlap conditions.
+
+The `mutex` construct:
+- Takes one or two lists of task names in square brackets
+- Desugars to non-overlap constraints using task boundaries
+- Can be used in both `constraints` and `properties` blocks
+- More efficient than using `active()` predicates (doesn't create additional timelines)
+- More concise than complex temporal logic with `active()` and `implies`
+
+**Named vs. unnamed constraints**
+
+Both `sequence` and `mutex` (and any temporal formula) can be used with or without explicit names:
+
+```tasknet
+constraints {
+  # Named constraints (useful for debugging/documentation)
+  prop mission_order: sequence [charge, drive, science];
+  prop exclusive_ops: mutex [drive1, drive2] with [science1, science2];
+  
+  # Unnamed constraints (more concise, auto-named)
+  mutex [science1, science2];
+  sequence [task1, task2, task3];
+  always (battery >= 20.0);
+}
+```
+
+Unnamed constraints are automatically given descriptive names:
+- `mutex [A, B]` → `"mutex_A_B"`
+- `sequence [A, B, C]` → `"sequence_A_B_C"`
+- Other formulas → `"constraint_1"`, `"constraint_2"`, etc.
 - Works with any number of tasks (2 or more)
 
 **Example:**
@@ -928,7 +978,10 @@ prop cluster: active(A) -> (B.start - A.end < 100);
 
 **Mutual Exclusion**:
 ```tasknet
-# Tasks cannot overlap
+# Modern syntax - more concise
+mutex [A, B];
+
+# Or using active() predicates (less efficient)
 prop exclusive: always (active(A) -> not active(B));
 ```
 

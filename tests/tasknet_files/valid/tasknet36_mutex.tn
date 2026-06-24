@@ -1,0 +1,30 @@
+// Test demonstrating mutex syntax for task mutual exclusion
+
+tasknet MutexTest {
+  end = 100;
+
+  taskdef work {
+    duration 10;
+  }
+
+  task A1 : work {}
+  task A2 : work {}
+  task B1 : work {}
+  task B2 : work {}
+
+  constraints {
+    // A1 and A2 can't overlap
+    prop no_overlap_a: mutex [A1, A2];
+
+    // A group can't overlap with B group
+    prop no_overlap_ab: mutex [A1, A2] with [B1, B2];
+  }
+
+  properties {
+    // Verify A1 and A2 don't overlap (should be trivially true after mutex desugaring)
+    prop check_a: (A1.end <= A2.start) or (A2.end <= A1.start);
+
+    // Verify A1 and B1 don't overlap
+    prop check_ab: (A1.end <= B1.start) or (B1.end <= A1.start);
+  }
+}

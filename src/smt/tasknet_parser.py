@@ -71,6 +71,9 @@ reserved = {
     "time":        "TIME",
     # sequencing
     "sequence":    "SEQUENCE",
+    # mutual exclusion
+    "mutex":       "MUTEX",
+    "with":        "WITH",
 }
 
 tokens = [
@@ -227,6 +230,42 @@ def p_tasknet(p):
         properties=properties,
     )
 
+
+# ==============================================================================
+# Helper for auto-generating constraint names
+# ==============================================================================
+
+# Global counter for auto-generated constraint names
+_constraint_counter = 0
+
+def _generate_constraint_name(formula: Formula) -> str:
+    """Generate a descriptive name for an unnamed constraint."""
+    global _constraint_counter
+
+    if isinstance(formula, TLMutex):
+        # mutex [A, B] → "mutex_A_B"
+        # mutex [A, B] with [C, D] → "mutex_A_B_with_C_D"
+        group_a_str = "_".join(formula.group_a)
+        if formula.group_b is None:
+            return f"mutex_{group_a_str}"
+        else:
+            group_b_str = "_".join(formula.group_b)
+            return f"mutex_{group_a_str}_with_{group_b_str}"
+
+    elif isinstance(formula, TLSequence):
+        # sequence [A, B, C] → "sequence_A_B_C"
+        tasks_str = "_".join(formula.tasks)
+        return f"sequence_{tasks_str}"
+
+    else:
+        # Generic formulas get a counter
+        _constraint_counter += 1
+        return f"constraint_{_constraint_counter}"
+
+
+# ==============================================================================
+# Grammar Rules
+# ==============================================================================
 
 def p_tasknet_body_items_single(p):
     "tasknet_body_items : tasknet_body_item"
@@ -1264,10 +1303,17 @@ def p_temporal_prop_list_many(p):
     p[0] = p[1] + [p[2]]
 
 
-def p_temporal_prop(p):
+def p_temporal_prop_named(p):
     "temporal_prop : PROP NAME COLON tl_formula SEMI"
     name = p[2]
     formula = p[4]
+    p[0] = TemporalProperty(name=name, formula=formula)
+
+
+def p_temporal_prop_unnamed(p):
+    "temporal_prop : tl_formula SEMI"
+    formula = p[1]
+    name = _generate_constraint_name(formula)
     p[0] = TemporalProperty(name=name, formula=formula)
 
 
@@ -1503,6 +1549,21 @@ def p_tl_atom_sequence(p):
     p[0] = TLSequence(tasks=tasks)
 
 
+def p_tl_atom_mutex_within(p):
+    "tl_atom : MUTEX LBRACKET task_name_list RBRACKET"
+    # mutex [T1, T2, T3]
+    tasks = p[3]
+    p[0] = TLMutex(group_a=tasks, group_b=None)
+
+
+def p_tl_atom_mutex_between(p):
+    "tl_atom : MUTEX LBRACKET task_name_list RBRACKET WITH LBRACKET task_name_list RBRACKET"
+    # mutex [T1, T2] with [T3, T4]
+    group_a = p[3]
+    group_b = p[7]
+    p[0] = TLMutex(group_a=group_a, group_b=group_b)
+
+
 def p_task_name_list_single(p):
     "task_name_list : NAME"
     p[0] = [p[1]]
@@ -1585,6 +1646,8 @@ parser = yacc.yacc(start="start")
 # ============================================================
 
 def parse_tasknet(text: str) -> TaskNet:
+    global _constraint_counter
+    _constraint_counter = 0  # Reset counter for each parse
     return parser.parse(text, lexer=lexer)
 
 
