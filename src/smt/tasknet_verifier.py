@@ -191,11 +191,27 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False):
         return
 
     # Apply AST transformations (desugar derived constructs)
-    tn, auto_instantiation_occurred = apply_transforms(tn)
+    try:
+        tn, auto_instantiation_occurred = apply_transforms(tn)
+    except Exception as e:
+        import traceback
+        error_details = f"Transform error: {str(e)}\n\n{traceback.format_exc()}"
+        print(error(f"❌ TRANSFORM ERROR: {e}"))
+        print(traceback.format_exc())  # Print to stdout (captured by TeeOutput)
+        save_failed_verification(path, mode, start_time, error_details, error_type="error")
+        return
 
     # Automatically write transformed tasknet if auto-instantiation occurred
     if auto_instantiation_occurred:
-        write_transformed_tasknet(tn, None, path)
+        try:
+            write_transformed_tasknet(tn, None, path)
+        except Exception as e:
+            import traceback
+            error_details = f"Error writing transformed tasknet: {str(e)}\n\n{traceback.format_exc()}"
+            print(error(f"❌ ERROR WRITING TRANSFORMED TASKNET: {e}"))
+            print(traceback.format_exc())  # Print to stdout (captured by TeeOutput)
+            save_failed_verification(path, mode, start_time, error_details, error_type="error")
+            return
 
     # Exit early if only transforming
     if transform_only:
@@ -212,11 +228,28 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False):
         return  # Errors already printed by checker
 
     use_optimization = (mode == 'optimize')
-    enc = TaskNetTL(tn, error_trace=True, use_optimization=use_optimization)
+
+    try:
+        enc = TaskNetTL(tn, error_trace=True, use_optimization=use_optimization)
+    except Exception as e:
+        import traceback
+        error_details = f"SMT encoding error: {str(e)}\n\n{traceback.format_exc()}"
+        print(error(f"❌ SMT ENCODING ERROR: {e}"))
+        print(traceback.format_exc())  # Print to stdout (captured by TeeOutput)
+        save_failed_verification(path, mode, start_time, error_details, error_type="error")
+        return
 
     # Phase 1: Validity checking
     validity_start = time.time()
-    m, unsat_core_data = enc.solve()
+    try:
+        m, unsat_core_data = enc.solve()
+    except Exception as e:
+        import traceback
+        error_details = f"Solver error: {str(e)}\n\n{traceback.format_exc()}"
+        print(error(f"❌ SOLVER ERROR: {e}"))
+        print(traceback.format_exc())  # Print to stdout (captured by TeeOutput)
+        save_failed_verification(path, mode, start_time, error_details, error_type="error")
+        return
     validity_end = time.time()
 
     if m is None:
