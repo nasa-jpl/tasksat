@@ -844,6 +844,180 @@ param DRIVE_DURATION = 400;  # Slower driving
 
 Simply comment/uncomment parameter declarations to switch between configurations without touching the rest of your model.
 
+## Auto-Instantiation: Reducing Boilerplate
+
+TaskSAT can automatically create task instances when you use **type-level dependencies** - referencing `taskdef` names in `after` or `containedin` constraints. This powerful feature dramatically reduces boilerplate in your specifications.
+
+### The Problem: Repetitive Task Definitions
+
+Imagine a rover mission where every drive operation requires a pre-drive safety check:
+
+```tasknet
+// Manual approach - lots of repetition!
+tasknet ManualRover {
+  taskdef predrive { duration 300; }
+  taskdef drive { duration_range [5000, 7000]; }
+  
+  // For 2 drives, need to manually create 2 predrives:
+  task predrive1 : predrive {}
+  task predrive2 : predrive {}
+  
+  task drive1 : drive { after predrive1; }
+  task drive2 : drive { after predrive2; }
+}
+```
+
+With 10 drives, you'd need 10 predrive definitions. With 100 drives... you get the idea.
+
+### The Solution: Type-Level Dependencies
+
+Instead of referencing specific task instances, reference the **taskdef** directly:
+
+```tasknet
+tasknet AutoRover {
+  taskdef predrive { duration 300; }
+  
+  taskdef drive {
+    after predrive;  // Type-level dependency!
+    duration_range [5000, 7000];
+  }
+  
+  // Just define the drives:
+  task drive1 : drive { start_range [5000, 10000]; }
+  task drive2 : drive { start_range [15000, 20000]; }
+  task drive3 : drive { start_range [25000, 30000]; }
+}
+```
+
+TaskSAT automatically creates:
+- `predrive_auto_0` (for drive1)
+- `predrive_auto_1` (for drive2)  
+- `predrive_auto_2` (for drive3)
+
+**Result**: 3 task definitions instead of 7!
+
+### How Auto-Instantiation Works
+
+When you run the verifier, you'll see:
+
+```
+*** Auto-instantiated 3 task(s) from taskdefs:
+    predrive_auto_0 (from taskdef predrive)
+    predrive_auto_1 (from taskdef predrive)
+    predrive_auto_2 (from taskdef predrive)
+
+📄 Transformed tasknet written to: .tasksat/transformed/AutoRover_transformed.tn
+```
+
+**Key principle**: One instance per dependent task (MEXEC semantics)
+
+Each drive gets its own predrive instance because:
+1. **Independence**: Each drive might need its predrive at a different time
+2. **Flexibility**: The solver can schedule predrives optimally for each drive
+3. **Parallelism**: Multiple predrives can potentially overlap if safe
+
+### Real-World Example: Thermal Management
+
+Consider a communication system where each downlink requires thermal conditioning:
+
+```tasknet
+tasknet SatelliteDownlink {
+  end = 10000;
+  
+  timelines {
+    temperature : rate [0.0, 60.0] = 20.0;
+    battery : rate [0.0, 100.0] = 80.0;
+  }
+  
+  taskdef preheat {
+    duration_range [50, 100];
+    impacts { maint { temperature +~ 0.5; battery +~ -0.2; } }
+  }
+  
+  taskdef maintainheat {
+    duration_range [110, 120];
+    after preheat;  // Maintain heat after preheating
+    impacts { maint { temperature +~ -0.05; battery +~ -0.05; } }
+  }
+  
+  taskdef downlink {
+    duration_range [50, 100];
+    after preheat;
+    containedin maintainheat;  // Must stay warm during downlink
+    inv { temperature in [25.0, 50.0]; }
+    impacts { maint { battery +~ -0.3; } }
+  }
+  
+  // Just specify the downlinks - thermal management is automatic!
+  task downlink_0 : downlink { start_range [100, 300]; }
+  task downlink_1 : downlink { start_range [500, 700]; }
+  task downlink_2 : downlink { start_range [1200, 1500]; }
+}
+```
+
+TaskSAT automatically creates **6 thermal tasks**:
+- `preheat_auto_0`, `maintainheat_auto_0` (for downlink_0)
+- `preheat_auto_1`, `maintainheat_auto_1` (for downlink_1)
+- `preheat_auto_2`, `maintainheat_auto_2` (for downlink_2)
+
+You defined 3 tasks, got 9 tasks total (3 downlinks + 6 thermal), reducing specification from 9 explicit tasks to 3.
+
+### Viewing What Was Created
+
+Use `--transform-only` to see exactly what TaskSAT created without running verification:
+
+```bash
+python src/smt/tasknet_verifier.py AutoRover.tn --transform-only
+cat .tasksat/transformed/AutoRover_transformed.tn
+```
+
+The transformed file shows all auto-instances as explicit task declarations. You can:
+- Verify the correct number of instances were created
+- See what properties each instance inherited
+- Edit the transformed file to add scheduling hints (e.g., priority, start_range)
+- Use the transformed file as your source if you want full manual control
+
+### When Auto-Instantiation is Skipped
+
+If you create **any** manual instance of a taskdef, auto-instantiation is skipped for that taskdef:
+
+```tasknet
+taskdef predrive { duration 300; }
+taskdef drive { after predrive; }
+
+task predrive_manual : predrive {}  // Manual instance exists!
+
+task drive1 : drive {}
+task drive2 : drive {}
+
+# Result: NO auto-instantiation
+# Both drive1 and drive2 reference the single predrive_manual
+# Solver must ensure: predrive_manual.end <= drive1.start AND
+#                     predrive_manual.end <= drive2.start
+```
+
+This assumes you want full manual control over that taskdef's instances.
+
+### Best Practices
+
+1. **Use type-level dependencies for repeated patterns**: Pre-checks, thermal conditioning, post-operations
+2. **Let TaskSAT handle instantiation** unless you need fine-grained control over specific instances
+3. **Check the transformed file** when debugging to see what was created
+4. **Combine with parameters** for maximum reusability:
+
+```tasknet
+param PREDRIVE_DURATION = 300;
+
+taskdef predrive {
+  duration PREDRIVE_DURATION;  // Easy to tune globally
+}
+
+taskdef drive {
+  after predrive;  // Auto-instantiation handles the rest
+  ...
+}
+```
+
 ## Solver Modes
 
 ### Commands

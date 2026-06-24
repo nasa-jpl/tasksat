@@ -113,6 +113,29 @@ task science[2..4] : science_def { id 100; }
 ```
 Expands to: `science_0`, `science_1` (required), `science_2`, `science_3` (optional)
 
+### Auto-Instantiation
+
+TaskSAT automatically creates task instances when taskdefs are referenced in type-level dependencies (`after` or `containedin` constraints).
+
+**Key behavior:**
+- **One instance per dependent task** (MEXEC semantics): Each task depending on a taskdef gets its own instance
+- **Naming**: Auto-created instances are `{taskdef}_auto_0`, `{taskdef}_auto_1`, etc.
+- **Skipped if manual instances exist**: If you create ANY instance of a taskdef manually, auto-instantiation is skipped
+- **Transform pass**: Happens in `tasknet_transforms.py:instantiate_from_definitions()`
+- **View with**: `--transform-only` flag writes `.tasksat/transformed/<filename>_transformed.tn`
+
+**Example:**
+```tasknet
+taskdef predrive { duration 300; }
+taskdef drive { after predrive; }  // Type-level dependency
+
+task drive1 : drive {}
+task drive2 : drive {}
+```
+Creates: `predrive_auto_0` (for drive1), `predrive_auto_1` (for drive2)
+
+**Why one-per-dependent?** Allows independent scheduling - each drive can have its predrive at different times, potentially overlapping.
+
 ### Parameters
 
 TaskSAT supports parameters at three scopes: tasknet-level, taskdef-level, and task-level. Parameters allow you to define reusable values and avoid magic numbers in your specifications.

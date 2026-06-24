@@ -84,7 +84,7 @@ class TaskNetPrinter:
 
         elif isinstance(tl, RateTimeline):
             rng = self.print_real_range(tl.range)
-            bounds = f" bounds {self.print_real_range(tl.bounds)}"
+            bounds = f" bounds {self.print_real_range(tl.bounds)}" if tl.bounds else ""
             init = f" = {tl.initial}" if tl.initial is not None else ""
             init_rate = f" initial_rate = {tl.initial_rate}" if tl.initial_rate is not None else ""
             self._writeln(out, f"{ind}{tl.id} : rate {rng}{bounds}{init}{init_rate};")

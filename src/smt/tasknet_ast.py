@@ -76,7 +76,7 @@ class CumulativeTimeline:
 class RateTimeline:
     id: TimeLineName
     range: RealRange
-    bounds: RealRange
+    bounds: Optional[RealRange]  # Optional: bounds can be omitted
     initial: Optional[float]
     initial_rate: Optional[float] = None
 

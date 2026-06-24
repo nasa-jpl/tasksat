@@ -547,9 +547,55 @@ task downlink_1 : downlink { start_range [500, 700]; }
 
 Each downlink gets its own thermal management sequence, reducing manual specification from 6 tasks to 2 tasks.
 
+**Example: Rover with Pre-Drive Checks**
+
+```tasknet
+taskdef predrive {
+  duration_range [300, 300];
+  impacts { maint { checks += 1; } }
+}
+
+taskdef drive {
+  after predrive;  // Each drive needs a predrive
+  duration_range [5000, 7000];
+  impacts { maint { distance +~ 0.3; } }
+}
+
+task drive1 : drive { start_range [5000, 10000]; }
+task drive2 : drive { start_range [15000, 20000]; }
+```
+
+**Auto-instantiation creates:**
+- `predrive_auto_0` (before drive1)
+- `predrive_auto_1` (before drive2)
+
+This is **by design** (MEXEC semantics): each drive gets its own independent predrive instance. The solver can schedule them at different times based on when each drive needs to start. In the example above:
+- `predrive_auto_1` might run at 7425-7725
+- `predrive_auto_0` might run at 7726-8026
+- They can overlap or run in any order
+
+**Why one instance per dependent?**
+- **Independence**: Each dependent task can have its own timing for the required predecessor
+- **Flexibility**: The solver can schedule predecessors optimally for each dependent
+- **MEXEC compatibility**: Matches JPL's MEXEC scheduling system behavior
+
 **When auto-instantiation is skipped:**
 
 If you manually create any instances of a taskdef, auto-instantiation is skipped for that taskdef (assumes you're managing instances manually).
+
+**Example: Manual control**
+```tasknet
+taskdef predrive { duration 300; }
+taskdef drive { after predrive; }
+
+task predrive1 : predrive {}  // Manual instance exists
+task drive1 : drive {}
+task drive2 : drive {}
+
+# Result: NO auto-instantiation of predrive
+# Both drive1 and drive2 will reference the single predrive1 instance
+# (solver must ensure predrive1.end <= drive1.start AND predrive1.end <= drive2.start)
+```
 
 **Standalone Tasks**
 
@@ -1051,7 +1097,36 @@ python src/smt/tasknet_verifier.py input.tn
 python src/smt/tasknet_verifier.py input.tn --transform-only
 ```
 
+**Example output when auto-instantiation occurs:**
+
+```
+*** Auto-instantiated 2 task(s) from taskdefs:
+    predrive_auto_0 (from taskdef predrive)
+    predrive_auto_1 (from taskdef predrive)
+
+📄 Transformed tasknet written to: .tasksat/transformed/input_transformed.tn
+```
+
 The transformed tasknet shows all auto-instantiated tasks as explicit task declarations. Generated files are stored in `.tasksat/transformed/` to keep your project organized. You can then edit the transformed file to add scheduling hints.
+
+**Inspecting the transformed file:**
+
+```bash
+# View which tasks were auto-instantiated
+cat .tasksat/transformed/input_transformed.tn
+
+# You'll see explicit task declarations like:
+# task predrive_auto_0 : predrive {
+#   id 101;
+#   # Inherited from drive1 which depends on predrive
+# }
+```
+
+**Use cases for transformed files:**
+1. **Understanding what was instantiated**: See exactly which instances were created and why
+2. **Adding scheduling hints**: Edit the transformed file to add `start_range`, `priority`, etc. to auto-instances
+3. **Debugging**: Verify that auto-instantiation created the expected number of instances
+4. **Manual control**: Convert an auto-instantiated tasknet to fully manual by using the transformed file as your source
 
 **Note**: The `.tasksat/` directory is automatically added to `.gitignore` to avoid committing generated files.
 
