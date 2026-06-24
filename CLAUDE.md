@@ -113,6 +113,57 @@ task science[2..4] : science_def { id 100; }
 ```
 Expands to: `science_0`, `science_1` (required), `science_2`, `science_3` (optional)
 
+### Parameters
+
+TaskSAT supports parameters at three scopes: tasknet-level, taskdef-level, and task-level. Parameters allow you to define reusable values and avoid magic numbers in your specifications.
+
+**Syntax:**
+```tasknet
+// TaskNet-level parameters (global scope)
+tasknet Example {
+  param GLOBAL_DURATION = 10;
+  param GLOBAL_RATE = 0.5;
+  
+  // TaskDef-level parameters (inherited by instances)
+  taskdef work {
+    param {
+      DURATION = GLOBAL_DURATION;  // Can reference global params
+    }
+    duration DURATION;
+  }
+  
+  // Task-level parameters (highest priority)
+  task t1 : work {}  // Uses DURATION=10 from taskdef
+  
+  task t2 : work {
+    param {
+      DURATION = 20;  // Override to 20
+    }
+  }
+  
+  task t3 {
+    duration GLOBAL_DURATION;  // Direct reference to global param
+  }
+}
+```
+
+**Resolution order (highest to lowest priority):**
+1. Task-level params
+2. TaskDef-level params (for tasks instantiated from taskdefs)
+3. TaskNet-level params
+
+**Implementation:**
+- Parsed as `ParamDecl` and `ParamRef` AST nodes (tasknet_parser.py)
+- Resolved in `resolve_parameters()` transform (tasknet_transforms.py)
+- Resolution happens FIRST, before all other transforms
+- Unresolved parameter references in constraint formulas are treated as state names
+
+**Use cases:**
+- Avoid magic numbers: `param SAFE_BATTERY = 20.0;` instead of hardcoded values
+- Reusable task definitions with configurable defaults
+- Global constants for duration, capacity, thresholds
+- Overriding defaults per task instance
+
 ## Working with Branches
 
 - **main** - Public repository (github.com/nasa-jpl/tasksat)

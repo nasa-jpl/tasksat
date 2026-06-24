@@ -39,7 +39,12 @@ class StrVal:
 class BoolVal:
     v: bool
 
-Value = Union[IntVal, RealVal, StrVal, BoolVal]
+@dataclass
+class ParamRef:
+    """Reference to a parameter by name."""
+    name: str
+
+Value = Union[IntVal, RealVal, StrVal, BoolVal, ParamRef]
 
 # ----- Timelines -----
 
@@ -152,6 +157,7 @@ class Task:
     id: TaskName
     ident: TaskId
     kind: TaskKind
+    params: List[ParamDecl] = field(default_factory=list)  # Parameter declarations
     definition: Optional[TaskName] = None  # Reference to definition task (for instances/optional)
     priority: Optional[int] = None
     startrng: Optional[IntRange] = None
@@ -183,6 +189,7 @@ class TaskRange:
     max_instances: int                # Total instances (required + optional/request)
     definition: TaskName              # Task definition name
     is_request: bool                  # True if request task, False for regular task
+    params: List[ParamDecl] = field(default_factory=list)  # Parameter declarations
     ident: Optional[TaskId] = None    # Base ID for auto-increment
     priority: Optional[int] = None
     startrng: Optional[IntRange] = None
@@ -324,11 +331,20 @@ class TemporalProperty:
     name: str
     formula: Formula
 
+# ----- Parameters -----
+
+@dataclass
+class ParamDecl:
+    """Parameter declaration: NAME = value or NAME = range"""
+    name: str
+    value: Union[Value, 'IntRange', 'RealRange']  # Can be literal value OR range
+
 # ----- TaskNet -----
 
 @dataclass
 class TaskNet:
     id: TaskNetName
+    params: List[ParamDecl]
     timelines: List[Timeline]
     tasks: List[Task]
     endTime: int

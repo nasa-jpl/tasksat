@@ -74,6 +74,8 @@ reserved = {
     # mutual exclusion
     "mutex":       "MUTEX",
     "with":        "WITH",
+    # parameters
+    "param":       "PARAM",
 }
 
 tokens = [
@@ -195,15 +197,18 @@ def p_tasknet(p):
     items = p[4]
 
     end_time: int | None = None
+    params: List[ParamDecl] = []
     timelines: List[Timeline] = []
     tasks: List[Task] = []
-    init_cons: List[TlCon] = [] 
+    init_cons: List[TlCon] = []
     constraints_tl: List[TemporalProperty] = []
     properties: List[TemporalProperty] = []
 
     for kind, value in items:
         if kind == "end":
             end_time = value
+        elif kind == "param":
+            params.append(value)
         elif kind == "timelines":
             timelines = value
         elif kind == "task":
@@ -222,6 +227,7 @@ def p_tasknet(p):
 
     p[0] = TaskNet(
         id=name,
+        params=params,
         timelines=timelines,
         tasks=tasks,
         endTime=end_time,
@@ -303,6 +309,12 @@ def p_tasknet_body_item_constraints_tl(p):
 def p_tasknet_body_item_properties(p):
     "tasknet_body_item : properties_block"
     p[0] = ("properties", p[1])
+
+
+def p_tasknet_body_item_param(p):
+    "tasknet_body_item : PARAM NAME EQ param_value SEMI"
+    # param DRIVE_DURATION = 600;
+    p[0] = ("param", ParamDecl(name=p[2], value=p[4]))
 
 
 def p_end_decl(p):
@@ -660,6 +672,7 @@ def p_extends_opt_some(p):
 
 def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str]) -> Task:
     """Helper function to build a Task from parsed items"""
+    params = []
     ident = None
     priority = None
     startrng = None
@@ -687,7 +700,9 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
     impacts_list: List[Impact] = []
 
     for item_kind, value in items:
-        if item_kind == "id":
+        if item_kind == "param":
+            params.extend(value)
+        elif item_kind == "id":
             ident = value
         elif item_kind == "priority":
             priority = value
@@ -753,6 +768,7 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
         id=name,
         ident=ident,
         kind=kind,
+        params=params,
         definition=definition,
         priority=priority,
         startrng=startrng,
@@ -775,6 +791,7 @@ def _build_task_range(name: str, min_instances: int, max_instances: int,
                       definition: Optional[str], items: List, is_request: bool) -> TaskRange:
     """Helper function to build a TaskRange from parsed items"""
     # Reuse same extraction logic as _build_task
+    params = []
     ident = None
     priority = None
     startrng = None
@@ -802,7 +819,9 @@ def _build_task_range(name: str, min_instances: int, max_instances: int,
     impacts_list: List[Impact] = []
 
     for item_kind, value in items:
-        if item_kind == "id":
+        if item_kind == "param":
+            params.extend(value)
+        elif item_kind == "id":
             ident = value
         elif item_kind == "priority":
             priority = value
@@ -865,6 +884,7 @@ def _build_task_range(name: str, min_instances: int, max_instances: int,
         max_instances=max_instances,
         definition=definition,
         is_request=is_request,
+        params=params,
         ident=ident,
         priority=priority,
         startrng=startrng,
@@ -943,6 +963,11 @@ def p_task_body_item_containedin(p):
     p[0] = ("containedin", p[1])
 
 
+def p_task_body_item_param_block(p):
+    "task_body_item : param_block"
+    p[0] = ("param", p[1])
+
+
 def p_task_body_item_constraints_block(p):
     "task_body_item : constraints_block"
     p[0] = ("constraints", p[1])
@@ -1000,8 +1025,14 @@ def p_task_duration_range(p):
 
 
 def p_task_duration(p):
-    "task_duration : DURATION NUMBER SEMI"
-    p[0] = int(p[2])
+    "task_duration : DURATION value SEMI"
+    # value can be IntVal or ParamRef - resolve later in transform
+    val = p[2]
+    if isinstance(val, IntVal):
+        p[0] = val.v
+    else:
+        # ParamRef or other - keep as-is for resolution
+        p[0] = val
 
 
 def p_task_start_opt_some(p):
@@ -1627,7 +1658,57 @@ def p_value_false(p):
 
 def p_value_name(p):
     "value : NAME"
-    p[0] = StrVal(p[1])
+    # Could be a parameter reference or a state name
+    # Create ParamRef and resolve during transform pass
+    p[0] = ParamRef(name=p[1])
+
+
+# ------------ parameters ------------
+
+def p_param_block(p):
+    "param_block : PARAM LBRACE param_decl_list RBRACE"
+    p[0] = p[3]
+
+
+def p_param_decl_list_empty(p):
+    "param_decl_list : empty"
+    p[0] = []
+
+
+def p_param_decl_list_single(p):
+    "param_decl_list : param_decl"
+    p[0] = [p[1]]
+
+
+def p_param_decl_list_many(p):
+    "param_decl_list : param_decl_list param_decl"
+    p[0] = p[1] + [p[2]]
+
+
+def p_param_decl(p):
+    "param_decl : NAME EQ param_value SEMI"
+    p[0] = ParamDecl(name=p[1], value=p[3])
+
+
+# ------------ parameter values (for param declarations) ------------
+
+def p_param_value_literal(p):
+    "param_value : value"
+    # Regular value (int, float, string, bool, or NAME reference)
+    p[0] = p[1]
+
+
+def p_param_value_range(p):
+    "param_value : LBRACKET NUMBER COMMA NUMBER RBRACKET"
+    # [600, 800] or [20.0, 100.0]
+    min_num = float(p[2])
+    max_num = float(p[4])
+
+    # Determine if int or real range
+    if min_num.is_integer() and max_num.is_integer():
+        p[0] = IntRange(min=IntVal(int(min_num)), max=IntVal(int(max_num)))
+    else:
+        p[0] = RealRange(min=RealVal(min_num), max=RealVal(max_num))
 
 
 # ------------ error ------------

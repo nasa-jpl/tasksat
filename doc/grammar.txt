@@ -5,6 +5,7 @@
 ```
 tasknet <identifier> {
   end = <number>;
+  param <PARAM_NAME> = <value>;
   timelines { ... }
   initial { ... }
   taskdef <name> { ... }
@@ -18,21 +19,69 @@ tasknet <identifier> {
 
 ```
 <name> : state(<state1>, <state2>, ...) = <initial_state>;
-<name> : atomic = <true|false>;
+<name> : bool = <true|false>;                                            # Syntactic sugar for state(true, false)
+<name> : atomic = <0|1>;                                                 # Mutex enforcement via [0,1] integer bounds
 <name> : cumulative [<min>, <max>] bounds [<min>, <max>] = <initial>;
 <name> : rate [<min_rate>, <max_rate>] bounds [<min>, <max>] = <initial> initial_rate = <rate>;
 <name> : claimable [<min>, <max>] = <initial>;
 ```
 
+**Timeline types:**
+- **state**: Discrete values (named or numeric)
+- **bool**: Boolean state (syntactic sugar for `state(true, false)`)
+- **atomic**: Integer [0,1] for mutual exclusion (only cumulative impacts `+= 1`, `-= 1` allowed)
+- **cumulative**: Continuous resource with range and bounds
+- **rate**: Continuous resource that changes at a rate over time
+- **claimable**: Resource that can be claimed and released
+
+## Parameters
+
+Parameters allow you to define reusable constants and avoid magic numbers.
+
+```
+# TaskNet-level (global scope)
+param <PARAM_NAME> = <value>;
+
+# TaskDef-level (defaults for instances)
+taskdef <name> {
+  param {
+    <PARAM_NAME> = <value>;
+    <PARAM_NAME> = <GLOBAL_PARAM>;  # Can reference global params
+  }
+  duration <PARAM_NAME>;
+}
+
+# Task-level (instance overrides)
+task <name> : <taskdef> {
+  param {
+    <PARAM_NAME> = <value>;  # Overrides taskdef/global
+  }
+}
+```
+
+**Resolution order (highest to lowest priority):**
+1. Task-level params
+2. TaskDef-level params
+3. TaskNet-level params
+
+**Parameter references can be used in:**
+- Task durations: `duration <PARAM>;`
+- Task start/end times: `start <PARAM>;`
+- Time ranges: `start_range [<MIN_PARAM>, <MAX_PARAM>];`
+- Timeline bounds: `battery : rate [0.0, <CAPACITY>] = <INITIAL>;`
+- Impact values: `battery += <CHARGE_AMOUNT>;`
+- Constraint formulas: `battery >= <SAFE_LEVEL>`
+
 ## Tasks
 
 ```
 taskdef <name> {
+  param { <PARAM_NAME> = <value>; }
   id <number>;
   priority <number>;
-  duration <number>;
+  duration <number | PARAM_NAME>;
   duration_range [<min>, <max>];
-  start <number>;
+  start <number | PARAM_NAME>;
   start_range [<min>, <max>];
   after <task_or_taskdef>, ...;
   containedin <task_or_taskdef>, ...;
@@ -46,10 +95,25 @@ taskdef <name> {
   }
 }
 
-task <name> : <taskdef> { ... }
+task <name> : <taskdef> {
+  param { <PARAM_NAME> = <value>; }
+  ...
+}
 optional task <name> : <taskdef> { ... }
 request task <name> : <taskdef> { ... }
+
+# Task instance ranges (compact syntax for multiple instances)
+task <name>[<count>] : <taskdef> { ... }                    # All optional
+task <name>[<min>..<max>] : <taskdef> { ... }               # min required + (max-min) optional
+request task <name>[<min>..<max>] : <taskdef> { ... }       # min required + (max-min) request
 ```
+
+**Task instance ranges** create multiple task instances with auto-generated names:
+- `task science[3]` → `science_0`, `science_1`, `science_2` (all optional)
+- `task science[2..4]` → `science_0`, `science_1` (required), `science_2`, `science_3` (optional)
+- `request task science[1..3]` → `science_0` (required), `science_1`, `science_2` (request)
+
+Expanded tasks inherit all properties from the range declaration.
 
 ## Constraints
 
@@ -65,11 +129,17 @@ request task <name> : <taskdef> { ... }
 ## Impacts
 
 ```
-<timeline> = <value>
-<timeline> += <delta>
-<timeline> +~ <delta>
-<timeline> =~ <value>
+<timeline> = <value>       # Assignment (value impact)
+<timeline> += <delta>      # Cumulative add (value impact)
+<timeline> -= <delta>      # Cumulative subtract (value impact)
+<timeline> +~ <delta>      # Rate add (rate impact)
+<timeline> -~ <delta>      # Rate subtract (rate impact)
+<timeline> =~ <value>      # Rate assignment (rate impact)
 ```
+
+**Impact types:**
+- **Value impacts** (`=`, `+=`, `-=`): Modify timeline value at zone boundaries
+- **Rate impacts** (`+~`, `-~`, `=~`): Modify rate of change (rate timelines only)
 
 ## Temporal Logic
 
@@ -108,16 +178,34 @@ sequence [<task1>, <task2>, ...]
 
 Syntactic sugar for sequential task execution. Desugars to pairwise `.end <= .start` constraints.
 
+### Mutual Exclusion
+```
+mutex [<task1>, <task2>, ...]
+mutex [<task1>, <task2>] with [<task3>, <task4>]
+```
+
+Syntactic sugar for mutual exclusion. Desugars to non-overlap constraints: `(A.end <= B.start) or (B.end <= A.start)`.
+
 ### Constraints vs Properties
 ```
 constraints {
-  prop <name>: <formula>;
+  prop <name>: <formula>;      # Named constraint
+  <formula>;                   # Unnamed constraint (auto-named)
+  mutex [<task1>, <task2>];    # Unnamed mutex (auto-named as "mutex_task1_task2")
+  sequence [<task1>, <task2>]; # Unnamed sequence (auto-named as "sequence_task1_task2")
 }
 
 properties {
-  prop <name>: <formula>;
+  prop <name>: <formula>;      # Named property
+  <formula>;                   # Unnamed property (auto-named as "constraint_N")
 }
 ```
+
+**Auto-naming rules:**
+- `mutex [A, B]` → `"mutex_A_B"`
+- `mutex [A, B] with [C, D]` → `"mutex_A_B_with_C_D"`
+- `sequence [A, B]` → `"sequence_A_B"`
+- Generic formulas → `"constraint_N"` (counter-based)
 
 ## Dependencies
 
@@ -138,21 +226,21 @@ initial {
 ## Keywords
 
 ```
-tasknet, end, timelines, state, atomic, cumulative, claimable, rate, bounds,
+tasknet, end, param, timelines, state, bool, atomic, cumulative, claimable, rate, bounds,
 initial_rate, taskdef, task, optional, request, id, priority, duration,
-duration_range, start, start_range, after, containedin, pre, inv, post,
+duration_range, start, start_range, end_range, after, containedin, pre, inv, post,
 impacts, maint, initial, constraints, properties, prop, active, always,
 eventually, until, sofar, once, since, and, or, not, true, false, in,
-time, sequence
+time, sequence, mutex, with
 ```
 
 ## Operators
 
 ```
 =   <=  >=  <   >
-+=  +~  =~  -~
++=  -=  +~  -~  =~
 ->
-,   ;   :
+,   ;   :  ..
 ( ) [ ] { }
 ```
 
@@ -188,31 +276,43 @@ Both comment styles can be used interchangeably. C-style `//` comments are usefu
 tasknet RoverMission {
   end = 1000;
 
+  # Global parameters
+  param SAFE_BATTERY = 20.0;
+  param DRIVE_RATE = -0.5;
+
   timelines {
     battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0 initial_rate = 0.01;
     location : state(base, site_a, site_b) = base;
-    rover_active : atomic = false;
+    rover_active : atomic = 0;
   }
 
   taskdef drive {
-    duration_range [10, 50];
+    param {
+      MIN_DURATION = 10;
+      MAX_DURATION = 50;
+    }
+
+    duration_range [MIN_DURATION, MAX_DURATION];
     pre {
       battery >= 30.0;
-      rover_active = false;
+      rover_active = 0;
     }
     inv {
-      battery >= 20.0;
-      rover_active = true;
+      battery >= SAFE_BATTERY;
+      rover_active = 1;
     }
     impacts {
       maint {
-        battery -~ 0.5;
-        rover_active += 1.0;
+        battery +~ DRIVE_RATE;
+        rover_active += 1;
       }
     }
   }
 
   task drive_to_a : drive {
+    param {
+      MAX_DURATION = 40;  # Override: shorter max duration
+    }
     start_range [0, 100];
     impacts {
       post {
@@ -223,7 +323,7 @@ tasknet RoverMission {
 
   properties {
     prop battery_safety:
-      always (rover_active = true -> battery >= 20.0);
+      always (rover_active = true -> battery >= SAFE_BATTERY);
 
     prop mission_completion:
       eventually (location = site_a);

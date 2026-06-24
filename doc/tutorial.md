@@ -642,6 +642,208 @@ and then a range of values could be specified in an initial block:
 
 In this case we attempt to see if there is a schedule if the battery is below 60. In fact, there isn't.
 
+## Using Parameters
+
+Parameters allow you to define reusable constants and avoid magic numbers in your TaskSAT specifications. This makes your models more readable, maintainable, and easier to tune.
+
+### Why Use Parameters?
+
+Consider this specification without parameters:
+
+```tasknet
+task drive {
+  duration 600;
+  impacts { maint { battery +~ -0.3; } }
+}
+
+task charge {
+  duration 300;
+  impacts { maint { battery +~ 0.5; } }
+}
+
+constraints {
+  always (battery >= 20.0);
+}
+```
+
+The values `600`, `300`, `-0.3`, `0.5`, and `20.0` are "magic numbers" - their meaning isn't clear, and if you want to change them, you have to find every occurrence.
+
+### Parameterized Version
+
+Here's the same specification using parameters:
+
+```tasknet
+tasknet RoverWithParams {
+  end = 2000;
+  
+  # Global parameters make the model more readable
+  param DRIVE_DURATION = 600;
+  param CHARGE_DURATION = 300;
+  param DRIVE_RATE = -0.3;
+  param CHARGE_RATE = 0.5;
+  param SAFE_BATTERY = 20.0;
+  
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+  
+  task drive {
+    duration DRIVE_DURATION;
+    impacts { maint { battery +~ DRIVE_RATE; } }
+  }
+  
+  task charge {
+    duration CHARGE_DURATION;
+    impacts { maint { battery +~ CHARGE_RATE; } }
+  }
+  
+  constraints {
+    always (battery >= SAFE_BATTERY);
+  }
+}
+```
+
+Now the model is self-documenting, and you can easily experiment with different values by changing the parameter declarations.
+
+### Parameter Scopes
+
+Parameters can be declared at three levels:
+
+**1. TaskNet-level (Global):**
+```tasknet
+tasknet Example {
+  param GLOBAL_DURATION = 10;
+  
+  task t1 { duration GLOBAL_DURATION; }
+  task t2 { duration GLOBAL_DURATION; }
+}
+```
+
+**2. TaskDef-level (Template defaults):**
+```tasknet
+taskdef science_def {
+  param {
+    DURATION = 30;
+    DATA_RATE = 2.0;
+  }
+  
+  duration DURATION;
+  impacts { maint { data += DATA_RATE; } }
+}
+
+task science1 : science_def {}  // Uses defaults
+```
+
+**3. Task-level (Instance overrides):**
+```tasknet
+task science2 : science_def {
+  param {
+    DURATION = 45;  // Override: longer duration
+    DATA_RATE = 3.0;  // Override: faster data collection
+  }
+}
+```
+
+### Resolution Priority
+
+When TaskSAT resolves a parameter reference, it uses the following priority (highest first):
+
+1. **Task-level** parameter (if defined in the task body)
+2. **TaskDef-level** parameter (if the task is an instance of a taskdef)
+3. **TaskNet-level** parameter (global scope)
+
+This allows you to:
+- Set sensible defaults at the taskdef level
+- Override specific instances as needed
+- Share common constants globally
+
+### Complete Example with All Scopes
+
+```tasknet
+tasknet ParamExample {
+  end = 500;
+  
+  # Global parameters
+  param STANDARD_DURATION = 30;
+  param HIGH_PRIORITY = 10;
+  
+  timelines {
+    data : cumulative [0.0, 100.0] = 0.0;
+  }
+  
+  # TaskDef with parameter defaults
+  taskdef science_def {
+    param {
+      DURATION = STANDARD_DURATION;  // Reference global
+      RATE = 1.0;
+    }
+    
+    duration DURATION;
+    priority HIGH_PRIORITY;
+    
+    impacts {
+      maint { data += RATE; }
+    }
+  }
+  
+  # Instance 1: Uses all defaults
+  task science1 : science_def {}
+  
+  # Instance 2: Override duration only
+  task science2 : science_def {
+    param { DURATION = 45; }
+  }
+  
+  # Instance 3: Override both parameters
+  task science3 : science_def {
+    param {
+      DURATION = 60;
+      RATE = 2.0;
+    }
+  }
+}
+```
+
+When this model runs:
+- `science1` has `DURATION=30` and `RATE=1.0` (taskdef defaults)
+- `science2` has `DURATION=45` and `RATE=1.0` (duration overridden)
+- `science3` has `DURATION=60` and `RATE=2.0` (both overridden)
+
+### Where Parameters Can Be Used
+
+Parameters can be referenced in:
+- Task durations: `duration PARAM;`
+- Task start/end times: `start PARAM;`
+- Time ranges: `start_range [MIN_PARAM, MAX_PARAM];`
+- Timeline declarations: `battery : rate [0.0, CAPACITY] = INITIAL;`
+- Impact values: `battery += CHARGE_AMOUNT;`
+- Constraint formulas: `battery >= SAFE_LEVEL`
+- Priority values: `priority PRIORITY_PARAM;`
+
+### Best Practices
+
+1. **Use UPPER_CASE names** for parameters to distinguish them from tasks and timelines
+2. **Group related parameters** at the tasknet level for easy tuning
+3. **Use descriptive names** that explain what the value represents
+4. **Set taskdef defaults** for reusable task templates
+5. **Override sparingly** - only when an instance needs different behavior
+
+### Example: Tuning a Model
+
+Parameters make it easy to experiment with different scenarios:
+
+```tasknet
+# Conservative scenario
+param SAFE_BATTERY = 30.0;
+param DRIVE_DURATION = 400;  # Slower driving
+
+# Aggressive scenario
+# param SAFE_BATTERY = 15.0;
+# param DRIVE_DURATION = 600;  # Faster driving
+```
+
+Simply comment/uncomment parameter declarations to switch between configurations without touching the rest of your model.
+
 ## Solver Modes
 
 ### Commands

@@ -30,6 +30,141 @@ tasknet Example {
 
 Both comment styles can be used interchangeably in the same file. C-style `//` comments are particularly useful when using editor features like VS Code's block comment toggle (Cmd+/ or Ctrl+/).
 
+## Parameters
+
+TaskSAT supports **parameters** to define reusable constants and avoid magic numbers in specifications. Parameters can be declared at three scopes:
+
+1. **TaskNet-level (global)**: Available everywhere in the specification
+2. **TaskDef-level**: Inherited by all task instances of that definition
+3. **Task-level**: Override parameters for specific task instances
+
+### Syntax
+
+**TaskNet-level parameters:**
+```tasknet
+tasknet Example {
+  param DRIVE_DURATION = 600;
+  param SAFE_BATTERY = 20.0;
+  param CHARGE_RATE = 0.5;
+  
+  task drive {
+    duration DRIVE_DURATION;  // Reference global param
+  }
+}
+```
+
+**TaskDef-level parameters:**
+```tasknet
+taskdef work_def {
+  param {
+    DURATION = 10;
+    RATE = 0.5;
+  }
+  
+  duration DURATION;
+  
+  impacts {
+    maint { battery +~ RATE; }
+  }
+}
+
+task work1 : work_def {}  // Uses DURATION=10, RATE=0.5
+```
+
+**Task-level parameter overrides:**
+```tasknet
+task work2 : work_def {
+  param {
+    DURATION = 20;  // Override to 20
+    RATE = 1.0;     // Override to 1.0
+  }
+}
+```
+
+### Resolution Order
+
+When a parameter is referenced, TaskSAT resolves it using the following priority (highest to lowest):
+
+1. **Task-level** params (if the reference is within a task body)
+2. **TaskDef-level** params (if the task was instantiated from a taskdef)
+3. **TaskNet-level** params (global scope)
+
+If a parameter is not found in any scope, it is treated as a state name in constraint formulas.
+
+### Parameter References
+
+Parameters can be referenced in:
+- Task durations: `duration PARAM_NAME;`
+- Task start times: `start PARAM_NAME;`
+- Time ranges: `start in [PARAM_MIN, PARAM_MAX];`
+- Timeline ranges: `battery : rate [0.0, CAPACITY] = INITIAL;`
+- Impact values: `battery += CHARGE_AMOUNT;`
+- Constraint formulas: `battery >= SAFE_LEVEL`
+
+Parameters can also reference other parameters:
+```tasknet
+param BASE_DURATION = 10;
+param LONG_DURATION = BASE_DURATION * 2;  // Not yet supported - use explicit values
+
+taskdef work {
+  param {
+    DURATION = BASE_DURATION;  // Reference global param
+  }
+  duration DURATION;
+}
+```
+
+**Note:** Currently, parameter values must be literal constants (integers or reals). Arithmetic expressions in parameter definitions will be supported in a future version.
+
+### Example: Parameterized Battery Constraints
+
+```tasknet
+tasknet RoverWithParams {
+  end = 2000;
+  
+  param SAFE_BATTERY = 20.0;
+  param CRITICAL_BATTERY = 10.0;
+  param CHARGE_RATE = 0.5;
+  param DISCHARGE_RATE = -0.3;
+  
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+  
+  taskdef drive_def {
+    param { DURATION = 600; }
+    duration DURATION;
+    impacts { maint { battery +~ DISCHARGE_RATE; } }
+  }
+  
+  taskdef charge_def {
+    param { DURATION = 300; }
+    duration DURATION;
+    impacts { maint { battery +~ CHARGE_RATE; } }
+  }
+  
+  task drive1 : drive_def {}  // Uses default DURATION=600
+  
+  task drive2 : drive_def {
+    param { DURATION = 800; }  // Override to 800
+  }
+  
+  task charge : charge_def {}
+  
+  constraints {
+    always (battery >= SAFE_BATTERY);  // Global safety constraint
+  }
+}
+```
+
+### Benefits of Parameters
+
+- **Avoid magic numbers**: Makes specifications more readable and maintainable
+- **Single source of truth**: Change a value in one place, affects all references
+- **Reusable definitions**: TaskDefs with configurable defaults
+- **Type safety**: Parameters are resolved at parse time, errors caught early
+- **Documentation**: Parameter names serve as inline documentation
+
 ## TaskNet Structure
 
 Here is the schematic structure of a TaskNet specification:
@@ -37,6 +172,8 @@ Here is the schematic structure of a TaskNet specification:
 ```tasknet
 tasknet Name {
   end = time_horizon;
+
+  param PARAM_NAME = value;
 
   timelines {
     timeline_name : timeline_type = value;
@@ -50,10 +187,16 @@ tasknet Name {
   }
 
   taskdef definition_name {
+    param {
+      PARAM_NAME = value;
+    }
     ...
   }
 
   task instance_name : definition_name {
+    param {
+      PARAM_NAME = value;
+    }
     ...
   }
 
@@ -83,6 +226,7 @@ tasknet Name {
 
 **Components:**
 - `end`: Global time horizon (all tasks must complete by this time)
+- `param`: Global parameter declarations (optional, covered in detail below)
 - `timelines`: Declare all state variables and resources
 - `init`: Initial state constraints (optional)
 - `taskdef`: Reusable task definitions (optional)

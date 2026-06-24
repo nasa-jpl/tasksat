@@ -37,8 +37,19 @@ class TaskNetPrinter:
             return v.v
         elif isinstance(v, BoolVal):
             return "true" if v.v else "false"
+        elif isinstance(v, ParamRef):
+            return v.name
         else:
             return str(v)
+
+    def print_param_value(self, v) -> str:
+        """Print parameter value (can be Value or Range)"""
+        if isinstance(v, IntRange):
+            return self.print_int_range(v)
+        elif isinstance(v, RealRange):
+            return self.print_real_range(v)
+        else:
+            return self.print_value(v)
 
     def print_int_range(self, r: IntRange) -> str:
         return f"[{r.low}, {r.high}]"
@@ -237,6 +248,16 @@ class TaskNetPrinter:
         if task.priority is not None:
             self._writeln(out, f"{ind}priority {task.priority};")
 
+        # Parameters
+        if task.params:
+            self._writeln(out, f"{ind}param {{")
+            self.indent_level += 1
+            ind2 = self._indent()
+            for param in task.params:
+                self._writeln(out, f"{ind2}{param.name} = {self.print_param_value(param.value)};")
+            self.indent_level -= 1
+            self._writeln(out, f"{ind}}}")
+
         # Timing
         if task.start is not None:
             self._writeln(out, f"{ind}start {task.start};")
@@ -368,6 +389,12 @@ class TaskNetPrinter:
         # End time
         self._writeln(out, f"{ind}end = {tn.endTime};")
         self._writeln(out)
+
+        # Parameters (top-level)
+        for param in tn.params:
+            self._writeln(out, f"{ind}param {param.name} = {self.print_param_value(param.value)};")
+        if tn.params:
+            self._writeln(out)
 
         # Timelines
         if tn.timelines:

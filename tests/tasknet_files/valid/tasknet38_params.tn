@@ -1,0 +1,33 @@
+// Test parameter support at all levels
+
+tasknet ParamsTest {
+  end = 100;
+
+  // Top-level param declarations
+  param GLOBAL_DURATION = 10;
+  param GLOBAL_RATE = 0.5;
+
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+
+  taskdef work {
+    param {
+      DURATION = GLOBAL_DURATION;  // Reference global param
+    }
+
+    duration DURATION;
+  }
+
+  task t1 : work {}  // Uses DURATION=10, RATE=0.5
+
+  task t2 : work {
+    param {
+      DURATION = 20;  // Override to 20
+    }
+  }
+
+  task t3 {
+    duration GLOBAL_DURATION;  // Direct reference to global
+  }
+}
