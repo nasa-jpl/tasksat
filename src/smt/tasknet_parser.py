@@ -690,10 +690,10 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
     impacts = None
 
     # Extract values from items
-    after_instances_list: List[str] = []
-    after_definitions_list: List[str] = []
-    containedin_instances_list: List[str] = []
-    containedin_definitions_list: List[str] = []
+    after_instances_list: List[AfterDependency] = []
+    after_definitions_list: List[AfterDependency] = []
+    containedin_instances_list: List[ContainedinDependency] = []
+    containedin_definitions_list: List[ContainedinDependency] = []
     pre_list: List[TlCon] = []
     inv_list: List[TlCon] = []
     post_list: List[TlCon] = []
@@ -717,15 +717,20 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
         elif item_kind == "start":
             start = value
         elif item_kind == "after":
+            # value is list of (name, gap) tuples from parser
+            deps = [AfterDependency(task_id=name, gap=gap) for name, gap in value]
             if kind == TaskKind.DEFINITION:
-                after_definitions_list.extend(value)
+                after_definitions_list.extend(deps)
             else:  # INSTANCE or OPTIONAL
-                after_instances_list.extend(value)
+                after_instances_list.extend(deps)
         elif item_kind == "containedin":
+            # value is list of (name, start_off, end_off) tuples from parser
+            deps = [ContainedinDependency(task_id=name, start_offset=start_off, end_offset=end_off)
+                    for name, start_off, end_off in value]
             if kind == TaskKind.DEFINITION:
-                containedin_definitions_list.extend(value)
+                containedin_definitions_list.extend(deps)
             else:  # INSTANCE or OPTIONAL
-                containedin_instances_list.extend(value)
+                containedin_instances_list.extend(deps)
         elif item_kind == "constraints":
             pre_c, inv_c, post_c = value
             pre_list.extend(pre_c)
@@ -809,10 +814,10 @@ def _build_task_range(name: str, min_instances: int, max_instances: int,
     impacts = None
 
     # Extract values from items (same logic as _build_task)
-    after_instances_list: List[str] = []
-    after_definitions_list: List[str] = []
-    containedin_instances_list: List[str] = []
-    containedin_definitions_list: List[str] = []
+    after_instances_list: List[AfterDependency] = []
+    after_definitions_list: List[AfterDependency] = []
+    containedin_instances_list: List[ContainedinDependency] = []
+    containedin_definitions_list: List[ContainedinDependency] = []
     pre_list: List[TlCon] = []
     inv_list: List[TlCon] = []
     post_list: List[TlCon] = []
@@ -837,9 +842,14 @@ def _build_task_range(name: str, min_instances: int, max_instances: int,
             start = value
         elif item_kind == "after":
             # For ranges, we'll expand these later in the transform
-            after_instances_list.extend(value)
+            # value is list of (name, gap) tuples from parser
+            deps = [AfterDependency(task_id=name, gap=gap) for name, gap in value]
+            after_instances_list.extend(deps)
         elif item_kind == "containedin":
-            containedin_instances_list.extend(value)
+            # value is list of (name, start_off, end_off) tuples from parser
+            deps = [ContainedinDependency(task_id=name, start_offset=start_off, end_offset=end_off)
+                    for name, start_off, end_off in value]
+            containedin_instances_list.extend(deps)
         elif item_kind == "constraints":
             pre_c, inv_c, post_c = value
             pre_list.extend(pre_c)
@@ -1046,13 +1056,93 @@ def p_task_start_opt_empty(p):
 
 
 def p_task_after(p):
-    "task_after : AFTER name_list SEMI"
+    "task_after : AFTER after_list SEMI"
     p[0] = p[2]
+
+
+def p_after_list_empty(p):
+    "after_list : empty"
+    p[0] = []
+
+
+def p_after_list_single(p):
+    "after_list : after_item"
+    p[0] = [p[1]]
+
+
+def p_after_list_many(p):
+    "after_list : after_list COMMA after_item"
+    p[0] = p[1] + [p[3]]
+
+
+# No constraint: after A
+def p_after_item_simple(p):
+    "after_item : NAME"
+    p[0] = (p[1], None)
+
+
+# Full range: after A [min, max]
+def p_after_item_range(p):
+    "after_item : NAME LBRACKET NUMBER COMMA NUMBER RBRACKET"
+    p[0] = (p[1], IntRange(int(p[3]), int(p[5])))
+
+
+# Shorthand: after A num  →  after A [0, num]
+def p_after_item_shorthand(p):
+    "after_item : NAME NUMBER"
+    p[0] = (p[1], IntRange(0, int(p[2])))
 
 
 def p_task_containedin(p):
-    "task_containedin : CONTAINEDIN name_list SEMI"
+    "task_containedin : CONTAINEDIN containedin_list SEMI"
     p[0] = p[2]
+
+
+def p_containedin_list_empty(p):
+    "containedin_list : empty"
+    p[0] = []
+
+
+def p_containedin_list_single(p):
+    "containedin_list : containedin_item"
+    p[0] = [p[1]]
+
+
+def p_containedin_list_many(p):
+    "containedin_list : containedin_list COMMA containedin_item"
+    p[0] = p[1] + [p[3]]
+
+
+# No offsets: containedin A
+def p_containedin_item_simple(p):
+    "containedin_item : NAME"
+    p[0] = (p[1], None, None)
+
+
+# Two offsets (each can be range or number): containedin A offset offset
+def p_containedin_item_two_offsets(p):
+    "containedin_item : NAME offset offset"
+    start_off, end_off = p[2], p[3]
+    p[0] = (p[1], start_off, end_off)
+
+
+# Single offset: containedin A num  →  containedin A [0, num] [0, num]
+def p_containedin_item_one_num(p):
+    "containedin_item : NAME NUMBER"
+    num = IntRange(0, int(p[2]))
+    p[0] = (p[1], num, num)
+
+
+# Offset can be a range: [min, max]
+def p_offset_range(p):
+    "offset : LBRACKET NUMBER COMMA NUMBER RBRACKET"
+    p[0] = IntRange(int(p[2]), int(p[4]))
+
+
+# Offset can be a number: num  →  [0, num]
+def p_offset_num(p):
+    "offset : NUMBER"
+    p[0] = IntRange(0, int(p[1]))
 
 
 def p_name_list_empty(p):

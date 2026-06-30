@@ -292,9 +292,9 @@ task task_name {
 - `duration_range`: Duration range
 - `start`: Preferred start time 
 - `start_range` / `end_range`: Time windows for when task can start/end
-- `after`: Task ordering dependencies (must start after other tasks end). Note that an `after X` constraint in a task definition
+- `after`: Task ordering dependencies (must start after other tasks end). Supports optional time gaps. Note that an `after X` constraint in a task definition
    means that the task must occur after some instance of the task definition `X`.
-- `containedin`: Task must execute during another task. Note that a `containedin X` constraint in a task definition
+- `containedin`: Task must execute during another task. Supports optional start/end offsets. Note that a `containedin X` constraint in a task definition
    means that the task must be contained in some instance of the task definition `X`.
 - `pre`: Preconditions (must hold at task start)
 - `inv`: Invariants (must hold throughout task execution)
@@ -644,14 +644,32 @@ All task fields are optional unless marked as required.
 
 **after**
 - Task ordering: this task must start after other tasks end
-- Example: `after` warmup, calibrate;
+- Syntax:
+  - `after A;` - No gap (immediate succession allowed): `B.start >= A.end`
+  - `after A [min, max];` - Time gap range: `B.start ∈ [A.end + min, A.end + max]`
+  - `after A num;` - Shorthand for `[0, num]`: `B.start ∈ [A.end, A.end + num]`
+  - Multiple dependencies: `after A [10, 20], B 30, C;`
+- Examples:
+  - `after warmup, calibrate;` - Start after both warmup and calibrate end
+  - `after predrive [50, 100];` - Start 50-100 time units after predrive ends
+  - `after charge 30;` - Start within 30 time units after charge ends
 - Can reference task instance names or taskdef names (type-level dependencies)
 - When referencing a taskdef name, TaskSAT automatically creates instances if none exist (see Auto-Instantiation)
 
 **containedin**
 - Hierarchical constraint: this task must execute entirely within another task.
-  This task's start >= parent's start AND this task's end <= parent's end
-- Example: `containedin` daylight, communication_window;
+- Syntax:
+  - `containedin A;` - No offsets: `A.start <= child.start AND child.end <= A.end`
+  - `containedin A [s_min, s_max] [e_min, e_max];` - Full ranges:
+    - Start offset: `child.start ∈ [A.start + s_min, A.start + s_max]`
+    - End offset: `child.end ∈ [A.end - e_max, A.end - e_min]`
+  - `containedin A num1 num2;` - Shorthand for `[0, num1] [0, num2]`
+  - `containedin A num;` - Shorthand for `[0, num] [0, num]`
+  - Mixed syntax: `containedin A 10 [20, 30];` - First offset shorthand, second full range
+- Examples:
+  - `containedin daylight, communication_window;` - Must be within both windows
+  - `containedin warmup [5, 10] [5, 10];` - Start 5-10 after warmup starts, end 5-10 before warmup ends
+  - `containedin observation 20;` - Start within 20 of parent start, end within 20 of parent end
 - Can reference task instance names or taskdef names (type-level dependencies)
 - When referencing a taskdef name, TaskSAT automatically creates instances if none exist (see Auto-Instantiation)
 

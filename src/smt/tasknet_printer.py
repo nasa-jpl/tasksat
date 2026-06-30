@@ -57,6 +57,60 @@ class TaskNetPrinter:
     def print_real_range(self, r: RealRange) -> str:
         return f"[{r.low}, {r.high}]"
 
+    # ===== Dependencies =====
+
+    def _format_after_deps(self, deps) -> str:
+        """Format list of AfterDependency objects as string."""
+        items = []
+        for dep in deps:
+            if dep.gap is None:
+                items.append(dep.task_id)
+            else:
+                # Print shorthand if gap.low == 0
+                if dep.gap.low == 0:
+                    items.append(f"{dep.task_id} {dep.gap.high}")
+                else:
+                    items.append(f"{dep.task_id} [{dep.gap.low}, {dep.gap.high}]")
+        return ", ".join(items)
+
+    def _format_containedin_deps(self, deps) -> str:
+        """Format list of ContainedinDependency objects as string."""
+        items = []
+        for dep in deps:
+            if dep.start_offset is None and dep.end_offset is None:
+                items.append(dep.task_id)
+            else:
+                # Determine best format (single num, two nums, or full ranges/mixed)
+                parts = [dep.task_id]
+
+                # Check for shorthand formats
+                start_is_zero = dep.start_offset and dep.start_offset.low == 0
+                end_is_zero = dep.end_offset and dep.end_offset.low == 0
+                same_range = (dep.start_offset and dep.end_offset and
+                            dep.start_offset.high == dep.end_offset.high)
+
+                if start_is_zero and end_is_zero and same_range:
+                    # Single number shorthand: containedin A 10
+                    parts.append(str(dep.start_offset.high))
+                elif start_is_zero and end_is_zero:
+                    # Two numbers shorthand: containedin A 10 20
+                    parts.append(f"{dep.start_offset.high} {dep.end_offset.high}")
+                else:
+                    # Mixed or full ranges: containedin A [10,20] 30 or containedin A 10 [20,30]
+                    if dep.start_offset:
+                        if dep.start_offset.low == 0:
+                            parts.append(str(dep.start_offset.high))
+                        else:
+                            parts.append(f"[{dep.start_offset.low}, {dep.start_offset.high}]")
+                    if dep.end_offset:
+                        if dep.end_offset.low == 0:
+                            parts.append(str(dep.end_offset.high))
+                        else:
+                            parts.append(f"[{dep.end_offset.low}, {dep.end_offset.high}]")
+
+                items.append(' '.join(parts))
+        return ", ".join(items)
+
     # ===== Timelines =====
 
     def print_timeline(self, out: TextIO, tl: Timeline):
@@ -192,17 +246,17 @@ class TaskNetPrinter:
 
         # Dependencies
         if task_range.after_instances:
-            names = ", ".join(task_range.after_instances)
-            self._writeln(out, f"{ind}after {names};")
+            items = self._format_after_deps(task_range.after_instances)
+            self._writeln(out, f"{ind}after {items};")
         if task_range.after_definitions:
-            names = ", ".join(task_range.after_definitions)
-            self._writeln(out, f"{ind}after {names};")
+            items = self._format_after_deps(task_range.after_definitions)
+            self._writeln(out, f"{ind}after {items};")
         if task_range.containedin_instances:
-            names = ", ".join(task_range.containedin_instances)
-            self._writeln(out, f"{ind}containedin {names};")
+            items = self._format_containedin_deps(task_range.containedin_instances)
+            self._writeln(out, f"{ind}containedin {items};")
         if task_range.containedin_definitions:
-            names = ", ".join(task_range.containedin_definitions)
-            self._writeln(out, f"{ind}containedin {names};")
+            items = self._format_containedin_deps(task_range.containedin_definitions)
+            self._writeln(out, f"{ind}containedin {items};")
 
         # Constraints and impacts (same as regular task)
         if task_range.pre or task_range.inv or task_range.post:
@@ -272,17 +326,17 @@ class TaskNetPrinter:
 
         # Dependencies
         if task.after_instances:
-            names = ", ".join(task.after_instances)
-            self._writeln(out, f"{ind}after {names};")
+            items = self._format_after_deps(task.after_instances)
+            self._writeln(out, f"{ind}after {items};")
         if task.after_definitions:
-            names = ", ".join(task.after_definitions)
-            self._writeln(out, f"{ind}after {names};")
+            items = self._format_after_deps(task.after_definitions)
+            self._writeln(out, f"{ind}after {items};")
         if task.containedin_instances:
-            names = ", ".join(task.containedin_instances)
-            self._writeln(out, f"{ind}containedin {names};")
+            items = self._format_containedin_deps(task.containedin_instances)
+            self._writeln(out, f"{ind}containedin {items};")
         if task.containedin_definitions:
-            names = ", ".join(task.containedin_definitions)
-            self._writeln(out, f"{ind}containedin {names};")
+            items = self._format_containedin_deps(task.containedin_definitions)
+            self._writeln(out, f"{ind}containedin {items};")
 
         # Constraints
         if task.pre:

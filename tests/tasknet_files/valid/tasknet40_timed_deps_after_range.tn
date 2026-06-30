@@ -1,0 +1,14 @@
+// Test 2: After with full range syntax
+tasknet TimedDeps02_FullRange {
+  end = 1000;
+
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+
+  task A { duration_range [10, 10]; }
+  task B {
+    after A [50, 100];  // Full range: start 50-100 after A ends
+    duration_range [20, 20];
+  }
+}

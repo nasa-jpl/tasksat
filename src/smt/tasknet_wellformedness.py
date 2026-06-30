@@ -99,61 +99,61 @@ class WellFormednessChecker:
 
             # Check instance-level 'after' dependencies (reference specific task instances)
             if t.after_instances is not None:
-                for dep_id in t.after_instances:
-                    if dep_id not in self.task_map:
+                for dep in t.after_instances:
+                    if dep.task_id not in self.task_map:
                         self._error(
                             "Task Dependency",
-                            f"Task '{t.id}' has 'after' dependency on non-existent task '{dep_id}'"
+                            f"Task '{t.id}' has 'after' dependency on non-existent task '{dep.task_id}'"
                         )
-                    elif self.task_map[dep_id].kind == TaskKind.DEFINITION:
+                    elif self.task_map[dep.task_id].kind == TaskKind.DEFINITION:
                         self._error(
                             "Task Dependency",
-                            f"Task '{t.id}' has 'after' dependency on definition '{dep_id}' "
+                            f"Task '{t.id}' has 'after' dependency on definition '{dep.task_id}' "
                             "(use definition-level 'after' in taskdef, not instance)"
                         )
 
             # Check type-level 'after' dependencies (reference task definitions)
             if t.after_definitions is not None:
-                for def_id in t.after_definitions:
-                    if def_id not in self.task_map:
+                for dep in t.after_definitions:
+                    if dep.task_id not in self.task_map:
                         self._error(
                             "Task Dependency",
-                            f"Task '{t.id}' has 'after' dependency on non-existent definition '{def_id}'"
+                            f"Task '{t.id}' has 'after' dependency on non-existent definition '{dep.task_id}'"
                         )
-                    elif self.task_map[def_id].kind != TaskKind.DEFINITION:
+                    elif self.task_map[dep.task_id].kind != TaskKind.DEFINITION:
                         self._error(
                             "Task Dependency",
-                            f"Task '{t.id}' has type-level 'after' on non-definition '{def_id}' "
+                            f"Task '{t.id}' has type-level 'after' on non-definition '{dep.task_id}' "
                             "(should reference a taskdef)"
                         )
 
             # Check instance-level 'containedin' dependencies (reference specific task instances)
             if t.containedin_instances is not None:
-                for parent_id in t.containedin_instances:
-                    if parent_id not in self.task_map:
+                for dep in t.containedin_instances:
+                    if dep.task_id not in self.task_map:
                         self._error(
                             "Task Dependency",
-                            f"Task '{t.id}' has 'containedin' dependency on non-existent task '{parent_id}'"
+                            f"Task '{t.id}' has 'containedin' dependency on non-existent task '{dep.task_id}'"
                         )
-                    elif self.task_map[parent_id].kind == TaskKind.DEFINITION:
+                    elif self.task_map[dep.task_id].kind == TaskKind.DEFINITION:
                         self._error(
                             "Task Dependency",
-                            f"Task '{t.id}' has 'containedin' dependency on definition '{parent_id}' "
+                            f"Task '{t.id}' has 'containedin' dependency on definition '{dep.task_id}' "
                             "(use definition-level 'containedin' in taskdef, not instance)"
                         )
 
             # Check type-level 'containedin' dependencies (reference task definitions)
             if t.containedin_definitions is not None:
-                for def_id in t.containedin_definitions:
-                    if def_id not in self.task_map:
+                for dep in t.containedin_definitions:
+                    if dep.task_id not in self.task_map:
                         self._error(
                             "Task Dependency",
-                            f"Task '{t.id}' has 'containedin' dependency on non-existent definition '{def_id}'"
+                            f"Task '{t.id}' has 'containedin' dependency on non-existent definition '{dep.task_id}'"
                         )
-                    elif self.task_map[def_id].kind != TaskKind.DEFINITION:
+                    elif self.task_map[dep.task_id].kind != TaskKind.DEFINITION:
                         self._error(
                             "Task Dependency",
-                            f"Task '{t.id}' has type-level 'containedin' on non-definition '{def_id}' "
+                            f"Task '{t.id}' has type-level 'containedin' on non-definition '{dep.task_id}' "
                             "(should reference a taskdef)"
                         )
 

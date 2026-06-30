@@ -86,9 +86,14 @@ def tasknet_detail(name):
     if not tn_file:
         return "TaskNet not found", 404
 
-    # Read tasknet source
+    # Read tasknet source with line numbers
     with open(tn_file, 'r') as f:
-        source = f.read()
+        source_lines = f.readlines()
+
+    # Add line numbers (right-aligned, with padding)
+    max_line_num = len(source_lines)
+    line_num_width = len(str(max_line_num))
+    source = ''.join(f"{i+1:>{line_num_width}}  {line}" for i, line in enumerate(source_lines))
 
     # Check for schedule data in new folder structure
     latest_dir = SCHEDULES_DIR / name / 'latest'
@@ -189,7 +194,15 @@ def verification_report(name, timestamp='latest'):
         return f"Source file not found: {source_path}", 404
 
     with open(source_path, 'r') as f:
-        source = f.read()
+        source_lines = f.readlines()
+
+    # Original source (for editing)
+    source_original = ''.join(source_lines)
+
+    # Source with line numbers (for display)
+    max_line_num = len(source_lines)
+    line_num_width = len(str(max_line_num))
+    source_display = ''.join(f"{i+1:>{line_num_width}}  {line}" for i, line in enumerate(source_lines))
 
     # Load schedule and timeline data
     schedule_file = report_dir / 'schedule.json'
@@ -262,7 +275,8 @@ def verification_report(name, timestamp='latest'):
         'verification_report.html',
         name=name,
         timestamp=timestamp,
-        source=source,
+        source=source_display,
+        source_original=source_original,
         schedule=schedule_data,
         timeline=timeline_data,
         properties=properties_data,

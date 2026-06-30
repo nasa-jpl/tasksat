@@ -96,41 +96,41 @@ class TaskNetSMT:
         for t in tasks:
             # Check after dependencies
             if t.after_definitions is not None:
-                for def_id in t.after_definitions:
+                for dep in t.after_definitions:
                     def_instances = [inst for inst in tasks
-                                    if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
+                                    if inst.definition == dep.task_id and inst.kind != TaskKind.DEFINITION]
                     if not def_instances:
                         errors.append(
-                            f"Task '{t.id}' has 'after {def_id}' dependency, "
-                            f"but no instances of '{def_id}' exist in the tasknet."
+                            f"Task '{t.id}' has 'after {dep.task_id}' dependency, "
+                            f"but no instances of '{dep.task_id}' exist in the tasknet."
                         )
 
             # Check containedin dependencies
             if t.containedin_definitions is not None:
-                for def_id in t.containedin_definitions:
+                for dep in t.containedin_definitions:
                     def_instances = [inst for inst in tasks
-                                    if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
+                                    if inst.definition == dep.task_id and inst.kind != TaskKind.DEFINITION]
                     if not def_instances:
                         errors.append(
-                            f"Task '{t.id}' has 'containedin {def_id}' dependency, "
-                            f"but no instances of '{def_id}' exist in the tasknet."
+                            f"Task '{t.id}' has 'containedin {dep.task_id}' dependency, "
+                            f"but no instances of '{dep.task_id}' exist in the tasknet."
                         )
 
             # Check instance-level dependencies
             if t.after_instances is not None:
-                for tid in t.after_instances:
-                    if tid not in self.start_vars:
+                for dep in t.after_instances:
+                    if dep.task_id not in self.start_vars:
                         errors.append(
-                            f"Task '{t.id}' has 'after {tid}' dependency, "
-                            f"but task '{tid}' does not exist."
+                            f"Task '{t.id}' has 'after {dep.task_id}' dependency, "
+                            f"but task '{dep.task_id}' does not exist."
                         )
 
             if t.containedin_instances is not None:
-                for tid in t.containedin_instances:
-                    if tid not in self.start_vars:
+                for dep in t.containedin_instances:
+                    if dep.task_id not in self.start_vars:
                         errors.append(
-                            f"Task '{t.id}' has 'containedin {tid}' dependency, "
-                            f"but task '{tid}' does not exist."
+                            f"Task '{t.id}' has 'containedin {dep.task_id}' dependency, "
+                            f"but task '{dep.task_id}' does not exist."
                         )
 
         if errors:
@@ -764,9 +764,9 @@ class TaskNetSMT:
 
             # Check instance's direct type-level constraints
             if task.after_definitions:
-                needed_taskdefs.extend(task.after_definitions)
+                needed_taskdefs.extend([dep.task_id for dep in task.after_definitions])
             if task.containedin_definitions:
-                needed_taskdefs.extend(task.containedin_definitions)
+                needed_taskdefs.extend([dep.task_id for dep in task.containedin_definitions])
 
             # Note: We don't need to check inherited constraints here because
             # resolve_task_definitions has already merged them into the task
@@ -913,78 +913,183 @@ class TaskNetSMT:
 
             # Instance-level after dependencies (specific task IDs)
             if t.after_instances is not None:
-                for bid in t.after_instances:
-                    if bid not in self.end_vars:
+                for dep in t.after_instances:
+                    if dep.task_id not in self.end_vars:
                         # ill-formed TaskNet — forbid
                         self.solver.add(False)
                     else:
-                        add_constraint(self.end_vars[bid] <= s, label=f"dependency_after: '{t.id}' after '{bid}'")
+                        if dep.gap is None:
+                            # Original: A.start >= B.end
+                            add_constraint(self.end_vars[dep.task_id] <= s,
+                                         label=f"dependency_after: '{t.id}' after '{dep.task_id}'")
+                        else:
+                            # With gap: B.end + gap.low <= A.start <= B.end + gap.high
+                            b_end = self.end_vars[dep.task_id]
+                            add_constraint(
+                                b_end + dep.gap.low <= s,
+                                s <= b_end + dep.gap.high,
+                                label=f"dependency_after: '{t.id}' starts [{dep.gap.low},{dep.gap.high}] after '{dep.task_id}' ends"
+                            )
 
             # Type-level after dependencies (definition IDs)
             if t.after_definitions is not None:
-                for def_id in t.after_definitions:
+                for dep in t.after_definitions:
                     # Check if there's a specific auto-instance for this task
-                    auto_key = (t.id, def_id)
+                    auto_key = (t.id, dep.task_id)
                     if auto_key in self.auto_instance_map:
                         # Use the specific auto-instance created for this task
                         auto_id = self.auto_instance_map[auto_key]
-                        add_constraint(self.end_vars[auto_id] <= s,
-                                     label=f"dependency_after: '{t.id}' after '{auto_id}'")
+                        if dep.gap is None:
+                            add_constraint(self.end_vars[auto_id] <= s,
+                                         label=f"dependency_after: '{t.id}' after '{auto_id}'")
+                        else:
+                            b_end = self.end_vars[auto_id]
+                            add_constraint(
+                                b_end + dep.gap.low <= s,
+                                s <= b_end + dep.gap.high,
+                                label=f"dependency_after: '{t.id}' starts [{dep.gap.low},{dep.gap.high}] after '{auto_id}' ends"
+                            )
                     else:
                         # No auto-instance: use OR semantics over all available instances
                         def_instances = [inst for inst in tasks
-                                        if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
+                                        if inst.definition == dep.task_id and inst.kind != TaskKind.DEFINITION]
 
                         if not def_instances:
                             # No instances of required definition - constraint cannot be satisfied
                             if isinstance(self.solver, Solver):
-                                self.add_tracked(False, f"missing_dependency_after: task '{t.id}' requires '{def_id}' but no instances exist")
+                                self.add_tracked(False, f"missing_dependency_after: task '{t.id}' requires '{dep.task_id}' but no instances exist")
                             else:
                                 self.solver.add(False)
                         else:
                             # At least one instance must complete before this task starts (OR semantics)
-                            constraints = [self.end_vars[inst.id] <= s for inst in def_instances]
-                            add_constraint(Or(*constraints), label=f"dependency_after: task '{t.id}' must start after some instance of '{def_id}'")
+                            if dep.gap is None:
+                                constraints = [self.end_vars[inst.id] <= s for inst in def_instances]
+                                add_constraint(Or(*constraints), label=f"dependency_after: task '{t.id}' must start after some instance of '{dep.task_id}'")
+                            else:
+                                # With gap: OR over all instances with gap constraints
+                                constraints = [And(self.end_vars[inst.id] + dep.gap.low <= s,
+                                                   s <= self.end_vars[inst.id] + dep.gap.high)
+                                             for inst in def_instances]
+                                add_constraint(Or(*constraints), label=f"dependency_after: task '{t.id}' must start [{dep.gap.low},{dep.gap.high}] after some instance of '{dep.task_id}'")
 
             # Instance-level containedin dependencies (specific task IDs)
             if t.containedin_instances is not None:
-                for pid in t.containedin_instances:
-                    if pid not in self.start_vars or pid not in self.end_vars:
+                for dep in t.containedin_instances:
+                    if dep.task_id not in self.start_vars or dep.task_id not in self.end_vars:
                         # ill-formed TaskNet — forbid
                         self.solver.add(False)
                     else:
-                        # parent task must be active during this task's execution
-                        # parent_start <= this_start AND this_end <= parent_end
-                        add_constraint(self.start_vars[pid] <= s, e <= self.end_vars[pid],
-                                     label=f"dependency_containedin: '{t.id}' within '{pid}'")
+                        p_start = self.start_vars[dep.task_id]
+                        p_end = self.end_vars[dep.task_id]
+
+                        if dep.start_offset is None and dep.end_offset is None:
+                            # Original: parent.start <= child.start AND child.end <= parent.end
+                            add_constraint(p_start <= s, e <= p_end,
+                                         label=f"dependency_containedin: '{t.id}' within '{dep.task_id}'")
+                        else:
+                            constraints = []
+
+                            # Start offset: parent.start + offset.low <= child.start <= parent.start + offset.high
+                            if dep.start_offset is not None:
+                                constraints.extend([
+                                    p_start + dep.start_offset.low <= s,
+                                    s <= p_start + dep.start_offset.high
+                                ])
+                            else:
+                                constraints.append(p_start <= s)
+
+                            # End offset: parent.end - offset.high <= child.end <= parent.end - offset.low
+                            if dep.end_offset is not None:
+                                constraints.extend([
+                                    p_end - dep.end_offset.high <= e,
+                                    e <= p_end - dep.end_offset.low
+                                ])
+                            else:
+                                constraints.append(e <= p_end)
+
+                            add_constraint(*constraints,
+                                         label=f"dependency_containedin: '{t.id}' within '{dep.task_id}' with offsets")
 
             # Type-level containedin dependencies (definition IDs)
             if t.containedin_definitions is not None:
-                for def_id in t.containedin_definitions:
+                for dep in t.containedin_definitions:
                     # Check if there's a specific auto-instance for this task
-                    auto_key = (t.id, def_id)
+                    auto_key = (t.id, dep.task_id)
                     if auto_key in self.auto_instance_map:
                         # Use the specific auto-instance created for this task
                         auto_id = self.auto_instance_map[auto_key]
-                        add_constraint(self.start_vars[auto_id] <= s, e <= self.end_vars[auto_id],
-                                     label=f"dependency_containedin: '{t.id}' within '{auto_id}'")
+                        p_start = self.start_vars[auto_id]
+                        p_end = self.end_vars[auto_id]
+
+                        if dep.start_offset is None and dep.end_offset is None:
+                            add_constraint(p_start <= s, e <= p_end,
+                                         label=f"dependency_containedin: '{t.id}' within '{auto_id}'")
+                        else:
+                            constraints = []
+
+                            if dep.start_offset is not None:
+                                constraints.extend([
+                                    p_start + dep.start_offset.low <= s,
+                                    s <= p_start + dep.start_offset.high
+                                ])
+                            else:
+                                constraints.append(p_start <= s)
+
+                            if dep.end_offset is not None:
+                                constraints.extend([
+                                    p_end - dep.end_offset.high <= e,
+                                    e <= p_end - dep.end_offset.low
+                                ])
+                            else:
+                                constraints.append(e <= p_end)
+
+                            add_constraint(*constraints,
+                                         label=f"dependency_containedin: '{t.id}' within '{auto_id}' with offsets")
                     else:
                         # No auto-instance: use OR semantics over all available instances
                         def_instances = [inst for inst in tasks
-                                        if inst.definition == def_id and inst.kind != TaskKind.DEFINITION]
+                                        if inst.definition == dep.task_id and inst.kind != TaskKind.DEFINITION]
 
                         if not def_instances:
                             # No instances of required definition - constraint cannot be satisfied
                             if isinstance(self.solver, Solver):
-                                self.add_tracked(False, f"missing_dependency_containedin: task '{t.id}' requires '{def_id}' but no instances exist")
+                                self.add_tracked(False, f"missing_dependency_containedin: task '{t.id}' requires '{dep.task_id}' but no instances exist")
                             else:
                                 self.solver.add(False)
                         else:
                             # Must be contained within at least one instance (OR semantics)
-                            # Encoding: (parent1.start <= s AND e <= parent1.end) OR (parent2.start <= s AND e <= parent2.end) OR ...
-                            constraints = [And(self.start_vars[inst.id] <= s, e <= self.end_vars[inst.id])
-                                          for inst in def_instances]
-                            add_constraint(Or(*constraints), label=f"dependency_containedin: task '{t.id}' must be contained within some instance of '{def_id}'")
+                            if dep.start_offset is None and dep.end_offset is None:
+                                # Encoding: (parent1.start <= s AND e <= parent1.end) OR (parent2.start <= s AND e <= parent2.end) OR ...
+                                constraints = [And(self.start_vars[inst.id] <= s, e <= self.end_vars[inst.id])
+                                              for inst in def_instances]
+                                add_constraint(Or(*constraints), label=f"dependency_containedin: task '{t.id}' must be contained within some instance of '{dep.task_id}'")
+                            else:
+                                # With offsets: OR over all instances with offset constraints
+                                or_constraints = []
+                                for inst in def_instances:
+                                    p_start = self.start_vars[inst.id]
+                                    p_end = self.end_vars[inst.id]
+                                    inst_constraints = []
+
+                                    if dep.start_offset is not None:
+                                        inst_constraints.extend([
+                                            p_start + dep.start_offset.low <= s,
+                                            s <= p_start + dep.start_offset.high
+                                        ])
+                                    else:
+                                        inst_constraints.append(p_start <= s)
+
+                                    if dep.end_offset is not None:
+                                        inst_constraints.extend([
+                                            p_end - dep.end_offset.high <= e,
+                                            e <= p_end - dep.end_offset.low
+                                        ])
+                                    else:
+                                        inst_constraints.append(e <= p_end)
+
+                                    or_constraints.append(And(*inst_constraints))
+
+                                add_constraint(Or(*or_constraints), label=f"dependency_containedin: task '{t.id}' must be contained within some instance of '{dep.task_id}' with offsets")
 
         # --- All task boundaries are pairwise distinct ---
         # Only for included tasks

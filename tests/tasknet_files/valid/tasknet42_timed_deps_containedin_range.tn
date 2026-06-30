@@ -1,0 +1,14 @@
+// Test 4: Containedin with full range syntax
+tasknet TimedDeps04_ContainedinFull {
+  end = 1000;
+
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+
+  task parent { duration_range [100, 100]; }
+  task child {
+    containedin parent [10, 20] [30, 40];  // Full ranges for both offsets
+    duration_range [40, 40];
+  }
+}

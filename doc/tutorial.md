@@ -1018,6 +1018,106 @@ taskdef drive {
 }
 ```
 
+## Time-Constrained Dependencies
+
+TaskSAT supports optional time ranges on `after` and `containedin` dependencies to express temporal gaps and offsets between tasks.
+
+### After Dependencies with Time Gaps
+
+By default, `after` allows immediate succession. Add a time range to enforce a gap:
+
+```tasknet
+tasknet RoverWithGaps {
+  end = 30000;
+  
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+  
+  taskdef predrive { duration_range [300, 300]; }
+  taskdef drive { 
+    after predrive [600, 1200];  // Must start 600-1200 time units after predrive
+    duration_range [6000, 6000]; 
+  }
+  
+  task drive1 : drive {}
+}
+```
+
+**Syntax variants:**
+- `after A [min, max];` - Full range: start between `A.end + min` and `A.end + max`
+- `after A num;` - Shorthand for `[0, num]`: start within `num` time units after A ends
+- `after A;` - No gap: start anytime at or after A ends (default behavior)
+
+**Examples:**
+```tasknet
+after warmup [100, 200];     // Start 100-200 time units after warmup ends
+after charge 500;            // Start within 500 time units after charge ends  
+after calibrate;             // Start anytime after calibrate ends (default)
+after A [50, 100], B 200;    // Multiple dependencies with different gaps
+```
+
+### Containedin Dependencies with Offsets
+
+By default, `containedin` requires exact containment. Add offsets to specify margins from the parent's boundaries:
+
+```tasknet
+tasknet ObservationWindow {
+  end = 30000;
+  
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+  
+  taskdef warmup { duration_range [1000, 1000]; }
+  taskdef science {
+    containedin warmup [100, 200] [100, 200];  
+    // Start 100-200 after warmup starts
+    // End 100-200 before warmup ends
+    duration_range [500, 500];
+  }
+  
+  task warmup1 : warmup {}
+  task science1 : science {}
+}
+```
+
+If `warmup1` runs from 1000 to 2000:
+- `science1.start ∈ [1100, 1200]` (warmup start + [100, 200])
+- `science1.end ∈ [1800, 1900]` (warmup end - [200, 100])
+
+**Syntax variants:**
+- `containedin A [s_min, s_max] [e_min, e_max];` - Full ranges for start and end offsets
+- `containedin A num1 num2;` - Shorthand for `[0, num1] [0, num2]`
+- `containedin A num;` - Shorthand for `[0, num] [0, num]` (same offset for both)
+- `containedin A 100 [200, 300];` - Mixed: shorthand start, full range end
+- `containedin A;` - No offsets: exact containment (default behavior)
+
+**Examples:**
+```tasknet
+containedin daylight [300, 600] [300, 600];  // Must have margins from daylight boundaries
+containedin window 500 1000;                 // Start within 500 of start, end within 1000 of end
+containedin observation 200;                 // 200 time unit margins on both sides
+containedin parent;                          // Exact containment (default)
+```
+
+### Combining with Auto-Instantiation
+
+Time-constrained dependencies work seamlessly with auto-instantiation:
+
+```tasknet
+taskdef predrive { duration_range [300, 300]; }
+taskdef drive { 
+  after predrive [600, 1200];  // Type-level dependency with time gap
+  duration_range [6000, 6000]; 
+}
+
+task drive1 : drive {}  // Creates predrive_auto_0 with 600-1200 gap
+task drive2 : drive {}  // Creates predrive_auto_1 with 600-1200 gap
+```
+
+Each `drive` task gets its own `predrive` instance, scheduled 600-1200 time units before it starts.
+
 ## Solver Modes
 
 ### Commands

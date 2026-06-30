@@ -283,6 +283,58 @@ constraints {
 - `sequence [A, B]` → `"sequence_A_B"`
 - Generic formulas → `"constraint_N"` (counter-based)
 
+### Time-Constrained Dependencies
+
+TaskSAT supports optional time range parameters on `after` and `containedin` dependencies to express temporal gaps and offsets.
+
+**After dependencies** (with optional gap):
+- `after A` - No gap: `B.start >= A.end` (immediate succession allowed)
+- `after A [min, max]` - Full range: `B.start ∈ [A.end + min, A.end + max]`
+- `after A num` - Shorthand for `[0, num]`: `B.start ∈ [A.end, A.end + num]`
+
+**Containedin dependencies** (with optional offsets):
+- `containedin A` - No offsets: `A.start <= child.start AND child.end <= A.end` (exact containment)
+- `containedin A [s_min, s_max] [e_min, e_max]` - Full ranges:
+  - Start offset: `child.start ∈ [A.start + s_min, A.start + s_max]`
+  - End offset: `child.end ∈ [A.end - e_max, A.end - e_min]`
+- `containedin A num1 num2` - Shorthand for `[0, num1] [0, num2]`
+- `containedin A num` - Shorthand for `[0, num] [0, num]`
+- **Mixed per-offset**: Can mix range/shorthand for individual offsets:
+  - `containedin A 10 [20,30]` → `containedin A [0,10] [20,30]`
+  - `containedin A [10,20] 30` → `containedin A [10,20] [0,30]`
+
+**Example:**
+```tasknet
+taskdef predrive { duration_range [10, 10]; }
+taskdef drive { 
+  after predrive [50, 100];  // Start 50-100 time units after predrive ends
+  duration_range [30, 30]; 
+}
+
+taskdef warmup { duration_range [50, 50]; }
+taskdef science {
+  containedin warmup [5, 10] [5, 10];  // Start 5-10 after warmup starts, end 5-10 before warmup ends
+  duration_range [30, 30];
+}
+
+task drive1 : drive {}
+task warmup1 : warmup {}
+task science1 : science {}
+```
+
+**Behavior:**
+- Auto-instantiates `predrive_auto_0` for `drive1`
+- `drive1.start ∈ [predrive_auto_0.end + 50, predrive_auto_0.end + 100]`
+- `science1.start ∈ [warmup1.start + 5, warmup1.start + 10]`
+- `science1.end ∈ [warmup1.end - 10, warmup1.end - 5]`
+
+**Implementation:**
+- AST: `AfterDependency` and `ContainedinDependency` dataclasses in [tasknet_ast.py](src/smt/tasknet_ast.py)
+- Parser: Extended grammar in [tasknet_parser.py](src/smt/tasknet_parser.py) supports all syntax variants
+- SMT: Gap and offset constraints in [tasknet_smt.py](src/smt/tasknet_smt.py)
+- Transforms: Dependency object handling in [tasknet_transforms.py](src/smt/tasknet_transforms.py)
+- Printer: Smart formatting in [tasknet_printer.py](src/smt/tasknet_printer.py)
+
 ## Dependencies
 
 **Python:**

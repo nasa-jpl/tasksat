@@ -1,0 +1,14 @@
+// Test 1: Basic after with time gap (shorthand syntax)
+tasknet TimedDeps01_BasicAfter {
+  end = 1000;
+
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+
+  task A { duration_range [10, 10]; }
+  task B {
+    after A 30;  // Shorthand: start 0-30 after A ends
+    duration_range [20, 20];
+  }
+}

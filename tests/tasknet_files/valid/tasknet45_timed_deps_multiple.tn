@@ -1,0 +1,17 @@
+// Test 7: Multiple dependencies with different gap types
+tasknet TimedDeps07_Multiple {
+  end = 1000;
+
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+
+  task A { duration_range [10, 10]; }
+  task B { duration_range [10, 10]; }
+  task C { duration_range [10, 10]; }
+
+  task D {
+    after A [50, 100], B 30, C;  // Mixed: full range, shorthand, no gap
+    duration_range [20, 20];
+  }
+}

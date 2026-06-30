@@ -1,0 +1,14 @@
+// Test 3: Containedin with single number shorthand
+tasknet TimedDeps03_ContainedinBasic {
+  end = 1000;
+
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+
+  task parent { duration_range [100, 100]; }
+  task child {
+    containedin parent 20;  // Shorthand: [0,20] [0,20] margins on both sides
+    duration_range [60, 60];
+  }
+}

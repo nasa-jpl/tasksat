@@ -83,8 +83,8 @@ taskdef <name> {
   duration_range [<min>, <max>];
   start <number | PARAM_NAME>;
   start_range [<min>, <max>];
-  after <task_or_taskdef>, ...;
-  containedin <task_or_taskdef>, ...;
+  after <after_item>, ...;
+  containedin <containedin_item>, ...;
   pre { <constraints> }
   inv { <constraints> }
   post { <constraints> }
@@ -114,6 +114,51 @@ request task <name>[<min>..<max>] : <taskdef> { ... }       # min required + (ma
 - `request task science[1..3]` → `science_0` (required), `science_1`, `science_2` (request)
 
 Expanded tasks inherit all properties from the range declaration.
+
+## Task Dependencies
+
+### After (with optional time gap)
+
+```
+# Syntax
+after <after_item>, ...;
+
+# After item variants
+<task_or_taskdef>                    # No gap: B.start >= A.end
+<task_or_taskdef> [<min>, <max>]    # Gap range: B.start ∈ [A.end + min, A.end + max]
+<task_or_taskdef> <num>              # Shorthand: B.start ∈ [A.end, A.end + num]
+
+# Examples
+after warmup;                        # Start after warmup ends (immediate succession allowed)
+after predrive [50, 100];            # Start 50-100 time units after predrive ends
+after charge 500;                    # Start within 500 time units after charge ends
+after A [10, 20], B 30, C;           # Multiple dependencies with different gaps
+```
+
+### Containedin (with optional start/end offsets)
+
+```
+# Syntax
+containedin <containedin_item>, ...;
+
+# Containedin item variants
+<task_or_taskdef>                                              # No offsets: exact containment
+<task_or_taskdef> [<s_min>, <s_max>] [<e_min>, <e_max>]      # Full ranges for offsets
+<task_or_taskdef> <num1> <num2>                               # Shorthand: [0, num1] [0, num2]
+<task_or_taskdef> <num>                                       # Shorthand: [0, num] [0, num]
+<task_or_taskdef> <offset1> <offset2>                         # Mixed: each offset can be range or number
+
+# Offset semantics
+# Start offset [s_min, s_max]: child.start ∈ [parent.start + s_min, parent.start + s_max]
+# End offset [e_min, e_max]: child.end ∈ [parent.end - e_max, parent.end - e_min]
+
+# Examples
+containedin daylight;                          # Exact containment within daylight
+containedin warmup [5, 10] [5, 10];           # Start 5-10 after warmup starts, end 5-10 before warmup ends
+containedin window 100 200;                    # Start within 100 of start, end within 200 of end
+containedin observation 50;                    # 50 time unit margins on both sides
+containedin parent 10 [20, 30];                # Mixed: shorthand start (0-10), full range end (20-30)
+```
 
 ## Constraints
 

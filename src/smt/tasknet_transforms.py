@@ -651,18 +651,18 @@ def reclassify_constraints(tn: TaskNet) -> TaskNet:
 
             # Collect from both sources
             if task.after_instances:
-                for ref_id in task.after_instances:
-                    if ref_id in taskdef_ids:
-                        definitions.append(ref_id)
+                for dep in task.after_instances:
+                    if dep.task_id in taskdef_ids:
+                        definitions.append(dep)
                     else:
-                        instances.append(ref_id)
+                        instances.append(dep)
 
             if task.after_definitions:
-                for ref_id in task.after_definitions:
-                    if ref_id in taskdef_ids:
-                        definitions.append(ref_id)
+                for dep in task.after_definitions:
+                    if dep.task_id in taskdef_ids:
+                        definitions.append(dep)
                     else:
-                        instances.append(ref_id)
+                        instances.append(dep)
 
             # Update task
             task.after_instances = instances if instances else None
@@ -676,18 +676,18 @@ def reclassify_constraints(tn: TaskNet) -> TaskNet:
 
             # Collect from both sources
             if task.containedin_instances:
-                for ref_id in task.containedin_instances:
-                    if ref_id in taskdef_ids:
-                        definitions.append(ref_id)
+                for dep in task.containedin_instances:
+                    if dep.task_id in taskdef_ids:
+                        definitions.append(dep)
                     else:
-                        instances.append(ref_id)
+                        instances.append(dep)
 
             if task.containedin_definitions:
-                for ref_id in task.containedin_definitions:
-                    if ref_id in taskdef_ids:
-                        definitions.append(ref_id)
+                for dep in task.containedin_definitions:
+                    if dep.task_id in taskdef_ids:
+                        definitions.append(dep)
                     else:
-                        instances.append(ref_id)
+                        instances.append(dep)
 
             # Update task
             task.containedin_instances = instances if instances else None
@@ -745,20 +745,20 @@ def instantiate_from_definitions(tn: TaskNet) -> TaskNet:
 
         # Check instance's direct constraints
         if task.after_definitions:
-            needed_taskdefs.extend(task.after_definitions)
+            needed_taskdefs.extend([dep.task_id for dep in task.after_definitions])
 
         if task.containedin_definitions:
-            needed_taskdefs.extend(task.containedin_definitions)
+            needed_taskdefs.extend([dep.task_id for dep in task.containedin_definitions])
 
         # Check inherited constraints from taskdef
         if task.definition and task.definition in taskdefs:
             taskdef = taskdefs[task.definition]
 
             if taskdef.after_definitions:
-                needed_taskdefs.extend(taskdef.after_definitions)
+                needed_taskdefs.extend([dep.task_id for dep in taskdef.after_definitions])
 
             if taskdef.containedin_definitions:
-                needed_taskdefs.extend(taskdef.containedin_definitions)
+                needed_taskdefs.extend([dep.task_id for dep in taskdef.containedin_definitions])
 
         # For each needed taskdef, record the dependency
         for def_id in needed_taskdefs:
@@ -896,17 +896,17 @@ def link_auto_instances(tn: TaskNet) -> TaskNet:
 
         # Check instance's direct constraints
         if task.after_definitions:
-            needed_taskdefs.extend(task.after_definitions)
+            needed_taskdefs.extend([dep.task_id for dep in task.after_definitions])
         if task.containedin_definitions:
-            needed_taskdefs.extend(task.containedin_definitions)
+            needed_taskdefs.extend([dep.task_id for dep in task.containedin_definitions])
 
         # Check inherited constraints from taskdef
         if task.definition and task.definition in taskdefs:
             taskdef = taskdefs[task.definition]
             if taskdef.after_definitions:
-                needed_taskdefs.extend(taskdef.after_definitions)
+                needed_taskdefs.extend([dep.task_id for dep in taskdef.after_definitions])
             if taskdef.containedin_definitions:
-                needed_taskdefs.extend(taskdef.containedin_definitions)
+                needed_taskdefs.extend([dep.task_id for dep in taskdef.containedin_definitions])
 
         # For each needed taskdef, record the dependency
         for def_id in needed_taskdefs:
@@ -943,17 +943,17 @@ def link_auto_instances(tn: TaskNet) -> TaskNet:
 
         # Direct constraints
         if task.after_definitions:
-            after_defs.extend(task.after_definitions)
+            after_defs.extend([dep.task_id for dep in task.after_definitions])
         if task.containedin_definitions:
-            containedin_defs.extend(task.containedin_definitions)
+            containedin_defs.extend([dep.task_id for dep in task.containedin_definitions])
 
         # Inherited constraints from taskdef
         if task.definition and task.definition in taskdefs:
             taskdef = taskdefs[task.definition]
             if taskdef.after_definitions:
-                after_defs.extend(taskdef.after_definitions)
+                after_defs.extend([dep.task_id for dep in taskdef.after_definitions])
             if taskdef.containedin_definitions:
-                containedin_defs.extend(taskdef.containedin_definitions)
+                containedin_defs.extend([dep.task_id for dep in taskdef.containedin_definitions])
 
         # Determine which "group" to use for lookups:
         # - Original tasks use their own ID

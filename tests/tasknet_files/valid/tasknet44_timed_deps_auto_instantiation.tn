@@ -1,0 +1,25 @@
+// Test 6: Type-level dependencies with auto-instantiation
+tasknet TimedDeps06_AutoInstantiation {
+  end = 30000;
+
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+
+  taskdef predrive { duration_range [300, 300]; }
+  taskdef drive {
+    after predrive [600, 1200];  // Type-level: start 600-1200 after predrive ends
+    duration_range [6000, 6000];
+  }
+
+  taskdef warmup { duration_range [1000, 1000]; }
+  taskdef science {
+    containedin warmup [50, 100] [50, 100];  // Type-level: margins within warmup
+    duration_range [800, 800];
+  }
+
+  task drive1 : drive {}
+  task drive2 : drive {}
+  task science1 : science {}
+  task warmup1 : warmup {}
+}

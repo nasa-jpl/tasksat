@@ -1,0 +1,14 @@
+// Test 5: Containedin with mixed syntax (shorthand + full range)
+tasknet TimedDeps05_Mixed {
+  end = 1000;
+
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+
+  task parent { duration_range [100, 100]; }
+  task child {
+    containedin parent 10 [20, 30];  // Mixed: shorthand start, full range end
+    duration_range [60, 60];
+  }
+}

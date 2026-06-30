@@ -21,6 +21,33 @@ class RealRange:
     low: float
     high: float
 
+# ----- Temporal Dependencies -----
+
+@dataclass
+class AfterDependency:
+    """After dependency with optional time gap.
+
+    Semantics:
+    - gap=None: B.start >= A.end (immediate succession allowed)
+    - gap=[min, max]: B.start ∈ [A.end + min, A.end + max]
+    """
+    task_id: str  # Task or taskdef name
+    gap: Optional[IntRange] = None  # Optional [min, max] gap after predecessor ends
+
+@dataclass
+class ContainedinDependency:
+    """Containedin dependency with optional start/end offsets.
+
+    Semantics:
+    - No offsets: parent.start <= child.start AND child.end <= parent.end
+    - With offsets:
+      - start_offset=[min, max]: child.start ∈ [parent.start + min, parent.start + max]
+      - end_offset=[min, max]: child.end ∈ [parent.end - max, parent.end - min]
+    """
+    task_id: str  # Task or taskdef name
+    start_offset: Optional[IntRange] = None  # Optional [min, max] offset from parent start
+    end_offset: Optional[IntRange] = None  # Optional [min, max] offset from parent end
+
 # ----- Values -----
 
 @dataclass
@@ -166,11 +193,11 @@ class Task:
     dur: Optional[int] = None
     start: Optional[int] = None
     # Instance-level temporal constraints (reference specific task IDs)
-    after_instances: Optional[List[str]] = None
-    containedin_instances: Optional[List[str]] = None
+    after_instances: Optional[List[AfterDependency]] = None
+    containedin_instances: Optional[List[ContainedinDependency]] = None
     # Type-level temporal constraints (reference definition IDs)
-    after_definitions: Optional[List[str]] = None
-    containedin_definitions: Optional[List[str]] = None
+    after_definitions: Optional[List[AfterDependency]] = None
+    containedin_definitions: Optional[List[ContainedinDependency]] = None
     pre: Optional[List[TlCon]] = None
     inv: Optional[List[TlCon]] = None
     post: Optional[List[TlCon]] = None
@@ -197,10 +224,10 @@ class TaskRange:
     durrng: Optional[IntRange] = None
     dur: Optional[int] = None
     start: Optional[int] = None
-    after_instances: Optional[List[str]] = None
-    containedin_instances: Optional[List[str]] = None
-    after_definitions: Optional[List[str]] = None
-    containedin_definitions: Optional[List[str]] = None
+    after_instances: Optional[List[AfterDependency]] = None
+    containedin_instances: Optional[List[ContainedinDependency]] = None
+    after_definitions: Optional[List[AfterDependency]] = None
+    containedin_definitions: Optional[List[ContainedinDependency]] = None
     pre: Optional[List[TlCon]] = None
     inv: Optional[List[TlCon]] = None
     post: Optional[List[TlCon]] = None
