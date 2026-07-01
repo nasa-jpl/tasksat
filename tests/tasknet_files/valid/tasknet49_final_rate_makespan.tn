@@ -1,0 +1,28 @@
+// Makespan (not horizon) semantics for a RATE timeline.
+// fuel drifts at rate -1 from 100. The last task ends at t=25, so fuel = 75
+// right after it ends; at the horizon end=100 fuel would be 0.
+// final { fuel in [70,80] } HOLDS because it is checked at the makespan (75),
+// NOT at the horizon (0). This guards the makespan-vs-endTime distinction.
+tasknet Final49 {
+  end = 100;
+
+  timelines {
+    fuel : rate [0.0, 100.0] bounds [0.0, 100.0] = 100.0 initial_rate = -1.0;
+  }
+
+  final {
+    fuel in [70.0, 80.0];
+  }
+
+  task burn {
+    id 1;
+    start_range [5, 5];
+    end_range   [25, 25];
+    duration 20;
+    start 5;
+
+    impacts {
+      pre { fuel += 0.0; }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+// Wellformedness error: the final block references a timeline that does not exist.
+tasknet FinalBadTimeline {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+  }
+
+  final {
+    nonexistent in [1.0, 2.0];
+  }
+
+  task t {
+    id 1;
+    start_range [10, 10];
+    end_range   [30, 30];
+    duration 20;
+    start 10;
+    impacts { post { battery += 5.0; } }
+  }
+}

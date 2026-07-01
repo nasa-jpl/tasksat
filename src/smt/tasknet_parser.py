@@ -18,6 +18,8 @@ reserved = {
     "timelines":      "TIMELINES",
     "initial":        "INITIAL",
     "initial_rate":   "INITIAL_RATE",
+    "final":          "FINAL",
+    "extends":        "EXTENDS",
     "task":           "TASK",
     "taskdef":        "TASKDEF",
     "optional":       "OPTIONAL",
@@ -203,6 +205,8 @@ def p_tasknet(p):
     init_cons: List[TlCon] = []
     constraints_tl: List[TemporalProperty] = []
     properties: List[TemporalProperty] = []
+    final_cons: Optional[List[TlCon]] = None
+    final_extends: bool = False
 
     for kind, value in items:
         if kind == "end":
@@ -215,6 +219,12 @@ def p_tasknet(p):
             tasks.append(value)
         elif kind == "initial":
             init_cons.extend(value)
+        elif kind == "final":
+            block_cons, extends = value
+            if final_cons is None:
+                final_cons = []
+            final_cons.extend(block_cons)
+            final_extends = final_extends or extends
         elif kind == "constraints_tl":
             constraints_tl.extend(value)
         elif kind == "properties":
@@ -234,6 +244,8 @@ def p_tasknet(p):
         initial_constraints=init_cons,
         constraints=constraints_tl,
         properties=properties,
+        final_constraints=final_cons,
+        final_extends_initial=final_extends,
     )
 
 
@@ -295,6 +307,10 @@ def p_tasknet_body_item_timelines(p):
 def p_tasknet_body_item_initial(p):
     "tasknet_body_item : initial_block"
     p[0] = ("initial", p[1])
+
+def p_tasknet_body_item_final(p):
+    "tasknet_body_item : final_block"
+    p[0] = ("final", p[1])
 
 def p_tasknet_body_item_task(p):
     "tasknet_body_item : task_def"
@@ -548,6 +564,16 @@ def p_timeline_kind_rate(p):
 def p_initial_block(p):
     "initial_block : INITIAL LBRACE tlcon_list RBRACE"
     p[0] = p[3]  # list[TlCon]
+
+# ------------ final state property (checked, not enforced) ------------
+
+def p_final_block_plain(p):
+    "final_block : FINAL LBRACE tlcon_list RBRACE"
+    p[0] = (p[3], False)  # (list[TlCon], extends_initial?)
+
+def p_final_block_extends(p):
+    "final_block : FINAL EXTENDS INITIAL LBRACE tlcon_list RBRACE"
+    p[0] = (p[5], True)   # (list[TlCon], extends_initial?)
 
 # ------------ tasks ------------
 

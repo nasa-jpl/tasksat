@@ -378,3 +378,16 @@ class TaskNet:
     initial_constraints: List[TlCon] = field(default_factory=list)
     constraints: List[TemporalProperty] = field(default_factory=list)
     properties: List[TemporalProperty] = field(default_factory=list)
+    # Final block: checked as a property (for all schedules, the terminal state
+    # after the last scheduled task must satisfy these). None = no final block.
+    final_constraints: Optional[List[TlCon]] = None
+    final_extends_initial: bool = False
+
+    def effective_final_constraints(self) -> List[TlCon]:
+        """The full list of final constraints to check, resolving the
+        `extends initial` sugar (initial's constraints plus the block's own)."""
+        if self.final_constraints is None:
+            return []
+        if self.final_extends_initial:
+            return list(self.initial_constraints) + list(self.final_constraints)
+        return list(self.final_constraints)

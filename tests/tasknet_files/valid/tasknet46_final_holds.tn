@@ -1,0 +1,28 @@
+// Final block that HOLDS: after the last task, battery = 70 (in [55,100])
+// and mode = idle. Checks state + cumulative timelines at the terminal state.
+tasknet Final46 {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+    mode    : state(idle, working) = idle;
+  }
+
+  final {
+    battery in [55.0, 100.0];
+    mode = idle;
+  }
+
+  task work {
+    id 1;
+    start_range [10, 10];
+    end_range   [30, 30];
+    duration 20;
+    start 10;
+
+    impacts {
+      pre  { mode = working; }
+      post { mode = idle; battery += 20.0; }
+    }
+  }
+}

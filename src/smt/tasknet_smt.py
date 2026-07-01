@@ -1301,6 +1301,58 @@ class TaskNetSMT:
         else:
             self.solver.add(init_constraint)
 
+    def _final_makespan(self):
+        """Z3 expression for the makespan = the latest end time among the tasks
+        that are actually scheduled. Optional/request tasks that are not included
+        contribute 0 so they never inflate the makespan. If nothing is scheduled
+        the makespan is 0 (the initial state)."""
+        M = 0
+        for t in self.all_scheduled_tasks:
+            e = self.end_vars[t.id]
+            if t.id in self.optional_included:
+                contrib = If(self.optional_included[t.id], e, 0)
+            elif t.id in self.request_included:
+                contrib = If(self.request_included[t.id], e, 0)
+            else:
+                contrib = e  # required instance: always scheduled
+            M = If(contrib > M, contrib, M)
+        return M
+
+    def _final_zone_index(self, tl_id: str, k: int) -> int:
+        """Zone index at which to read timeline `tl_id` for the final (terminal)
+        state, given that the makespan coincides with zone boundary index `k`
+        (z[k] == M). This is the right-limit of the timeline at time M:
+
+          - Rate timelines carry a continuously varying VALUE. Its value var at
+            index k is exactly the value at time M; index k+1 would already
+            include drift over the interval after the last task. So read at k.
+          - All other timelines (state/atomic/cumulative/claimable) are constant
+            between task boundaries and change via impacts applied on the
+            transition OUT of boundary k. The post-task value therefore lives at
+            index k+1. Read at k+1 (clamped to the last zone)."""
+        if tl_id in self.rate_tl_rate_zone:
+            return k
+        return k + 1 if k + 1 < self.zone_count else k
+
+    def _encode_final_holds(self):
+        """Z3 formula: the effective final constraints hold in the terminal state,
+        i.e. right after the last scheduled task ends (the right-limit at the
+        makespan M = max end time). M coincides with exactly one zone boundary
+        (zone bijection); for each candidate boundary k we assert that, if
+        z[k] == M, every final constraint holds at its per-timeline terminal
+        zone index (see _final_zone_index). This is NOT added to the main solver;
+        it is only used for property-style checking."""
+        eff = self.tn.effective_final_constraints()
+        if not eff:
+            return True
+        M = self._final_makespan()
+        clauses = []
+        for k in range(self.zone_count):
+            conds_k = And(*[self._tlcon_holds_zone(tlc, self._final_zone_index(tlc.id, k))
+                            for tlc in eff])
+            clauses.append(Or(Not(self.zones[k] == M), conds_k))
+        return And(*clauses)
+
     # ------------------------------
     # Impact semantics over zones
     # ------------------------------
@@ -2604,13 +2656,15 @@ class TaskNetTL(TaskNetSMT):
         """
         print()
 
-        # 0) If no properties, done.
-        if not getattr(self.tn, "properties", None):
+        # 0) If no properties and no final block, done.
+        has_final = getattr(self.tn, "final_constraints", None) is not None
+        if not getattr(self.tn, "properties", None) and not has_final:
             print("\nNo temporal properties attached to this TaskNet.")
             return [], []
         else:
             from color_utils import header
-            print(header(f"\nChecking {len(self.tn.properties)} temporal properties:"))
+            total_checks = len(self.tn.properties) + (1 if has_final else 0)
+            print(header(f"\nChecking {total_checks} temporal properties:"))
 
         # Realizability already verified by initial validity check in tasknet_verifier.py
         # Skip redundant check to eliminate one solver call (optimization)
@@ -2619,6 +2673,7 @@ class TaskNetTL(TaskNetSMT):
         import sys
         import time
         total_props = len(self.tn.properties)
+        total_checks = total_props + (1 if has_final else 0)
         holds_count = 0
         violated_count = 0
         unknown_count = 0
@@ -2627,7 +2682,7 @@ class TaskNetTL(TaskNetSMT):
 
         for idx, prop in enumerate(self.tn.properties, start=1):
             # Show progress indicator before checking - with newline to force flush
-            print(f"[{idx}/{total_props}] Checking property '{prop.name}'...")
+            print(f"[{idx}/{total_checks}] Checking property '{prop.name}'...")
             sys.stdout.flush()
 
             prop_start = time.time()
@@ -2707,6 +2762,75 @@ class TaskNetTL(TaskNetSMT):
 
                 property_results.append({
                     'name': prop.name,
+                    'status': 'unknown',
+                    'duration_sec': round(prop_duration, 3),
+                    'formula': formula_str
+                })
+
+        # FINAL STATE PROPERTY: check the final block (if any) as a property.
+        # Semantics: for every valid schedule, the terminal state (right after the
+        # last scheduled task ends) must satisfy the final constraints. We look for
+        # a counterexample by asserting Not(final holds).
+        if has_final:
+            idx = total_props + 1
+            print(f"[{idx}/{total_checks}] Checking final state property 'final'...")
+            sys.stdout.flush()
+            prop_start = time.time()
+
+            enc = TaskNetTL(self.tn, error_trace=self.error_trace, use_optimization=False)
+            enc.solver.add(Not(enc._encode_final_holds()))
+            enc.solver.set("timeout", 10000)
+            res = enc.solver.check()
+            prop_duration = time.time() - prop_start
+
+            # Render the effective final block as a human-readable formula string
+            from io import StringIO
+            from tasknet_printer import TaskNetPrinter
+            printer = TaskNetPrinter()
+            buf = StringIO()
+            for c in self.tn.effective_final_constraints():
+                printer.print_tlcon(buf, c)
+            body = " ".join(buf.getvalue().split())
+            prefix = "final extends initial" if self.tn.final_extends_initial else "final"
+            formula_str = f"{prefix} {{ {body} }}"
+
+            if res == sat:
+                from color_utils import error
+                print(error("  → VIOLATED!"))
+                violated_count += 1
+                model = enc.solver.model()
+                if self.error_trace:
+                    print("Counterexample:\n")
+                    enc.pretty_print(model)
+                violations.append({
+                    'property_name': 'final',
+                    'model': model,
+                    'encoder': enc,
+                    'violation_zones': []
+                })
+                property_results.append({
+                    'name': 'final',
+                    'status': 'violated',
+                    'duration_sec': round(prop_duration, 3),
+                    'formula': formula_str,
+                    'violation_zones': []
+                })
+            elif str(res) == "unsat":
+                from color_utils import success
+                print(success("  → HOLDS ✓"))
+                holds_count += 1
+                property_results.append({
+                    'name': 'final',
+                    'status': 'holds',
+                    'duration_sec': round(prop_duration, 3),
+                    'formula': formula_str
+                })
+            else:
+                from color_utils import warning
+                print(warning("  → UNKNOWN ⚠"))
+                unknown_count += 1
+                property_results.append({
+                    'name': 'final',
                     'status': 'unknown',
                     'duration_sec': round(prop_duration, 3),
                     'formula': formula_str

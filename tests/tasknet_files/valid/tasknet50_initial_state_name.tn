@@ -1,0 +1,33 @@
+// Regression guard: a state-NAME constraint in an `initial` block must be
+// resolved (name -> state) and enforced. The initial block pins mode to `idle`
+// at time 0, and the final block checks it is `busy` at the end (the task
+// switches it). Both use state names, exercising resolution in initial and
+// final. If resolution were broken, the unresolved name would make the initial
+// constraint unsatisfiable (UNSAT); a valid schedule proves it works.
+tasknet Initial50 {
+  end = 100;
+
+  timelines {
+    mode : state(idle, busy) = idle;
+  }
+
+  initial {
+    mode = idle;
+  }
+
+  final {
+    mode = busy;
+  }
+
+  task work {
+    id 1;
+    start_range [10, 10];
+    end_range   [30, 30];
+    duration 20;
+    start 10;
+
+    impacts {
+      post { mode = busy; }
+    }
+  }
+}

@@ -642,6 +642,37 @@ and then a range of values could be specified in an initial block:
 
 In this case we attempt to see if there is a schedule if the battery is below 60. In fact, there isn't.
 
+#### Final Values
+
+Where the `initial` block *constrains* the state at the start of the schedule, the
+`final` block *checks* the state at the end. It has the same body syntax, but a
+different meaning: it is a **property**, not a constraint. It asks whether **every**
+valid schedule ends in a state satisfying the given conditions; if some schedule
+does not, that schedule is reported as a counterexample (just like a violated
+entry in the `properties` block).
+
+The end state is taken **right after the last scheduled task finishes** (the
+makespan), which may be earlier than the `end` horizon. For example, to require
+that every schedule leaves the battery at least 60% charged and the rover back at
+home:
+
+```
+  final {
+    battery in [60.0, 100.0];
+    location = home;
+  }
+```
+
+If you want the schedule to end the way it started — plus some extra conditions —
+you can write `final extends initial { ... }`, which means "the initial conditions
+and these":
+
+```
+  final extends initial {
+    battery in [60.0, 100.0];
+  }
+```
+
 ## Using Parameters
 
 Parameters allow you to define reusable constants and avoid magic numbers in your TaskSAT specifications. This makes your models more readable, maintainable, and easier to tune.
@@ -1161,6 +1192,8 @@ This is the traditional planning problem that planners solve.
 ∀ initial, schedule. constraints(initial, schedule) → properties(schedule)
 
 Prove that properties hold for all valid schedules, not just the one found in Step 1.
+The `final` block is verified in exactly this step: it is one of the `properties`,
+asserting that the terminal state (at the makespan) holds for every valid schedule.
 
 This verification capability goes beyond what traditional planners can do.
 

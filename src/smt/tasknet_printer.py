@@ -462,9 +462,21 @@ class TaskNetPrinter:
 
         # Init block
         if tn.initial_constraints:
-            self._writeln(out, f"{ind}init {{")
+            self._writeln(out, f"{ind}initial {{")
             self.indent_level += 1
             for con in tn.initial_constraints:
+                self.print_tlcon(out, con)
+            self.indent_level -= 1
+            self._writeln(out, f"{ind}}}")
+            self._writeln(out)
+
+        # Final block (checked as a property, not enforced). Preserves the
+        # `extends initial` sugar: only the block's own constraints are printed.
+        if tn.final_constraints is not None:
+            header = "final extends initial" if tn.final_extends_initial else "final"
+            self._writeln(out, f"{ind}{header} {{")
+            self.indent_level += 1
+            for con in tn.final_constraints:
                 self.print_tlcon(out, con)
             self.indent_level -= 1
             self._writeln(out, f"{ind}}}")

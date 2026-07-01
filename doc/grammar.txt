@@ -8,6 +8,7 @@ tasknet <identifier> {
   param <PARAM_NAME> = <value>;
   timelines { ... }
   initial { ... }
+  final { ... }
   taskdef <name> { ... }
   task <name> : <taskdef> { ... }
   constraints { ... }
@@ -261,9 +262,29 @@ containedin <task_id>, ...;
 
 ## Initial Constraints
 
+Hard constraints on timeline state at time 0 (restrict which schedules are valid).
+
 ```
 initial {
   <timeline> = <value>;
+  <timeline> in [<min>, <max>];
+}
+```
+
+## Final Constraints
+
+Checked as a property (NOT a constraint): for every valid schedule, the terminal
+state — right after the last scheduled task ends (the makespan) — must satisfy
+these. Same body syntax as `initial`. `final extends initial { ... }` means
+initial's constraints plus the ones listed.
+
+```
+final {
+  <timeline> = <value>;
+  <timeline> in [<min>, <max>];
+}
+
+final extends initial {
   <timeline> in [<min>, <max>];
 }
 ```
@@ -274,7 +295,7 @@ initial {
 tasknet, end, param, timelines, state, bool, atomic, cumulative, claimable, rate, bounds,
 initial_rate, taskdef, task, optional, request, id, priority, duration,
 duration_range, start, start_range, end_range, after, containedin, pre, inv, post,
-impacts, maint, initial, constraints, properties, prop, active, always,
+impacts, maint, initial, final, extends, constraints, properties, prop, active, always,
 eventually, until, sofar, once, since, and, or, not, true, false, in,
 time, sequence, mutex, with
 ```

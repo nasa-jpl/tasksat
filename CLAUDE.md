@@ -335,6 +335,63 @@ task science1 : science {}
 - Transforms: Dependency object handling in [tasknet_transforms.py](src/smt/tasknet_transforms.py)
 - Printer: Smart formatting in [tasknet_printer.py](src/smt/tasknet_printer.py)
 
+### Initial and Final Blocks
+
+TaskSAT has two symmetric blocks describing timeline state at the boundaries of a
+schedule. They share the same body grammar (`tlcon` statements: `timeline = value;`
+or `timeline in v1, [lo,hi], ...;`) but differ fundamentally in meaning.
+
+**`initial {...}` — a hard constraint.** Sets/constrains timeline state at time 0
+(zone 0). Added to the SMT solver; it restricts which schedules are valid.
+
+```tasknet
+initial {
+  battery = 50.0;
+  mode = idle;
+}
+```
+
+**`final {...}` — a checked property.** Asserts that *for every valid schedule*,
+the terminal state satisfies the constraints. It is **not** a constraint (it never
+restricts scheduling); it is verified like a `properties {...}` entry. If some
+schedule ends in a violating state, that schedule is reported as a counterexample.
+It appears in the property results (console, `properties.json`, web UI) under the
+name `final`.
+
+```tasknet
+final {
+  battery in [55.0, 100.0];   // must hold at the end of every schedule
+  mode = idle;
+}
+```
+
+**Checkpoint = makespan, not horizon.** The final state is evaluated *right after
+the last scheduled task ends* (the makespan `M = max(end)`), which may be earlier
+than the horizon `end`. This is the right-limit of each timeline at `M`:
+- **Rate timelines**: read the VALUE at time `M` (continuous), i.e. before any
+  drift over the remaining `[M, end]` tail.
+- **State / atomic / cumulative / claimable timelines**: read the post-task value
+  (post-impacts of the last task applied), which is constant through to the horizon.
+- Caveat: a value-`+=` post-impact on a *rate* timeline by the last task is not
+  reflected in the final read (rate finals read the pre-post-impact value at `M`).
+
+**`final extends initial {...}` — extension sugar.** The final constraints are the
+initial block's constraints plus the ones listed. Convenient for "end where we
+started, and also ...". Note this includes initial's constraints literally, so
+`initial { battery = 50; }` + `final extends initial { battery in [55,100]; }`
+is contradictory (can never hold).
+
+```tasknet
+initial { mode = idle; }
+final extends initial { battery in [55.0, 100.0]; }  // mode = idle AND battery in [55,100]
+```
+
+**Implementation:**
+- AST: `TaskNet.final_constraints` / `final_extends_initial` + `effective_final_constraints()` in [tasknet_ast.py](src/smt/tasknet_ast.py)
+- Parser: `final_block` productions (`final {...}` and `final extends initial {...}`) in [tasknet_parser.py](src/smt/tasknet_parser.py)
+- SMT: `_encode_final_holds()` / `_final_makespan()` / `_final_zone_index()`, checked (negated) in `check_temporal_properties()` in [tasknet_smt.py](src/smt/tasknet_smt.py)
+- Wellformedness / Transforms / Printer: mirror the `initial` handling for `final`
+
 ## Dependencies
 
 **Python:**

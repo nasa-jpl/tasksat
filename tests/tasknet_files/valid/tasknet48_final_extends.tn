@@ -1,0 +1,32 @@
+// `final extends initial`: the final state must satisfy initial's constraints
+// (mode = idle) PLUS the added battery constraint. Both hold at the end, so the
+// final property HOLDS.
+tasknet Final48 {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+    mode    : state(idle, working) = idle;
+  }
+
+  initial {
+    mode = idle;
+  }
+
+  final extends initial {
+    battery in [55.0, 100.0];
+  }
+
+  task work {
+    id 1;
+    start_range [10, 10];
+    end_range   [30, 30];
+    duration 20;
+    start 10;
+
+    impacts {
+      pre  { mode = working; }
+      post { mode = idle; battery += 20.0; }
+    }
+  }
+}

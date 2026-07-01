@@ -1,0 +1,25 @@
+// Final block that is VIOLATED: battery ends at 70, which is not in [80,100].
+// The verifier reports a counterexample schedule.
+tasknet Final47 {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+  }
+
+  final {
+    battery in [80.0, 100.0];
+  }
+
+  task work {
+    id 1;
+    start_range [10, 10];
+    end_range   [30, 30];
+    duration 20;
+    start 10;
+
+    impacts {
+      post { battery += 20.0; }
+    }
+  }
+}

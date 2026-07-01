@@ -180,7 +180,13 @@ tasknet Name {
     ...
   }
 
-  init {
+  initial {
+    timeline_name = value;
+    timeline_name in [min, max];
+    ...
+  }
+
+  final {
     timeline_name = value;
     timeline_name in [min, max];
     ...
@@ -228,7 +234,8 @@ tasknet Name {
 - `end`: Global time horizon (all tasks must complete by this time)
 - `param`: Global parameter declarations (optional, covered in detail below)
 - `timelines`: Declare all state variables and resources
-- `init`: Initial state constraints (optional)
+- `initial`: Initial state constraints, hard constraints at time 0 (optional)
+- `final`: Final state property, checked (not enforced) at the makespan (optional)
 - `taskdef`: Reusable task definitions (optional)
 - `task`: Task instances and standalone tasks
 - `optional task`: Tasks scheduled only if needed (minimize in optimize mode)
@@ -340,13 +347,13 @@ This defines a battery timeline with:
 - Rate bounds: [-5.0, 5.0] (can charge up to 5.0 or drain up to -5.0)
 - Value bounds: [0.0, 100.0] (clamped to this range)
 
-As shown above, timelines can be initialized to a specific value when defined. Howver, this is optional. If no initial value is provided, they can range over their type, unless they are constrained by an init-block shown below schematically:
+As shown above, timelines can be initialized to a specific value when defined. Howver, this is optional. If no initial value is provided, they can range over their type, unless they are constrained by an `initial` block shown below schematically:
 
 ```tasknet
-init {
+initial {
   timeline1 = value;
   timeline2 in [min, max];
-  timeline2 in value, [min1,max1], [min2,max2]'
+  timeline3 in value, [min1,max1], [min2,max2];
   ...
 }
 ```
@@ -357,11 +364,41 @@ and timeline3 is specified as a disjunction of options: either it has a specific
 Example:
 
 ```tasknet
-init {
+initial {
   battery = 50.0;              // Battery must start at exactly 50
   temperature in [10.0, 30.0]; // Temperature can start anywhere in this range
   mode = idle;                 // Mode must start as idle
 }
+```
+
+### The Final Block
+
+The `final` block uses the **same body syntax** as `initial`, but has the opposite
+purpose. Where `initial` is a **hard constraint** on the state at time 0 (it
+restricts which schedules are valid), `final` is a **property that is checked**:
+for *every* valid schedule, the terminal state must satisfy the constraints. It
+never restricts scheduling. A violating schedule is reported as a counterexample,
+listed among the property results under the name `final`.
+
+The terminal state is evaluated **right after the last scheduled task ends** — at
+the makespan `M = max(end)`, which may be earlier than the horizon `end`. For a
+rate timeline whose value drifts, this is the value at `M` (before the idle tail);
+for other timelines it is the post-task value, which is constant thereafter.
+
+```tasknet
+final {
+  battery in [55.0, 100.0]; // every schedule must end with battery in this range
+  mode = idle;              // and mode back to idle
+}
+```
+
+`final extends initial { ... }` is shorthand for "the initial constraints, plus
+these": the terminal state must satisfy everything in `initial` and the added
+constraints.
+
+```tasknet
+initial { mode = idle; }
+final extends initial { battery in [55.0, 100.0]; }  // mode = idle AND battery in [55,100] at the end
 ```
 
 ## A Word on Constraints

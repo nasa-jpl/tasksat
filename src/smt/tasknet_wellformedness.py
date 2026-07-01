@@ -336,6 +336,12 @@ class WellFormednessChecker:
         for tlcon in self.tn.initial_constraints:
             self._check_tlcon_type("initial_constraints", "init", tlcon)
 
+        # Check final constraints (own block only; if it extends initial, those
+        # constraints are validated above as part of initial_constraints)
+        if self.tn.final_constraints is not None:
+            for tlcon in self.tn.final_constraints:
+                self._check_tlcon_type("final_constraints", "final", tlcon)
+
     def _check_tlcon_type(self, context: str, cond_type: str, tlcon: TlCon):
         """Check that a timeline condition matches its timeline type."""
         if tlcon.id not in self.timeline_map:

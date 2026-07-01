@@ -8,13 +8,14 @@ We describe a formal encoding of TaskNet scheduling problems into Satisfiability
 
 A **TaskNet** is a scheduling problem specification consisting of tasks that execute over a finite time horizon and modify shared timelines through their execution.
 
-**Definition 2.1 (TaskNet).** A TaskNet is a structure $N = \langle H, T, L, I, C_0, \Phi, \Psi \rangle$ where:
+**Definition 2.1 (TaskNet).** A TaskNet is a structure $N = \langle H, T, L, I, C_0, F, \Phi, \Psi \rangle$ where:
 
 - $H \in \mathbb{N}$ is the **time horizon**
 - $T$ is a finite set of **tasks**
 - $L$ is a finite set of **timelines**
 - $I$ is a set of **impacts** (modifications tasks perform on timelines)
-- $C_0$ is a set of **initial state constraints**
+- $C_0$ is a set of **initial state constraints** (hard constraints at time 0)
+- $F$ is a set of **final state conditions** (a property verified at the makespan; see Section 7.3)
 - $\Phi$ is a set of **temporal constraints** (must hold for schedule generation)
 - $\Psi$ is a set of **temporal properties** (to be verified on generated schedules)
 
@@ -98,6 +99,8 @@ Tasks modify timelines through **impacts**. An impact is a tuple $(t, \ell, w, \
 
 **Temporal Properties** $\Psi$: A set of temporal logic formulas to be verified. A property $\psi \in \Psi$ holds if it is satisfied by all valid schedules.
 
+**Final State Conditions** $F$: Timeline conditions (as in $C_0$) that are *verified*, not enforced: the terminal state — right after the last scheduled task ends — must satisfy $F$ for all valid schedules. Formalized in Section 7.3.
+
 **Temporal Logic:** Formulas are built from:
 - Atomic propositions: comparisons over timeline values (e.g., $\nu^{\ell} > c$, $\sigma^{\ell} = v$)
 - Task predicates: $\mathtt{active}(t)$ (true when task $t$ is executing)
@@ -119,7 +122,7 @@ such that:
 - Timeline values evolve according to impact semantics
 - All temporal constraints $\Phi$ are satisfied
 
-**Property Verification:** Given a valid schedule, check whether each temporal property $\psi \in \Psi$ holds universally.
+**Property Verification:** Given a valid schedule, check whether each temporal property $\psi \in \Psi$, and the final state conditions $F$, hold universally.
 
 **Optimization:** If multiple schedules exist, prefer schedules that minimize: (1) number of optional tasks, (2) priority-weighted cost, (3) deviation from preferred start times and durations.
 
@@ -457,6 +460,36 @@ $$\mathtt{SAT}\left(
 $$
 
 If unsatisfiable, the property holds for all valid schedules.
+
+### 7.3 Final State Property
+
+The `final` block $F$ is a set of timeline conditions (TlCon, as in Section 5.2),
+but — unlike $C_0$, which is a hard constraint at zone 0 — it is a **property**:
+it asserts that *every* valid schedule ends in a state satisfying $F$. It is
+therefore verified by the same counterexample search as $\Psi$, not added to the
+scheduling problem.
+
+The "end" is the **makespan** $M = \max_{t \in T} e_t$ (over scheduled tasks;
+unscheduled optional/request tasks contribute $0$). By the zone bijection
+(Section 3.2), $M$ coincides with exactly one zone boundary index $k$ (i.e.
+$z_k = M$). The state to evaluate is the right-limit of each timeline at $M$,
+which depends on the timeline type because of the s+1 impact design (Section 6.2):
+
+$$\mathtt{eval_{final}}(F, k) \equiv \bigwedge_{\ell \in F} \mathtt{test}\big(\ell,\ F[\ell],\ \kappa(\ell, k)\big),
+\qquad
+\kappa(\ell, k) = \begin{cases} k & \text{if } \ell \text{ is a rate timeline (value)} \\ k+1 & \text{otherwise} \end{cases}$$
+
+Post-impacts of the task ending at $M$ are written on the transition $k \to k+1$,
+so for state/atomic/cumulative/claimable timelines the terminal value lives at
+$k+1$. A rate timeline's value $\nu^{\ell}[k]$ is already the value *at* $M$;
+index $k+1$ would include drift over the post-makespan interval $(M, z_{k+1}]$, so
+it is read at $k$. The final property holds iff
+
+$$\mathtt{FinalHolds} \equiv \bigwedge_{k=0}^{Z-1} \big( z_k = M \ \rightarrow\ \mathtt{eval_{final}}(F, k) \big)$$
+
+is true for all valid schedules, checked by the counterexample search
+$\mathtt{SAT}(\ldots \land \neg\,\mathtt{FinalHolds})$. The `final extends initial`
+form uses $F = C_0 \cup F_{\text{own}}$ (initial's conditions plus the block's own).
 
 ## 8. Optional Tasks and Optimization
 

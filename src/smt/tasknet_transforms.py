@@ -95,6 +95,14 @@ def resolve_parameters(tn: TaskNet) -> TaskNet:
         if hasattr(timeline, 'bounds') and timeline.bounds is not None:
             timeline.bounds = _resolve_range(timeline.bounds, global_env)
 
+    # Resolve values in initial and final constraint blocks (tasknet scope).
+    # Unresolved names become StrVal state names (see _resolve_value).
+    final_own = tn.final_constraints if tn.final_constraints is not None else []
+    for tlcon in list(tn.initial_constraints) + final_own:
+        for con in tlcon.cons:
+            if hasattr(con, 'v'):
+                con.v = _resolve_value(con.v, global_env)
+
     return tn
 
 
@@ -564,6 +572,13 @@ def _collect_referenced_task_states(tn: TaskNet) -> Set[str]:
         task_name = _extract_task_name_from_timeline_id(tlcon.id)
         if task_name:
             referenced.add(task_name)
+
+    # Scan final constraints (the block's own; initial ones already covered above)
+    if tn.final_constraints is not None:
+        for tlcon in tn.final_constraints:
+            task_name = _extract_task_name_from_timeline_id(tlcon.id)
+            if task_name:
+                referenced.add(task_name)
 
     return referenced
 
