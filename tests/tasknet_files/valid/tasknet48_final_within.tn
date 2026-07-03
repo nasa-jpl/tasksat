@@ -1,4 +1,4 @@
-// `final extends initial`: the final state must satisfy initial's constraints
+// `final within initial`: the final state must satisfy initial's constraints
 // (mode = idle) PLUS the added battery constraint. Both hold at the end, so the
 // final property HOLDS.
 tasknet Final48 {
@@ -13,7 +13,7 @@ tasknet Final48 {
     mode = idle;
   }
 
-  final extends initial {
+  final within initial {
     battery in [55.0, 100.0];
   }
 

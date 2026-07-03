@@ -2791,7 +2791,7 @@ class TaskNetTL(TaskNetSMT):
             for c in self.tn.effective_final_constraints():
                 printer.print_tlcon(buf, c)
             body = " ".join(buf.getvalue().split())
-            prefix = "final extends initial" if self.tn.final_extends_initial else "final"
+            prefix = "final within initial" if self.tn.final_extends_initial else "final"
             formula_str = f"{prefix} {{ {body} }}"
 
             if res == sat:

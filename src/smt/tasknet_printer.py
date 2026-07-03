@@ -471,16 +471,21 @@ class TaskNetPrinter:
             self._writeln(out)
 
         # Final block (checked as a property, not enforced). Preserves the
-        # `extends initial` sugar: only the block's own constraints are printed.
+        # `within initial` sugar: only the block's own constraints are printed;
+        # the blockless form is used when there are no own constraints.
         if tn.final_constraints is not None:
-            header = "final extends initial" if tn.final_extends_initial else "final"
-            self._writeln(out, f"{ind}{header} {{")
-            self.indent_level += 1
-            for con in tn.final_constraints:
-                self.print_tlcon(out, con)
-            self.indent_level -= 1
-            self._writeln(out, f"{ind}}}")
-            self._writeln(out)
+            if tn.final_extends_initial and not tn.final_constraints:
+                self._writeln(out, f"{ind}final within initial;")
+                self._writeln(out)
+            else:
+                header = "final within initial" if tn.final_extends_initial else "final"
+                self._writeln(out, f"{ind}{header} {{")
+                self.indent_level += 1
+                for con in tn.final_constraints:
+                    self.print_tlcon(out, con)
+                self.indent_level -= 1
+                self._writeln(out, f"{ind}}}")
+                self._writeln(out)
 
         # Tasks (definitions first, then instances/ranges)
         definitions = [t for t in tn.tasks if isinstance(t, Task) and t.kind == TaskKind.DEFINITION]

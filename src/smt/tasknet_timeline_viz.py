@@ -203,8 +203,8 @@ def _draw_timeline(
         _draw_step_plot(ax, timeline_id, timeline_type, x_times_step, values, zone_times)
 
     elif timeline_type in ['cumulative', 'claimable']:
-        # Line plot for numeric values
-        _draw_line_plot(ax, timeline_id, x_times_line, values, zone_times)
+        # Step plot: piecewise constant, changes only via impacts at boundaries
+        _draw_line_plot(ax, timeline_id, x_times_step, values, zone_times)
 
     elif timeline_type == 'rate':
         # Special handling for rate timelines (value + rate)
@@ -236,10 +236,17 @@ def _draw_timeline(
 
 def _draw_step_plot(ax, timeline_id, timeline_type, x_times, values, zone_times):
     """Draw step plot for state/atomic timelines."""
+    if not values:
+        return
+
+    # Extend to the final boundary so the last zone's value is drawn to the end
+    xs = list(x_times) + [zone_times[-1]]
+
     if timeline_type == 'atomic':
         # Boolean values: 0 or 1
         numeric_values = [1 if v else 0 for v in values]
-        ax.step(x_times, numeric_values, where='post', linewidth=2, color='blue', marker='o')
+        numeric_values.append(numeric_values[-1])
+        ax.step(xs, numeric_values, where='post', linewidth=2, color='blue', marker='o')
         ax.set_ylim(-0.2, 1.2)
         ax.set_yticks([0, 1])
         ax.set_yticklabels(['False', 'True'])
@@ -249,25 +256,37 @@ def _draw_step_plot(ax, timeline_id, timeline_type, x_times, values, zone_times)
         unique_states = sorted(set(values))
         state_to_idx = {state: idx for idx, state in enumerate(unique_states)}
         numeric_values = [state_to_idx[v] for v in values]
+        numeric_values.append(numeric_values[-1])
 
-        ax.step(x_times, numeric_values, where='post', linewidth=2, color='green', marker='o')
+        ax.step(xs, numeric_values, where='post', linewidth=2, color='green', marker='o')
         ax.set_yticks(range(len(unique_states)))
         ax.set_yticklabels(unique_states)
 
 
 def _draw_line_plot(ax, timeline_id, x_times, values, zone_times):
-    """Draw line plot for cumulative/claimable timelines."""
-    ax.plot(x_times, values, linewidth=2, color='blue', marker='o', markersize=4)
+    """Draw step plot for cumulative/claimable timelines.
+
+    These timelines are piecewise constant: values[i] holds throughout zone
+    interval (zone_times[i], zone_times[i+1]] and changes only via impacts at
+    boundaries. A step plot (where='post') shows the jump at the boundary;
+    linear interpolation would misleadingly render impacts as rate-like ramps.
+    """
+    if not values:
+        return
+
+    # Extend to the final boundary so the last zone's value is drawn to the end
+    xs = list(x_times) + [zone_times[-1]]
+    ys = list(values) + [values[-1]]
+    ax.step(xs, ys, where='post', linewidth=2, color='blue', marker='o', markersize=4)
 
     # Add min/max horizontal lines if there are bounds
     # (would need to extract bounds from timeline definition - skip for now)
 
     # Auto-scale y-axis with some padding
-    if values:
-        y_min = min(values)
-        y_max = max(values)
-        y_range = y_max - y_min if y_max > y_min else 1
-        ax.set_ylim(y_min - 0.1 * y_range, y_max + 0.1 * y_range)
+    y_min = min(values)
+    y_max = max(values)
+    y_range = y_max - y_min if y_max > y_min else 1
+    ax.set_ylim(y_min - 0.1 * y_range, y_max + 0.1 * y_range)
 
 
 def _draw_rate_plot(ax, timeline_id, x_times, values, zone_times):

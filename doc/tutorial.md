@@ -664,14 +664,17 @@ home:
 ```
 
 If you want the schedule to end the way it started — plus some extra conditions —
-you can write `final extends initial { ... }`, which means "the initial conditions
+you can write `final within initial { ... }`, which means "the initial conditions
 and these":
 
 ```
-  final extends initial {
+  final within initial {
     battery in [60.0, 100.0];
   }
 ```
+
+The block is optional: `final within initial;` alone means every schedule must
+end in a state satisfying exactly the initial conditions.
 
 ## Using Parameters
 

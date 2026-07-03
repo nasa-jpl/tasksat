@@ -30,10 +30,10 @@ class TestFinalBlock:
             "Summary: 0 hold, 1 violated, 0 unknown"
         )
 
-    def test_final_extends_initial(self):
-        """`final extends initial` checks initial's constraints (mode = idle)
+    def test_final_within_initial(self):
+        """`final within initial` checks initial's constraints (mode = idle)
         plus the added battery constraint; both hold -> HOLDS."""
-        verify_out('tasknet48_final_extends.tn')(
+        verify_out('tasknet48_final_within.tn')(
             "*** NEW SCHEDULE***",
             "[1/1] Checking final state property 'final'...",
             "  → HOLDS",
@@ -60,6 +60,37 @@ class TestFinalBlock:
             "WELL-FORMEDNESS ERRORS DETECTED",
             "final_constraints final condition references non-existent timeline 'nonexistent'",
         ])
+
+    def test_final_within_initial_blockless(self):
+        """Blockless form `final within initial;`: the final property is exactly
+        the initial constraints. mode starts idle and ends idle -> HOLDS."""
+        verify_out('tasknet51_final_within_blockless.tn')(
+            "*** NEW SCHEDULE***",
+            "work          : start =   10, end =   30",
+            "[1/1] Checking final state property 'final'...",
+            "  → HOLDS",
+            "Summary: 1 hold, 0 violated, 0 unknown"
+        )
+
+    def test_final_within_blockless_roundtrip(self):
+        """Parse -> print -> re-parse preserves the blockless within form."""
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent.parent / 'src' / 'smt'))
+        from tasknet_parser import parse_tasknet_file, parse_tasknet
+        from tasknet_printer import print_tasknet_to_string
+
+        tn = parse_tasknet_file(
+            'tests/tasknet_files/valid/tasknet51_final_within_blockless.tn')
+        assert tn.final_extends_initial is True
+        assert tn.final_constraints == []
+
+        printed = print_tasknet_to_string(tn)
+        assert "final within initial;" in printed
+
+        tn2 = parse_tasknet(printed)
+        assert tn2.final_extends_initial is True
+        assert tn2.final_constraints == []
 
     def test_initial_state_name_resolved(self):
         """Regression: a state-NAME constraint in an `initial` block (mode = idle)

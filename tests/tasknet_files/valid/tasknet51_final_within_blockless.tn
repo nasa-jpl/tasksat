@@ -1,0 +1,29 @@
+// Blockless form: `final within initial;` means the final property is exactly
+// the initial block's constraints. mode starts idle and the task returns it to
+// idle, so the final property HOLDS.
+tasknet Final51 {
+  end = 100;
+
+  timelines {
+    mode : state(idle, working) = idle;
+  }
+
+  initial {
+    mode = idle;
+  }
+
+  final within initial;
+
+  task work {
+    id 1;
+    start_range [10, 10];
+    end_range   [30, 30];
+    duration 20;
+    start 10;
+
+    impacts {
+      pre  { mode = working; }
+      post { mode = idle; }
+    }
+  }
+}

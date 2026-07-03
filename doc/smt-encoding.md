@@ -488,8 +488,9 @@ it is read at $k$. The final property holds iff
 $$\mathtt{FinalHolds} \equiv \bigwedge_{k=0}^{Z-1} \big( z_k = M \ \rightarrow\ \mathtt{eval_{final}}(F, k) \big)$$
 
 is true for all valid schedules, checked by the counterexample search
-$\mathtt{SAT}(\ldots \land \neg\,\mathtt{FinalHolds})$. The `final extends initial`
-form uses $F = C_0 \cup F_{\text{own}}$ (initial's conditions plus the block's own).
+$\mathtt{SAT}(\ldots \land \neg\,\mathtt{FinalHolds})$. The `final within initial`
+form uses $F = C_0 \cup F_{\text{own}}$ (initial's conditions plus the block's own);
+its blockless variant `final within initial;` uses $F = C_0$.
 
 ## 8. Optional Tasks and Optimization
 

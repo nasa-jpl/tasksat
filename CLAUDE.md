@@ -375,20 +375,26 @@ than the horizon `end`. This is the right-limit of each timeline at `M`:
 - Caveat: a value-`+=` post-impact on a *rate* timeline by the last task is not
   reflected in the final read (rate finals read the pre-post-impact value at `M`).
 
-**`final extends initial {...}` — extension sugar.** The final constraints are the
+**`final within initial {...}` — extension sugar.** The final constraints are the
 initial block's constraints plus the ones listed. Convenient for "end where we
-started, and also ...". Note this includes initial's constraints literally, so
-`initial { battery = 50; }` + `final extends initial { battery in [55,100]; }`
-is contradictory (can never hold).
+started, and also ...". The block is optional: `final within initial;` means
+exactly the initial constraints. Note this includes initial's constraints
+literally, so `initial { battery = 50; }` + `final within initial { battery in
+[55,100]; }` is contradictory (can never hold).
 
 ```tasknet
 initial { mode = idle; }
-final extends initial { battery in [55.0, 100.0]; }  // mode = idle AND battery in [55,100]
+final within initial { battery in [55.0, 100.0]; }  // mode = idle AND battery in [55,100]
+```
+
+```tasknet
+initial { mode = idle; battery = 50.0; }
+final within initial;   // every schedule must end exactly as it started
 ```
 
 **Implementation:**
 - AST: `TaskNet.final_constraints` / `final_extends_initial` + `effective_final_constraints()` in [tasknet_ast.py](src/smt/tasknet_ast.py)
-- Parser: `final_block` productions (`final {...}` and `final extends initial {...}`) in [tasknet_parser.py](src/smt/tasknet_parser.py)
+- Parser: `final_block` productions (`final {...}`, `final within initial {...}`, `final within initial;`) in [tasknet_parser.py](src/smt/tasknet_parser.py)
 - SMT: `_encode_final_holds()` / `_final_makespan()` / `_final_zone_index()`, checked (negated) in `check_temporal_properties()` in [tasknet_smt.py](src/smt/tasknet_smt.py)
 - Wellformedness / Transforms / Printer: mirror the `initial` handling for `final`
 

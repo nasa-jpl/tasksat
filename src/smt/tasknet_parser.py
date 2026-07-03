@@ -19,7 +19,7 @@ reserved = {
     "initial":        "INITIAL",
     "initial_rate":   "INITIAL_RATE",
     "final":          "FINAL",
-    "extends":        "EXTENDS",
+    "within":         "WITHIN",
     "task":           "TASK",
     "taskdef":        "TASKDEF",
     "optional":       "OPTIONAL",
@@ -571,9 +571,14 @@ def p_final_block_plain(p):
     "final_block : FINAL LBRACE tlcon_list RBRACE"
     p[0] = (p[3], False)  # (list[TlCon], extends_initial?)
 
-def p_final_block_extends(p):
-    "final_block : FINAL EXTENDS INITIAL LBRACE tlcon_list RBRACE"
+def p_final_block_within(p):
+    "final_block : FINAL WITHIN INITIAL LBRACE tlcon_list RBRACE"
     p[0] = (p[5], True)   # (list[TlCon], extends_initial?)
+
+def p_final_block_within_blockless(p):
+    "final_block : FINAL WITHIN INITIAL SEMI"
+    # `final within initial;` — the final property is exactly the initial block
+    p[0] = ([], True)
 
 # ------------ tasks ------------
 

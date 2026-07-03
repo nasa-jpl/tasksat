@@ -392,13 +392,19 @@ final {
 }
 ```
 
-`final extends initial { ... }` is shorthand for "the initial constraints, plus
+`final within initial { ... }` is shorthand for "the initial constraints, plus
 these": the terminal state must satisfy everything in `initial` and the added
-constraints.
+constraints. The block is optional: `final within initial;` means the terminal
+state must satisfy exactly the initial constraints.
 
 ```tasknet
 initial { mode = idle; }
-final extends initial { battery in [55.0, 100.0]; }  // mode = idle AND battery in [55,100] at the end
+final within initial { battery in [55.0, 100.0]; }  // mode = idle AND battery in [55,100] at the end
+```
+
+```tasknet
+initial { mode = idle; battery = 50.0; }
+final within initial;   // schedule must end exactly as it started
 ```
 
 ## A Word on Constraints
