@@ -54,32 +54,40 @@ Three remarks:
 Maintain a list of blocking formulas B = β₁, …, βₖ (initially empty), one per
 skeleton found so far, each βᵢ = Cov(σᵢ).
 
-> 1. if Init(x) ∧ ¬β₁(x) ∧ … ∧ ¬βₖ(x) is T-unsat  ⇒  **return HOLDS**
-> 2. else take a value vector x★ with Init(x★) ∧ ¬β₁(x★) ∧ … ∧ ¬βₖ(x★) true in T
-> 3. if Φ(x★, s, h) is T-unsat  ⇒  **return VIOLATED(x★)**
-> 4. else take value vectors (σ, η) with Φ(x★, σ, η) true in T;
->    add Cov(σ) to B;  goto 1
+Each iteration makes exactly two SAT (SMT) calls; each call's two outcomes
+are handled together:
+
+> **Call 1** — check Init(x) ∧ ¬β₁(x) ∧ … ∧ ¬βₖ(x):
+> - T-unsat ⇒ **return HOLDS**
+> - T-sat with model x★, i.e. Init(x★) ∧ ¬β₁(x★) ∧ … ∧ ¬βₖ(x★) true in T
+>
+> **Call 2** — check Φ(x★, s, h):
+> - T-unsat ⇒ **return VIOLATED(x★)**
+> - T-sat with model (σ, η), i.e. Φ(x★, σ, η) true in T
+>   ⇒ add Cov(σ) to B; repeat from Call 1
 
 Notation: x★, σ, η denote *concrete values* returned by the solver as a model
-(satisfying assignment) — as opposed to x, s, h, which are variables. Step 1
-asks for an initial state in Init not yet covered by any found skeleton.
+(satisfying assignment) — as opposed to x, s, h, which are variables. Call 1
+asks for an initial state in Init not yet covered by any found skeleton;
+Call 2 is the ordinary planning query pinned to x★.
 
-Steps 1 and 3 are the only solver calls: step 3 is quantifier-free; step 1 is
-quantifier-free ground plus quantified *linear* clauses (decidable). Resource
-bounds (iteration cap, wall clock) yield **UNKNOWN** on exhaustion.
+Call 2 is quantifier-free; Call 1 is quantifier-free ground plus the
+quantified *linear* clauses ¬βᵢ (decidable). Resource bounds (iteration cap,
+wall clock) yield **UNKNOWN** on exhaustion.
 
 ## Correctness
 
-**Lemma 1 (soundness of VIOLATED).** If step 3 is unsat, then
-¬∃s, h . Φ(x★, s, h), and Init(x★) holds (from step 2), so x★ falsifies 𝓡. ∎
+**Lemma 1 (soundness of VIOLATED).** If Call 2 is unsat, then
+¬∃s, h . Φ(x★, s, h), and Init(x★) holds (from Call 1's model), so x★
+falsifies 𝓡. ∎
 
 **Lemma 2 (soundness of HOLDS).** Invariant: every β ∈ B equals Cov(σ) for
-some skeleton σ, and Cov(σ)(x) → ∃s, h . Φ. If step 1 is unsat, then
+some skeleton σ, and Cov(σ)(x) → ∃s, h . Φ. If Call 1 is unsat, then
 Init(x) → ⋁ { β(x) : β ∈ B } is T-valid, hence every x ∈ Init satisfies some
 Cov(σ), hence 𝓡 holds. The set {σ₁, …, σₖ} is a finite piecewise Skolem
 witness for ∃s. ∎
 
-**Lemma 3 (progress).** In step 4, (x★, σ, η) ⊨ Φ, so η witnesses
+**Lemma 3 (progress).** When Call 2 is sat, (x★, σ, η) ⊨ Φ, so η witnesses
 Cov(σ)(x★); therefore x★ is excluded by the new clause and no candidate
 repeats. ∎
 
@@ -104,6 +112,6 @@ point x★.
 
 The loop is an instance of counterexample-guided synthesis (CEGIS,
 Solar-Lezama et al. 2006) in its exists-forall SMT form (CEGQI, Reynolds et
-al. 2015); the partial instantiation of step 4 is model-based projection.
+al. 2015); the partial instantiation after Call 2 is model-based projection.
 Implementation: [tasknet_realizability.py](../src/smt/tasknet_realizability.py);
 encoding details: [smt-encoding.md](smt-encoding.md) §7.4.
