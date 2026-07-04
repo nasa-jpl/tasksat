@@ -19,12 +19,32 @@ hence Φ[s ↦ c] is **linear** for any constant vector c.
 
 ## Definitions
 
-For a constant vector σ (a *schedule skeleton*), define its **coverage**:
+A **schedule skeleton** σ is a constant vector for s: concrete numbers for all
+task start/end times and zone boundaries, and concrete booleans for all
+optional/request inclusions — i.e. one fixed schedule, stripped of everything
+else a model contains.
+
+For a skeleton σ, define its **coverage**:
 
 >   Cov(σ)(x)  ≡  ∃h . Φ(x, σ, h)
 
-a quantified **linear** formula in x. Note Cov(σ)(x) implies
-∃s, h . Φ(x, s, h) (witness s := σ).
+Cov(σ)(x) reads: *"the fixed schedule σ is valid when started from initial
+state x."* It is Φ itself, partially evaluated at s := σ — so satisfying it
+means every original constraint holds, by construction, not by testing.
+
+Three remarks:
+
+- **Why h stays quantified.** The helpers are functions of x (e.g.
+  battery-after-task = x + 20). Substituting their model values, which
+  belong to one particular x, would pin x to that single point; leaving them
+  ∃-bound lets them track x, so Cov(σ) describes the full region σ handles.
+- **Why it is linear.** Φ's only nonlinear terms are r·(z′ − z) with
+  z, z′ ∈ s; under s := σ these become r·c. Quantified linear arithmetic is
+  decidable, so Cov(σ) is cheap for the solver.
+- **Soundness direction.** Cov(σ)(x) implies ∃s, h . Φ(x, s, h) (take
+  s := σ): every covered x is schedulable. The converse is *not* claimed —
+  an x outside Cov(σ) may be schedulable by a different skeleton; later
+  iterations find it.
 
 ## Algorithm
 
