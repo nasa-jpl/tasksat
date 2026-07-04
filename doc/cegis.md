@@ -48,12 +48,18 @@ Three remarks:
 
 ## Algorithm
 
-Maintain a set B of blocking formulas, initially ∅.
+Maintain a list of blocking formulas B = β₁, …, βₖ (initially empty), one per
+skeleton found so far, each βᵢ = Cov(σᵢ).
 
-> 1. if Init(x) ∧ ⋀ { ¬β(x) : β ∈ B } is T-unsat  ⇒  **return HOLDS**
-> 2. else take a model x*
-> 3. if Φ(x*, s, h) is T-unsat  ⇒  **return VIOLATED(x*)**
-> 4. else take a model (σ, η);  B := B ∪ { Cov(σ) };  goto 1
+> 1. if Init(x) ∧ ¬β₁(x) ∧ … ∧ ¬βₖ(x) is T-unsat  ⇒  **return HOLDS**
+> 2. else take a model x★ (a concrete initial state satisfying the formula)
+> 3. if Φ(x★, s, h) is T-unsat  ⇒  **return VIOLATED(x★)**
+> 4. else take a model (σ, η) (a concrete schedule and helper values);
+>    add Cov(σ) to B;  goto 1
+
+Notation: x★, σ, η denote *concrete values* returned by the solver as a model
+(satisfying assignment) — as opposed to x, s, h, which are variables. Step 1
+asks for an initial state in Init not yet covered by any found skeleton.
 
 Steps 1 and 3 are the only solver calls: step 3 is quantifier-free; step 1 is
 quantifier-free ground plus quantified *linear* clauses (decidable). Resource
@@ -62,7 +68,7 @@ bounds (iteration cap, wall clock) yield **UNKNOWN** on exhaustion.
 ## Correctness
 
 **Lemma 1 (soundness of VIOLATED).** If step 3 is unsat, then
-¬∃s, h . Φ(x*, s, h), and Init(x*) holds (from step 2), so x* falsifies 𝓡. ∎
+¬∃s, h . Φ(x★, s, h), and Init(x★) holds (from step 2), so x★ falsifies 𝓡. ∎
 
 **Lemma 2 (soundness of HOLDS).** Invariant: every β ∈ B equals Cov(σ) for
 some skeleton σ, and Cov(σ)(x) → ∃s, h . Φ. If step 1 is unsat, then
@@ -70,8 +76,8 @@ Init(x) → ⋁ { β(x) : β ∈ B } is T-valid, hence every x ∈ Init satisfie
 Cov(σ), hence 𝓡 holds. The set {σ₁, …, σₖ} is a finite piecewise Skolem
 witness for ∃s. ∎
 
-**Lemma 3 (progress).** In step 4, (x*, σ, η) ⊨ Φ, so η witnesses
-Cov(σ)(x*); therefore x* is excluded by the new clause and no candidate
+**Lemma 3 (progress).** In step 4, (x★, σ, η) ⊨ Φ, so η witnesses
+Cov(σ)(x★); therefore x★ is excluded by the new clause and no candidate
 repeats. ∎
 
 **Non-termination.** Over ℝ, Init may require unboundedly many coverage
@@ -89,7 +95,7 @@ and solvers typically return unknown. The algorithm above poses only
 by instantiating exactly the variables (s) that occur in nonlinear terms.
 Leaving h quantified inside Cov (rather than instantiating it) is essential:
 h depends on x, so instantiating it would shrink coverage to the single
-point x*.
+point x★.
 
 ## Context
 
