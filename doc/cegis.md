@@ -55,9 +55,9 @@ Maintain a list of blocking formulas B = β₁, …, βₖ (initially empty), on
 skeleton found so far, each βᵢ = Cov(σᵢ).
 
 > 1. if Init(x) ∧ ¬β₁(x) ∧ … ∧ ¬βₖ(x) is T-unsat  ⇒  **return HOLDS**
-> 2. else take a model x★ (a concrete initial state satisfying the formula)
+> 2. else take a value vector x★ with Init(x★) ∧ ¬β₁(x★) ∧ … ∧ ¬βₖ(x★) true in T
 > 3. if Φ(x★, s, h) is T-unsat  ⇒  **return VIOLATED(x★)**
-> 4. else take a model (σ, η) (a concrete schedule and helper values);
+> 4. else take value vectors (σ, η) with Φ(x★, σ, η) true in T;
 >    add Cov(σ) to B;  goto 1
 
 Notation: x★, σ, η denote *concrete values* returned by the solver as a model
