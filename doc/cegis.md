@@ -2,46 +2,38 @@
 
 ## Problem
 
-Let $\Phi(x, s, h)$ be a quantifier-free formula over a theory $T$ (mixed
+Let Φ(x, s, h) be a quantifier-free formula over a theory T (mixed
 integer/real arithmetic), with disjoint variable vectors:
 
-- $x$ — **initial-state variables** (timeline values at time 0),
-- $s$ — **schedule variables** (task start/end times, zone boundaries, inclusion booleans),
-- $h$ — **helper variables** (timeline values at later zones; functionally
-  determined by $x, s$ through $\Phi$).
+- **x** — initial-state variables (timeline values at time 0),
+- **s** — schedule variables (task start/end times, zone boundaries, inclusion booleans),
+- **h** — helper variables (timeline values at later zones; functionally
+  determined by x, s through Φ).
 
-Let $\mathit{Init}(x)$ be a quantifier-free formula (the initial region).
-**Decide:**
+Let Init(x) be a quantifier-free formula (the initial region). **Decide:**
 
-$$\mathcal{R} \;\equiv\; \forall x\, .\ \mathit{Init}(x) \rightarrow \exists s, h\, .\ \Phi(x, s, h)$$
+>   𝓡  ≡  ∀x . Init(x) → ∃s, h . Φ(x, s, h)
 
-$\Phi$ contains nonlinear terms only of the form $r \cdot (z' - z)$ with
-$z, z' \in s$; hence $\Phi[s \mapsto c]$ is **linear** for any constant vector $c$.
+Φ contains nonlinear terms only of the form r·(z′ − z) with z, z′ ∈ s;
+hence Φ[s ↦ c] is **linear** for any constant vector c.
 
 ## Definitions
 
-For a constant vector $\sigma$ (a *schedule skeleton*), define its **coverage**:
+For a constant vector σ (a *schedule skeleton*), define its **coverage**:
 
-$$\mathit{Cov}(\sigma)(x) \;\equiv\; \exists h\, .\ \Phi(x, \sigma, h)$$
+>   Cov(σ)(x)  ≡  ∃h . Φ(x, σ, h)
 
-a quantified **linear** formula in $x$. Note $\mathit{Cov}(\sigma)(x)$ implies
-$\exists s,h.\ \Phi(x,s,h)$ (witness $s := \sigma$).
+a quantified **linear** formula in x. Note Cov(σ)(x) implies
+∃s, h . Φ(x, s, h) (witness s := σ).
 
 ## Algorithm
 
-Maintain a set $B$ of blocking formulas, initially $\emptyset$.
+Maintain a set B of blocking formulas, initially ∅.
 
-$$
-\begin{array}{ll}
-1. & \text{if } \mathit{Init}(x) \wedge \bigwedge_{\beta \in B} \neg\beta(x)
-     \text{ is } T\text{-unsat} \;\Rightarrow\; \textbf{return HOLDS} \\
-2. & \text{else take a model } x^* \\
-3. & \text{if } \Phi(x^*, s, h) \text{ is } T\text{-unsat}
-     \;\Rightarrow\; \textbf{return VIOLATED}(x^*) \\
-4. & \text{else take a model } (\sigma, \eta);\quad
-     B := B \cup \{\mathit{Cov}(\sigma)\};\quad \text{goto } 1
-\end{array}
-$$
+> 1. if Init(x) ∧ ⋀ { ¬β(x) : β ∈ B } is T-unsat  ⇒  **return HOLDS**
+> 2. else take a model x*
+> 3. if Φ(x*, s, h) is T-unsat  ⇒  **return VIOLATED(x*)**
+> 4. else take a model (σ, η);  B := B ∪ { Cov(σ) };  goto 1
 
 Steps 1 and 3 are the only solver calls: step 3 is quantifier-free; step 1 is
 quantifier-free ground plus quantified *linear* clauses (decidable). Resource
@@ -50,37 +42,34 @@ bounds (iteration cap, wall clock) yield **UNKNOWN** on exhaustion.
 ## Correctness
 
 **Lemma 1 (soundness of VIOLATED).** If step 3 is unsat, then
-$\neg\exists s,h.\ \Phi(x^*,s,h)$ and $\mathit{Init}(x^*)$ (from step 2), so
-$x^*$ falsifies $\mathcal{R}$. ∎
+¬∃s, h . Φ(x*, s, h), and Init(x*) holds (from step 2), so x* falsifies 𝓡. ∎
 
-**Lemma 2 (soundness of HOLDS).** Invariant: every $\beta \in B$ equals
-$\mathit{Cov}(\sigma)$ for some skeleton $\sigma$, and
-$\mathit{Cov}(\sigma)(x) \rightarrow \exists s,h.\Phi$. If step 1 is unsat, then
-$\mathit{Init}(x) \rightarrow \bigvee_{\beta\in B} \beta(x)$ is $T$-valid, hence
-every $x \in \mathit{Init}$ satisfies some $\mathit{Cov}(\sigma)$, hence
-$\mathcal{R}$ holds. The set $\{\sigma_i\}$ is a finite piecewise Skolem
-witness for $\exists s$. ∎
+**Lemma 2 (soundness of HOLDS).** Invariant: every β ∈ B equals Cov(σ) for
+some skeleton σ, and Cov(σ)(x) → ∃s, h . Φ. If step 1 is unsat, then
+Init(x) → ⋁ { β(x) : β ∈ B } is T-valid, hence every x ∈ Init satisfies some
+Cov(σ), hence 𝓡 holds. The set {σ₁, …, σₖ} is a finite piecewise Skolem
+witness for ∃s. ∎
 
-**Lemma 3 (progress).** In step 4, $(x^*, \sigma, \eta) \models \Phi$, so
-$\eta$ witnesses $\mathit{Cov}(\sigma)(x^*)$; therefore $x^*$ is excluded by
-the new clause and no candidate repeats. ∎
+**Lemma 3 (progress).** In step 4, (x*, σ, η) ⊨ Φ, so η witnesses
+Cov(σ)(x*); therefore x* is excluded by the new clause and no candidate
+repeats. ∎
 
-**Non-termination.** Over $\mathbb{R}$, $\mathit{Init}$ may require unboundedly
-many coverage regions; hence the procedure is a sound **semi-decision
-procedure**, made total by resource bounds (returning UNKNOWN). Each
-$\mathit{Cov}(\sigma)$ is a full-dimensional polyhedral region (not a point),
-which is what makes convergence typical in practice.
+**Non-termination.** Over ℝ, Init may require unboundedly many coverage
+regions; hence the procedure is a sound **semi-decision procedure**, made
+total by resource bounds (returning UNKNOWN). Each Cov(σ) is a
+full-dimensional polyhedral region (not a point), which is what makes
+convergence typical in practice.
 
 ## Why not a direct quantified query
 
-$\neg\mathcal{R}$ is $\exists x \forall s, h\, .\ \neg\Phi$ — a quantifier
-alternation over hundreds of variables of a **nonlinear** mixed formula; no
-decision procedure exists for this fragment and solvers typically return
-unknown. The algorithm above poses only (i) quantifier-free queries and
-(ii) quantified **linear** queries, obtained by instantiating exactly the
-variables ($s$) that occur in nonlinear terms. Leaving $h$ quantified inside
-$\mathit{Cov}$ (rather than instantiating it) is essential: $h$ depends on
-$x$, so instantiating it would shrink coverage to the single point $x^*$.
+¬𝓡 is ∃x ∀s, h . ¬Φ — a quantifier alternation over hundreds of variables of
+a **nonlinear** mixed formula; no decision procedure exists for this fragment
+and solvers typically return unknown. The algorithm above poses only
+(i) quantifier-free queries and (ii) quantified **linear** queries, obtained
+by instantiating exactly the variables (s) that occur in nonlinear terms.
+Leaving h quantified inside Cov (rather than instantiating it) is essential:
+h depends on x, so instantiating it would shrink coverage to the single
+point x*.
 
 ## Context
 
