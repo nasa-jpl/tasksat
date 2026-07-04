@@ -3,7 +3,10 @@
 ## Problem
 
 Let Φ(x, s, h) be a quantifier-free formula over a theory T (mixed
-integer/real arithmetic), with disjoint variable vectors:
+integer/real arithmetic). *T-sat / T-unsat* below means satisfiable /
+unsatisfiable **modulo T**, i.e. with +, ·, ≤ interpreted as actual
+arithmetic — what an SMT solver decides. The variables come in three
+disjoint vectors:
 
 - **x** — initial-state variables (timeline values at time 0),
 - **s** — schedule variables (task start/end times, zone boundaries, inclusion booleans),
