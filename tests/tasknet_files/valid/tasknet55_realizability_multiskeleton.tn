@@ -1,0 +1,43 @@
+// Realizability HOLDS but no single schedule covers the whole initial region,
+// so the CEGIS loop must find TWO skeletons:
+//   - battery in [10,30): must include `charge` (+50) to meet work's pre >= 30;
+//     charging is only allowed while battery + 50 stays within range (<= 90),
+//     i.e. battery <= 40. Covers [10, 40].
+//   - battery in (40,59]: must NOT charge (overflow past range 90); work alone
+//     needs battery >= 30. Covers [30, 59].
+// Union covers [10,59]; either skeleton alone does not.
+tasknet MultiSkeleton55 {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0.0, 90.0] bounds [0.0, 100.0];
+  }
+
+  initial {
+    battery in [10.0, 59.0];
+  }
+
+  optional task charge {
+    id 1;
+    start_range [5, 5];
+    end_range   [15, 15];
+    duration 10;
+    start 5;
+
+    impacts {
+      post { battery += 50.0; }
+    }
+  }
+
+  task work {
+    id 2;
+    start_range [20, 20];
+    end_range   [40, 40];
+    duration 20;
+    start 20;
+
+    pre {
+      battery in [30.0, 90.0];
+    }
+  }
+}

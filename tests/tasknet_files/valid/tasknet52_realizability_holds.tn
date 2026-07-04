@@ -1,0 +1,31 @@
+// Realizability HOLDS: battery starts anywhere in [30,59] (no declared initial;
+// constrained only by the initial block), and the required task's precondition
+// battery >= 30 is satisfied by ALL of them, so every initial state admits a
+// valid schedule.
+tasknet Realizable52 {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0.0, 100.0] bounds [0.0, 100.0];
+  }
+
+  initial {
+    battery in [30.0, 59.0];
+  }
+
+  task work {
+    id 1;
+    start_range [10, 10];
+    end_range   [30, 30];
+    duration 20;
+    start 10;
+
+    pre {
+      battery in [30.0, 100.0];
+    }
+
+    impacts {
+      post { battery += 20.0; }
+    }
+  }
+}

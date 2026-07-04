@@ -492,6 +492,74 @@ $\mathtt{SAT}(\ldots \land \neg\,\mathtt{FinalHolds})$. The `final within initia
 form uses $F = C_0 \cup F_{\text{own}}$ (initial's conditions plus the block's own);
 its blockless variant `final within initial;` uses $F = C_0$.
 
+### 7.4 Realizability (Initial-State Coverage)
+
+Let $x$ denote the zone-0 timeline variables (the initial state) and $y$ all
+remaining variables (schedule times, zone boundaries, inclusion booleans, and
+timeline values at zones $\geq 1$). Write the full encoding as $\Phi(x, y)$ and
+the initial region as $\mathit{Init}(x)$ — the conjunction of declared initial
+pins, the $C_0$ constraints at zone 0, and the zone-0 range/bounds/domain
+constraints. The two standard checks are single quantifier-free queries:
+
+- **Validity:** $\mathtt{SAT}(\Phi)$, i.e. $\exists x, y . \Phi(x, y)$
+- **Properties:** $\mathtt{SAT}(\Phi \land \neg\psi)$, deciding $\forall x, y . \Phi \rightarrow \psi$
+
+The **realizability check** (CLI flag `--realizability`) decides the
+quantifier-alternating
+
+$$\forall x . \mathit{Init}(x) \rightarrow \exists y . \Phi(x, y)$$
+
+This is not implied by the other two: validity exhibits only one $x$, and the
+property check is vacuously true for any $x$ with no valid $y$.
+
+**Procedure (CEGIS).** A direct quantified query is impractical: $\Phi$ contains
+nonlinear terms $r \cdot (z_{i+1} - z_i)$ (Section 6.6). Instead we use a
+counterexample-guided loop — a standard technique (CEGIS, Solar-Lezama et al.
+2006; cf. CEGAR, Clarke et al. 2000, and exists-forall SMT solving, Reynolds et
+al. 2015; see References) — instantiated for the zone encoding by generalizing
+over schedule skeletons, which linearize the residual constraints. The loop
+maintains a solver $S$ over $x$, initialized with $\mathit{Init}(x)$:
+
+1. If $S$ is unsatisfiable, every initial state is covered — **HOLDS**.
+2. Otherwise take a model $x^*$ of $S$ and solve $\Phi(x^*, y)$ (quantifier-free,
+   the standard planning query with $x$ pinned).
+   - If unsatisfiable, $x^*$ is a **counterexample** (an initial state with no
+     valid schedule) — **VIOLATED**; the unsat core (which includes the pins)
+     explains the conflict.
+   - If satisfiable with model $(x^*, y^*)$, let $\sigma$ be the **schedule
+     skeleton** of $y^*$: the concrete values of all zone boundaries, task
+     start/end times, and inclusion booleans. Substituting $\sigma$ into $\Phi$
+     yields $\Phi_\sigma(x, y_{\mathit{aux}})$, which is **linear** (the rate
+     products become $r \cdot c$ for constants $c$). Add the blocking clause
+     $$\neg\, \exists y_{\mathit{aux}} . \Phi_\sigma(x, y_{\mathit{aux}})$$
+     to $S$ — a quantified *linear* formula that Z3 dispatches reliably. It
+     removes from $S$ exactly the set of initial states covered by $\sigma$
+     (which includes $x^*$, guaranteeing progress).
+
+     *Remark (the generalization is exact, not inductive).* No inference from
+     the sample $x^*$ to other initial states takes place: $x^*$ serves only to
+     make the planner produce $\sigma$, and is then discarded. The covered set
+     $\{\, x \mid \exists y_{\mathit{aux}} . \Phi_\sigma(x, y_{\mathit{aux}}) \,\}$
+     is the exact solution set of the residual (linear) system in $x$ — the
+     original constraints partially evaluated at $\sigma$. Soundness is by
+     construction: any $x$ in this set, together with $\sigma$ and a witness
+     $y_{\mathit{aux}}$, satisfies every conjunct of $\Phi$, which is the
+     definition of a valid schedule for $x$. (The set is *not* claimed to be all
+     schedulable $x$ — states outside it may be schedulable by other skeletons,
+     found in later iterations.)
+3. Repeat under an iteration bound and wall-clock budget; exhaustion yields
+   **UNKNOWN** (never a silent claim). If a quantified clause makes $S$ return
+   unknown, the loop falls back to blocking the single point $x^*$ — still sound
+   for VIOLATED, but HOLDS becomes unreachable over real-valued regions (noted
+   in the output).
+
+Termination is not guaranteed over real-valued initial regions in general, but
+each iteration covers a full-dimensional region, and in practice small tasknets
+converge in a few iterations (one skeleton often covers the entire region).
+
+A self-contained one-page formalization (definitions, algorithm, soundness and
+progress lemmas) is in [cegis.md](cegis.md).
+
 ## 8. Optional Tasks and Optimization
 
 ### 8.1 Optional Task Inclusion
@@ -540,4 +608,15 @@ $$\mathtt{minimize} \sum_{t \in T : \mathtt{dur}_t^{\mathtt{pref}} \text{ specif
 ## References
 
 - [The Z3 Prover](https://github.com/Z3Prover/z3)
+- A. Solar-Lezama, L. Tancau, R. Bodík, S. Seshia, V. Saraswat.
+  *Combinatorial Sketching for Finite Programs.* ASPLOS 2006.
+  (Introduces CEGIS — counterexample-guided inductive synthesis — the loop
+  underlying the realizability check of Section 7.4.)
+- E. M. Clarke, O. Grumberg, S. Jha, Y. Lu, H. Veith.
+  *Counterexample-Guided Abstraction Refinement.* CAV 2000.
+  (CEGAR — the general propose/check/refine paradigm.)
+- A. Reynolds, M. Deters, V. Kuncak, C. Tinelli, C. Barrett.
+  *Counterexample-Guided Quantifier Instantiation for Synthesis in SMT.*
+  CAV 2015. (Exists-forall solving in SMT, the quantifier-alternation shape of
+  Section 7.4.)
 

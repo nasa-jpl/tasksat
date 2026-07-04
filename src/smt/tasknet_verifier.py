@@ -177,7 +177,9 @@ def write_transformed_tasknet(tn, output_path: str, input_path: str):
 
         print(f"📄 Transformed tasknet written to: {output_path} (JSON format)\n")
 
-def main(path: str, mode: str = 'optimize', transform_only: bool = False):
+def main(path: str, mode: str = 'optimize', transform_only: bool = False,
+         realizability: bool = False, realizability_max_iters: int = 50,
+         realizability_budget: float = 60.0):
     print('\n\n\n\n\n\n\n' + header('*** NEW SCHEDULE***') + '\n')
 
     start_time = time.time()
@@ -320,6 +322,29 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False):
     property_results, violations = enc.check_temporal_properties()
     property_end = time.time()
 
+    # Phase 3 (opt-in): Realizability check (forall initial state exists schedule)
+    realizability_result = None
+    if realizability:
+        from tasknet_realizability import check_realizability
+        print(header("\nChecking realizability (forall initial state exists schedule):"))
+        realizability_result = check_realizability(
+            tn, max_iters=realizability_max_iters, budget_sec=realizability_budget)
+
+        if realizability_result['status'] == 'holds':
+            print(success(f"  → HOLDS ✓ ({realizability_result['note']})"))
+        elif realizability_result['status'] == 'violated':
+            print(error("  → VIOLATED!"))
+            print("  Initial state with no valid schedule:")
+            for tl, val in (realizability_result['counterexample_initial_state'] or {}).items():
+                print(f"    {tl} = {val}")
+        else:
+            print(warning(f"  → UNKNOWN ⚠ ({realizability_result['note']})"))
+
+        # Ship it with the property results (console summary above; JSON below).
+        # The (possibly large) unsat core is saved to its own file instead.
+        property_results.append({
+            k: v for k, v in realizability_result.items() if k != 'unsat_core'})
+
     end_time = time.time()
 
     print(f"\n{bold('=== Timing ===')}")
@@ -334,8 +359,9 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False):
 
     print(f"Total time: {end_time - start_time:.2f} seconds")
 
-    # Print success message if no violations
-    if not violations:
+    # Print success message if no violations (including realizability)
+    if not violations and not (realizability_result is not None
+                               and realizability_result['status'] == 'violated'):
         print(success("\n✓ All constraints and properties satisfied!") if num_properties > 0 else success("\n✓ Valid schedule found!"))
 
     # Export schedule as JSON and generate visualizations
@@ -367,8 +393,11 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False):
         command_parts.extend(['--mode', mode])
     command = ' '.join(command_parts)
 
-    # Determine status based on violations
-    status = "violated" if violations else "success"
+    # Determine status based on violations (a violated realizability check
+    # counts, even though it produces no error trace)
+    realizability_violated = (realizability_result is not None
+                              and realizability_result['status'] == 'violated')
+    status = "violated" if (violations or realizability_violated) else "success"
 
     metadata = {
         "source_path": str(input_path.absolute()),
@@ -381,6 +410,9 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False):
         "mode": mode,
         "num_violations": len(violations) if violations else 0
     }
+    if realizability_result is not None:
+        metadata["realizability"] = realizability_result['status']
+        metadata["realizability_check_sec"] = realizability_result['duration_sec']
     metadata_path = run_dir / "metadata.json"
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
@@ -397,6 +429,14 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False):
         with open(latest_dir / "properties.json", 'w') as f:
             json.dump(property_results, f, indent=2)
         print(f"📋 Property verification results saved to: {properties_path}")
+
+    # Save the realizability counterexample's unsat core (why nothing is
+    # schedulable from that initial state)
+    if realizability_result is not None and realizability_result.get('unsat_core'):
+        for d in (run_dir, latest_dir):
+            with open(d / "realizability_unsat_core.json", 'w') as f:
+                json.dump(realizability_result['unsat_core'], f, indent=2)
+        print(dim(f"📄 Realizability unsat core saved to: {run_dir}/realizability_unsat_core.json"))
 
     # Save schedule as JSON
     json_path = run_dir / "schedule.json"
@@ -524,6 +564,12 @@ if __name__ == "__main__":
                         help='Mode for main schedule generation: optimize (use Optimize solver for best schedule) or satisfy (use Solver for any valid schedule). Property verification always uses Solver for faster counterexample finding.')
     parser.add_argument('--transform-only', action='store_true',
                         help='Only write transformed tasknet (if auto-instantiation occurs) and exit without verification')
+    parser.add_argument('--realizability', action='store_true',
+                        help='After finding a valid schedule, also check that EVERY initial state admitted by the spec has some valid schedule (forall init exists schedule)')
+    parser.add_argument('--realizability-max-iters', type=int, default=50,
+                        help='Maximum CEGIS iterations for the realizability check (default: 50)')
+    parser.add_argument('--realizability-budget', type=float, default=60.0,
+                        help='Wall-clock budget in seconds for the realizability check (default: 60)')
     args = parser.parse_args()
 
     # Capture console output
@@ -532,7 +578,10 @@ if __name__ == "__main__":
     sys.stdout = _console_output
 
     try:
-        main(args.tasknet_file, args.mode, args.transform_only)
+        main(args.tasknet_file, args.mode, args.transform_only,
+             realizability=args.realizability,
+             realizability_max_iters=args.realizability_max_iters,
+             realizability_budget=args.realizability_budget)
     finally:
         sys.stdout = old_stdout
 

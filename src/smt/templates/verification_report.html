@@ -180,6 +180,17 @@ code[class*="language-"] {
             </p>
         </div>
         <div class="col-auto">
+            <select id="selVerifyMode" class="form-select form-select-sm d-inline-block w-auto me-2 align-middle"
+                    title="Optimize finds the best schedule; satisfy finds any valid schedule (faster)">
+                <option value="optimize" {% if metadata.mode != 'satisfy' %}selected{% endif %}>Optimize</option>
+                <option value="satisfy" {% if metadata.mode == 'satisfy' %}selected{% endif %}>Satisfy</option>
+            </select>
+            <div class="form-check form-check-inline me-2 align-middle"
+                 title="Also check that EVERY initial state admitted by the spec has some valid schedule (forall init exists schedule)">
+                <input class="form-check-input" type="checkbox" id="chkRealizability"
+                       {% if metadata.realizability %}checked{% endif %}>
+                <label class="form-check-label small" for="chkRealizability">Realizability</label>
+            </div>
             <button id="btnReVerify" class="btn btn-primary me-2 btn-verify"
                     onclick="runVerification()"
                     title="Re-run verification on the source file">
@@ -495,7 +506,7 @@ code[class*="language-"] {
             {% set unknown = properties|selectattr('status', 'equalto', 'unknown')|list|length %}
             <span class="float-end">
                 <span class="badge bg-light text-dark">{{ passed }}/{{ total }} passed</span>
-                {% if failed > 0 %}<span class="badge bg-warning text-dark ms-1">{{ failed }} failed</span>{% endif %}
+                {% if failed > 0 %}<span class="badge bg-light text-danger ms-1">{{ failed }} failed</span>{% endif %}
                 {% if unknown > 0 %}<span class="badge bg-secondary ms-1">{{ unknown }} unknown</span>{% endif %}
             </span>
         </div>
@@ -524,12 +535,28 @@ code[class*="language-"] {
                                 {% endif %}
                             </td>
                             <td><code>{{ prop.name }}</code></td>
-                            <td><small><code>{{ prop.formula }}</code></small></td>
+                            <td>
+                                <small><code>{{ prop.formula }}</code></small>
+                                {% if prop.name == 'realizability' %}
+                                    {% if prop.note %}
+                                    <br><small class="text-muted">{{ prop.note }}</small>
+                                    {% endif %}
+                                    {% if prop.counterexample_initial_state %}
+                                    <br><small class="text-danger">counterexample initial state:
+                                        {% for tl, val in prop.counterexample_initial_state.items() %}{{ tl }} = {{ val }}{% if not loop.last %}, {% endif %}{% endfor %}
+                                    </small>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
                             <td><small>{{ prop.duration_sec }}s</small></td>
                             <td>
-                                {% if prop.status == 'violated' %}
+                                {% if prop.status == 'violated' and prop.name != 'realizability' %}
                                 <button class="btn btn-sm btn-outline-danger" onclick="viewErrorTrace('{{ prop.name }}')">
                                     <i class="bi bi-graph-down"></i> Error Trace
+                                </button>
+                                {% elif prop.name == 'realizability' and prop.status == 'violated' %}
+                                <button class="btn btn-sm btn-outline-danger" onclick="viewJson('realizability_unsat_core', '/static/report/{{ name }}/{{ timestamp }}/realizability_unsat_core.json')">
+                                    <i class="bi bi-braces"></i> Unsat Core
                                 </button>
                                 {% endif %}
                             </td>
@@ -843,7 +870,14 @@ function runVerification() {
     showToast('Verification Started', 'Re-running verification...', 'info');
 
     fetch('/api/verify/{{ name }}', {
-        method: 'POST'
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            mode: document.getElementById('selVerifyMode').value,
+            realizability: document.getElementById('chkRealizability').checked
+        })
     })
     .then(response => response.json())
     .then(data => {
@@ -863,7 +897,7 @@ function runVerification() {
                 showToast('UNSAT', 'No valid schedule found', 'warning');
                 setTimeout(() => window.location.reload(), 2000);
             } else if (vStatus === 'violated') {
-                showToast('Property Violations', 'Found property violations. Check error traces.', 'warning');
+                showToast('Property Violations', 'Found property violations. Check error traces.', 'error');
                 setTimeout(() => window.location.reload(), 2500);
             } else if (vStatus === 'success') {
                 showToast('Success', 'Valid schedule found!', 'success');
@@ -1084,7 +1118,8 @@ function saveCode() {
         },
         body: JSON.stringify({
             source: newCode,
-            mode: '{{ metadata.mode or "optimize" }}'
+            mode: document.getElementById('selVerifyMode').value,
+            realizability: document.getElementById('chkRealizability').checked
         })
     })
     .then(response => response.json())

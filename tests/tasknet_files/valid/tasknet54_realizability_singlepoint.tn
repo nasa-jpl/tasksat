@@ -1,0 +1,24 @@
+// Single-point shortcut: every timeline declares an initial value, so the
+// initial state is fully determined and the realizability check coincides with
+// the validity check -> HOLDS immediately (no CEGIS iterations).
+tasknet SinglePoint54 {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0.0, 100.0] bounds [0.0, 100.0] = 50.0;
+    mode    : state(idle, working) = idle;
+  }
+
+  task work {
+    id 1;
+    start_range [10, 10];
+    end_range   [30, 30];
+    duration 20;
+    start 10;
+
+    impacts {
+      pre  { mode = working; }
+      post { mode = idle; battery += 20.0; }
+    }
+  }
+}

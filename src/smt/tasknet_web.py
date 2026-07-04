@@ -23,6 +23,15 @@ ERRORS_DIR = TASKSAT_ROOT / '.tasksat' / 'errors'
 TESTS_DIR = TASKSAT_ROOT / 'tests' / 'tasknet_files'
 
 
+def verifier_cmd(tn_path, mode, realizability=False):
+    """Build the tasknet_verifier.py command line."""
+    cmd = ['python', str(TASKSAT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py'),
+           str(tn_path), '--mode', mode]
+    if realizability:
+        cmd.append('--realizability')
+    return cmd
+
+
 @app.route('/')
 def index():
     """Home page - list verified tasknets only."""
@@ -299,6 +308,7 @@ def api_verify(name):
     # Get mode from request (default: optimize)
     data = request.get_json() if request.is_json else {}
     mode = data.get('mode', 'optimize')
+    realizability = bool(data.get('realizability', False))
 
     if mode not in ['optimize', 'satisfy']:
         return jsonify({'status': 'error', 'message': 'Invalid mode. Use "optimize" or "satisfy"'}), 400
@@ -334,7 +344,7 @@ def api_verify(name):
     start_time = time.time()
     try:
         result = subprocess.run(
-            ['python', str(TASKSAT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py'), str(tn_file), '--mode', mode],
+            verifier_cmd(tn_file, mode, realizability),
             capture_output=True,
             text=True,
             timeout=300  # 5 minute timeout
@@ -390,6 +400,7 @@ def api_create():
         folder = data.get('folder', '')
         source = data.get('source', '')
         mode = data.get('mode', 'optimize')
+        realizability = bool(data.get('realizability', False))
 
         if not name:
             return jsonify({'status': 'error', 'message': 'Filename is required'}), 400
@@ -422,7 +433,7 @@ def api_create():
         # Run verification
         start_time = time.time()
         result = subprocess.run(
-            ['python', str(TASKSAT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py'), str(file_path), '--mode', mode],
+            verifier_cmd(file_path, mode, realizability),
             capture_output=True,
             text=True,
             timeout=300
@@ -481,6 +492,7 @@ def api_upload():
 
     # Get mode from form data (default: optimize)
     mode = request.form.get('mode', 'optimize')
+    realizability = request.form.get('realizability', 'false').lower() == 'true'
     if mode not in ['optimize', 'satisfy']:
         return jsonify({'status': 'error', 'message': 'Invalid mode'}), 400
 
@@ -495,7 +507,7 @@ def api_upload():
         # Run verifier
         start_time = time.time()
         result = subprocess.run(
-            ['python', str(TASKSAT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py'), str(upload_path), '--mode', mode],
+            verifier_cmd(upload_path, mode, realizability),
             capture_output=True,
             text=True,
             timeout=300
@@ -609,6 +621,7 @@ def api_save_and_verify(name):
         data = request.get_json()
         source = data.get('source', '')
         mode = data.get('mode', 'optimize')
+        realizability = bool(data.get('realizability', False))
 
         # Find original source file
         latest_dir = SCHEDULES_DIR / name / 'latest'
@@ -629,7 +642,7 @@ def api_save_and_verify(name):
         # Run verification
         start_time = time.time()
         result = subprocess.run(
-            ['python', str(TASKSAT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py'), str(source_path), '--mode', mode],
+            verifier_cmd(source_path, mode, realizability),
             capture_output=True,
             text=True,
             timeout=300
@@ -850,6 +863,7 @@ def api_verify_file():
         data = request.get_json()
         file_path = data.get('file_path', '')
         mode = data.get('mode', 'optimize')
+        realizability = bool(data.get('realizability', False))
 
         if not file_path:
             return jsonify({'status': 'error', 'message': 'File path is required'}), 400
@@ -868,7 +882,7 @@ def api_verify_file():
         # Run verifier on the real file (no copying)
         start_time = time.time()
         result = subprocess.run(
-            ['python', str(TASKSAT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py'), str(file_path), '--mode', mode],
+            verifier_cmd(file_path, mode, realizability),
             capture_output=True,
             text=True,
             timeout=300

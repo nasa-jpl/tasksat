@@ -1,0 +1,32 @@
+// Realizability VIOLATED: battery starts anywhere in [0,59], but the required
+// task needs battery >= 30 and nothing can charge before it. The validity check
+// passes (it picks battery >= 30) and property checks would be vacuously true
+// for battery < 30 -- only the realizability check finds that initial states
+// with battery < 30 admit NO valid schedule.
+tasknet Unrealizable53 {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0.0, 100.0] bounds [0.0, 100.0];
+  }
+
+  initial {
+    battery in [0.0, 59.0];
+  }
+
+  task work {
+    id 1;
+    start_range [10, 10];
+    end_range   [30, 30];
+    duration 20;
+    start 10;
+
+    pre {
+      battery in [30.0, 100.0];
+    }
+
+    impacts {
+      post { battery += 20.0; }
+    }
+  }
+}

@@ -162,6 +162,12 @@
                         <option value="satisfy">Satisfy (find any valid schedule)</option>
                     </select>
                 </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="createRealizability">
+                    <label class="form-check-label" for="createRealizability">
+                        Check realizability (every allowed initial state admits a schedule)
+                    </label>
+                </div>
             </div>
             <div id="createError" class="alert alert-danger" style="display: none; margin: 1rem;"></div>
             <div class="modal-footer">
@@ -224,6 +230,12 @@
                         <option value="satisfy">Satisfy (find any valid schedule)</option>
                     </select>
                     <small class="text-muted">Optimize mode finds the best schedule, satisfy mode finds any valid schedule faster.</small>
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="verifyRealizability">
+                    <label class="form-check-label" for="verifyRealizability">
+                        Check realizability (every allowed initial state admits a schedule)
+                    </label>
                 </div>
             </div>
             <div class="modal-footer">
@@ -478,7 +490,8 @@ function createAndVerify() {
             name: name,
             folder: folder,
             source: source,
-            mode: mode
+            mode: mode,
+            realizability: document.getElementById('createRealizability').checked
         })
     })
     .then(response => response.json())
@@ -505,7 +518,7 @@ function createAndVerify() {
                 modal.hide();
                 setTimeout(() => window.location.reload(), 2000);
             } else if (vStatus === 'violated') {
-                showToast('Property Violations', `Created ${name}.tn but found property violations. Check the report.`, 'warning');
+                showToast('Property Violations', `Created ${name}.tn but found property violations. Check the report.`, 'error');
                 const modal = bootstrap.Modal.getInstance(document.getElementById('createModal'));
                 modal.hide();
                 setTimeout(() => window.location.reload(), 2000);
@@ -652,7 +665,8 @@ function runVerification() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             file_path: selectedFilePath,
-            mode: mode
+            mode: mode,
+            realizability: document.getElementById('verifyRealizability').checked
         })
     })
     .then(response => response.json())
@@ -673,7 +687,7 @@ function runVerification() {
                 showToast('UNSAT', 'No valid schedule found. Check the report for details.', 'warning');
                 setTimeout(() => window.location.reload(), 2000);
             } else if (vStatus === 'violated') {
-                showToast('Property Violations', 'Found property violations. Check the report for error traces.', 'warning');
+                showToast('Property Violations', 'Found property violations. Check the report for error traces.', 'error');
                 setTimeout(() => window.location.reload(), 2000);
             } else if (vStatus === 'success') {
                 showToast('Success', `Valid schedule found! Completed in ${data.duration}s.`, 'success');

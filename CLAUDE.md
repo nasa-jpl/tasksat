@@ -398,6 +398,34 @@ final within initial;   // every schedule must end exactly as it started
 - SMT: `_encode_final_holds()` / `_final_makespan()` / `_final_zone_index()`, checked (negated) in `check_temporal_properties()` in [tasknet_smt.py](src/smt/tasknet_smt.py)
 - Wellformedness / Transforms / Printer: mirror the `initial` handling for `final`
 
+### Realizability Check (`--realizability`)
+
+Opt-in third verification phase: `python src/smt/tasknet_verifier.py net.tn --realizability`
+
+**Semantics:** `forall initial state i . exists schedule s . valid(i, s)` — every
+initial state admitted by the spec must admit some valid schedule. Complements the
+two standard checks: validity (`∃ i, s`) only proves SOME initial state works, and
+property checking (`∀ i, s . valid → sat`) is **vacuously true** for initial states
+with no schedules. Example: with `initial { battery in [0, 59]; }` and a task
+requiring `battery >= 30`, validity passes (picks ≥ 30) but realizability reports
+the counterexample `battery < 30` (an initial state with NO valid schedule), with
+an unsat core explaining why (`realizability_unsat_core.json`).
+
+**Implementation:** CEGIS loop in [tasknet_realizability.py](src/smt/tasknet_realizability.py)
+(direct ∀∃ quantification would choke on the nonlinear rate×duration terms):
+repeatedly pick an uncovered initial state, solve the planning problem pinned to it
+(UNSAT ⇒ counterexample), else block the whole region covered by the found
+schedule skeleton via a quantified *linear* clause (times pinned ⇒ linear).
+The region is exact, not sampled: it is the solution set of the residual
+inequality system in the initial-state variables (the sample only serves to
+discover the skeleton; soundness is by construction).
+Supporting hooks in [tasknet_smt.py](src/smt/tasknet_smt.py): `track=False`
+encoder mode (exact `solver.assertions()`) and `init_region_constraints`
+(zone-0 constraint recording — keep in sync when adding zone-0 constraints).
+Results: HOLDS / VIOLATED / UNKNOWN (iteration/time budget), shipped in
+`properties.json` under the name `realizability` and in `metadata.json`.
+Tuning: `--realizability-max-iters` (default 50), `--realizability-budget` (default 60s).
+
 ## Dependencies
 
 **Python:**

@@ -16,7 +16,7 @@ VALID_TASKNET_DIR = 'tests/tasknet_files/valid'
 INVALID_TASKNET_DIR = 'tests/tasknet_files/invalid'
 
 
-def verify(tasknet_file, valid=True, check=True, mode='optimize'):
+def verify(tasknet_file, valid=True, check=True, mode='optimize', extra_args=None):
     """
     Run the TaskNet verifier on a given file.
 
@@ -25,6 +25,7 @@ def verify(tasknet_file, valid=True, check=True, mode='optimize'):
         valid: If True, looks in valid/ directory, otherwise invalid/
         check: If True, raises AssertionError if verifier exits with non-zero code
         mode: 'optimize' for optimization mode (Optimize solver) or 'satisfy' for satisfiability mode (Solver)
+        extra_args: Optional list of additional CLI arguments (e.g. ['--realizability'])
 
     Returns:
         str: The stdout output from the verifier
@@ -36,6 +37,8 @@ def verify(tasknet_file, valid=True, check=True, mode='optimize'):
     tasknet_path = f"{directory}/{tasknet_file}"
 
     cmd = [sys.executable, VERIFIER_SCRIPT, tasknet_path, '--mode', mode]
+    if extra_args:
+        cmd.extend(extra_args)
     result = subprocess.run(
         cmd,
         capture_output=True,
@@ -64,19 +67,20 @@ def contains_all(output, expected_strings):
         assert expected in output, f"Expected string not found: {expected}"
 
 
-def verify_out(tasknet_file, mode='optimize'):
+def verify_out(tasknet_file, mode='optimize', extra_args=None):
     """
     Curried function: verify a tasknet file and check expected output strings.
 
     Args:
         tasknet_file: Name of the .tn file (e.g., 'tasknet1.tn')
         mode: 'optimize' for optimization mode (Optimize solver) or 'satisfy' for satisfiability mode (Solver)
+        extra_args: Optional list of additional CLI arguments (e.g. ['--realizability'])
 
     Returns:
         Function that takes expected_strings as *args and asserts they're all in output
     """
     def check_output(*expected_strings):
-        output = verify(tasknet_file, mode=mode)
+        output = verify(tasknet_file, mode=mode, extra_args=extra_args)
         if not expected_strings:
             print(output)
         contains_all(output, expected_strings)

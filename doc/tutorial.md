@@ -1211,6 +1211,79 @@ This verification capability goes beyond what traditional planners can do.
 - Satisfy mode: Finds any valid schedule in Step 1
 - **Important**: The mode flag only controls Step 1 (main schedule generation). Step 2 (property verification) always uses Solver mode for faster counterexample finding, regardless of the `--mode` flag. This is an optimization since counterexamples don't need to be optimal.
 
+#### Step 3 (opt-in) - Realizability (forall-exists):
+
+∀ initial. ∃ schedule. constraints(initial, schedule)
+
+Enabled with the `--realizability` flag. Checks that **every** initial state
+allowed by the spec admits some valid schedule. Neither of the first two steps
+answers this:
+
+- Step 1 only proves *some* initial state admits a schedule (the solver picks a
+  convenient one).
+- Step 2 is **vacuously true** for an initial state with no valid schedules — an
+  implication with an empty antecedent says nothing.
+
+For example, with `initial { battery in [0, 59]; }` and a task requiring
+`battery >= 30` at its start (and no way to charge first), Steps 1 and 2 both
+pass, yet the mission cannot be scheduled if the battery happens to start below
+30. Step 3 reports exactly that: a concrete counterexample initial state (e.g.
+`battery = 0`) together with the UNSAT core explaining why no schedule exists
+from it.
+
+```bash
+python src/smt/tasknet_verifier.py some_tasknet.tn --realizability
+```
+
+The check alternates quantifiers (∀∃), which a single solver call cannot decide
+here, so TaskSAT uses a counterexample-guided loop (CEGIS — a standard technique
+from program synthesis, Solar-Lezama et al. 2006; see the references in
+[smt-encoding.md](smt-encoding.md)): it repeatedly picks a
+not-yet-covered initial state, plans from it (failure = counterexample), and
+otherwise generalizes the found schedule to cover a whole region of initial
+states at once. The result is HOLDS, VIOLATED (with counterexample), or UNKNOWN
+if the iteration/time budget (`--realizability-max-iters`,
+`--realizability-budget`) runs out.
+
+##### How one schedule covers a whole region of initial states
+
+The generalization step deserves explanation, because it can look like a leap:
+the solver verified ONE initial state (say `battery = 30`), yet the loop crosses
+off the whole interval `[30, 59]`. **No extrapolation from the sample happens.**
+The sample plays only one role: it makes the planner produce a concrete schedule
+(say `work: start = 10, end = 30`). After that, the sample is discarded, and a
+second, independent question is answered exactly:
+
+> *For which initial battery values `b` is this particular schedule valid?*
+
+With the schedule's times fixed to numbers, the constraint system collapses to a
+small system of inequalities in the single unknown `b`:
+
+```
+30 ≤ b ≤ 59       (the initial block)
+b ≥ 30            (the task's precondition at its start)
+b + 20 ≤ 100      (bounds after the task's +20 impact)
+```
+
+This system is *solved* — the way one solves any inequality, not by testing
+values — and its exact solution set is `b ∈ [30, 59]`. Every value in that set
+is covered *by construction*: the system IS the original constraints partially
+evaluated, so any `b` satisfying it, together with the frozen schedule, makes
+every original constraint true — which is precisely the definition of a valid
+schedule.
+
+Two technical notes. First, timeline values at later time points (helpers like
+"battery after the task") remain existentially quantified in this residual
+system; TaskSAT hands the quantified formula to Z3 rather than eliminating the
+helpers by hand. Second, fixing the schedule times is also what makes the
+residual system *linear* (the encoding's only nonlinear terms are
+`rate × duration`), so these per-iteration queries fall in a fragment Z3 decides
+reliably — this is exactly why the loop succeeds where a single monolithic ∀∃
+query returns *unknown*.
+
+For a crisp, fully formal one-page treatment of the algorithm (definitions,
+soundness and progress lemmas), see [cegis.md](cegis.md).
+
 ## Understanding UNSAT Diagnostics
 
 When TaskSAT cannot find a valid schedule, it provides diagnostics showing which constraints conflict:

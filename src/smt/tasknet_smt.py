@@ -17,9 +17,13 @@ class TaskNetSMT:
     Solver for TaskNet using Z3 SMT.
     """
 
-    def __init__(self, tn: TaskNet, use_optimization: bool = True):
+    def __init__(self, tn: TaskNet, use_optimization: bool = True, track: bool = True):
         self.tn = self.normalize_tasknet(tn)
         self.tn = self.resolve_task_definitions(self.tn)
+        # When track=False, add_tracked degrades to plain solver.add so that
+        # solver.assertions() is the exact constraint conjunction (assert_and_track
+        # stores Implies(tracker, c) forms, unusable as a formula template).
+        self.track = track
 
         # === Task categorization ===
         self.required_tasks = [t for t in self.tn.tasks if t.kind == TaskKind.INSTANCE]
@@ -76,6 +80,14 @@ class TaskNetSMT:
         self.numeric_tl_zone: Dict[str, Tuple[RealRange, Optional[RealRange], List]] = {}
         # rate timeline rates: id -> [Real vars] for the RATE (not value)
         self.rate_tl_rate_zone: Dict[str, List] = {}
+
+        # Constraints defining the INITIAL-STATE REGION (zone-0 variables only):
+        # declared initial pins, initial-block conditions, zone-0 ranges/bounds/
+        # domains. Recorded alongside the normal solver adds so the realizability
+        # check can reason about the initial region in isolation. Every method
+        # that constrains zone-0 variables must append here (kept in sync by a
+        # unit test in tests/test_realizability.py).
+        self.init_region_constraints: List = []
 
         self._mk_zone_state_vars()
         self._encode_initial_state_zones()
@@ -147,7 +159,7 @@ class TaskNetSMT:
 
     def add_tracked(self, constraint, label: str):
         """Add a constraint with tracking for unsat core analysis."""
-        if isinstance(self.solver, Solver):
+        if isinstance(self.solver, Solver) and self.track:
             # Use assert_and_track for Solver (supports unsat cores)
             self.solver.assert_and_track(constraint, label)
             # Store the mapping from label to raw Z3 constraint for debugging
@@ -1214,8 +1226,10 @@ class TaskNetSMT:
                 vars_z = [Int(f"{tl.id}_z{j}") for j in range(Z)]
                 self.state_tl_zone[tl.id] = (states, s2i, i2s, vars_z)
                 # Constrain domain of state
-                for v in vars_z:
+                for j, v in enumerate(vars_z):
                     self.solver.add(v >= 0, v < len(states))
+                    if j == 0:  # keep init_region_constraints in sync
+                        self.init_region_constraints.append(And(v >= 0, v < len(states)))
 
             elif isinstance(tl, AtomicTimeline):
                 # Use Int instead of Bool to support cumulative MAINT (claim/release)
@@ -1225,6 +1239,8 @@ class TaskNetSMT:
                 # Add range constraints [0,1] for all zones
                 for i, v in enumerate(vars_z):
                     self.add_tracked(And(v >= 0, v <= 1), f"atomic_capacity: timeline '{tl.id}' must stay in [0,1] at zone {i}")
+                    if i == 0:  # keep init_region_constraints in sync
+                        self.init_region_constraints.append(And(v >= 0, v <= 1))
 
             elif isinstance(tl, ClaimableTimeline):
                 vars_z = [Real(f"{tl.id}_z{j}") for j in range(Z)]
@@ -1242,6 +1258,12 @@ class TaskNetSMT:
                 rate_vars = [Real(f"{tl.id}_rate_z{j}") for j in range(Z)]
                 self.rate_tl_rate_zone[tl.id] = rate_vars
 
+    def _add_initial(self, constraint):
+        """Add a zone-0 (initial state) constraint, recording it in
+        init_region_constraints (keep in sync — see __init__)."""
+        self.solver.add(constraint)
+        self.init_region_constraints.append(constraint)
+
     def _encode_initial_state_zones(self):
         # Zone 0 corresponds to time 0
         z0_idx = 0
@@ -1249,39 +1271,39 @@ class TaskNetSMT:
             if isinstance(tl, StateTimeline):
                 _, s2i, _, vars_z = self.state_tl_zone[tl.id]
                 if tl.initial is not None:
-                   self.solver.add(vars_z[0] == s2i[tl.initial])
+                   self._add_initial(vars_z[0] == s2i[tl.initial])
 
             elif isinstance(tl, AtomicTimeline):
                 vars_z = self.atomic_tl_zone[tl.id]
                 if getattr(tl, "initial", None) is not None:
                     # Initial value specified (0 or 1)
-                    self.solver.add(vars_z[z0_idx] == tl.initial)
+                    self._add_initial(vars_z[z0_idx] == tl.initial)
                 else:
                     # Default to 0 (unclaimed) for atomic timelines
-                    self.solver.add(vars_z[z0_idx] == 0)
+                    self._add_initial(vars_z[z0_idx] == 0)
 
             elif isinstance(tl, ClaimableTimeline):
                 _, _, vars_z = self.numeric_tl_zone[tl.id]
                 if tl.initial is not None:
-                    self.solver.add(vars_z[0] == tl.initial)
+                    self._add_initial(vars_z[0] == tl.initial)
 
             elif isinstance(tl, CumulativeTimeline):
                 _, _, vars_z = self.numeric_tl_zone[tl.id]
                 if tl.initial is not None:
-                    self.solver.add(vars_z[0] == tl.initial)
+                    self._add_initial(vars_z[0] == tl.initial)
 
             elif isinstance(tl, RateTimeline):
                 # Initialize VALUE at zone 0
                 _, _, vars_z = self.numeric_tl_zone[tl.id]
                 if tl.initial is not None:
-                    self.solver.add(vars_z[0] == tl.initial)
+                    self._add_initial(vars_z[0] == tl.initial)
                 # Initialize RATE at zone 0
                 rate_vars = self.rate_tl_rate_zone[tl.id]
                 if getattr(tl, "initial_rate", None) is not None:
-                    self.solver.add(rate_vars[0] == tl.initial_rate)
+                    self._add_initial(rate_vars[0] == tl.initial_rate)
                 else:
                     # Default to 0 rate if not specified
-                    self.solver.add(rate_vars[0] == 0.0)
+                    self._add_initial(rate_vars[0] == 0.0)
 
     def _encode_initial_bounds(self):
         for tl in self.tn.timelines:
@@ -1292,6 +1314,9 @@ class TaskNetSMT:
                     self.add_tracked(vars_z[0] <= bounds.high, f"initial_timeline_bounds: timeline '{tl.id}' initial value <= {bounds.high}")
                 else:
                     self.solver.add(vars_z[0] >= bounds.low, vars_z[0] <= bounds.high)
+                # keep init_region_constraints in sync
+                self.init_region_constraints.append(vars_z[0] >= bounds.low)
+                self.init_region_constraints.append(vars_z[0] <= bounds.high)
 
     def _encode_init_predicate(self):
         # init constraints apply at zone 0
@@ -1300,6 +1325,9 @@ class TaskNetSMT:
             self.add_tracked(init_constraint, "initial_constraints: initial conditions must hold at start")
         else:
             self.solver.add(init_constraint)
+        if self.tn.initial_constraints:
+            # keep init_region_constraints in sync
+            self.init_region_constraints.append(init_constraint)
 
     def _final_makespan(self):
         """Z3 expression for the makespan = the latest end time among the tasks
@@ -1805,6 +1833,8 @@ class TaskNetSMT:
             lo, hi = range_r.low, range_r.high
             for i, v in enumerate(vars_z):
                 self.add_tracked(And(v >= lo, v <= hi), f"timeline_range: timeline '{tl_id}' must stay in [{lo},{hi}] at zone {i}")
+                if i == 0:  # keep init_region_constraints in sync
+                    self.init_region_constraints.append(And(v >= lo, v <= hi))
 
     # ------------------------------
     # pre / inv / post (zone-based)
@@ -2441,8 +2471,8 @@ class TaskNetSMT:
 class TaskNetTL(TaskNetSMT):
     """Temporal logic interpretation"""
 
-    def __init__(self, tn: TaskNet, error_trace: bool = True, use_optimization: bool = True):
-        super().__init__(tn, use_optimization=use_optimization)
+    def __init__(self, tn: TaskNet, error_trace: bool = True, use_optimization: bool = True, track: bool = True):
+        super().__init__(tn, use_optimization=use_optimization, track=track)
         self._encode_temporal_constraints()
         self.error_trace = error_trace
 

@@ -1142,6 +1142,67 @@ python src/smt/tasknet_web.py
 # Navigate to http://localhost:5000 to view verification reports
 ```
 
+### Realizability Check
+
+TaskSAT's two standard checks are existential planning (∃ a valid schedule) and
+universal property checking (∀ valid schedules, the properties hold). Neither
+answers whether the tasknet is schedulable from **every** initial state the spec
+allows: planning picks a convenient initial state, and property checking is
+vacuously true for initial states that admit no schedules at all.
+
+The opt-in realizability check closes this gap:
+
+```bash
+python src/smt/tasknet_verifier.py tasknet.tn --realizability
+```
+
+**Semantics:** `forall initial state i . exists schedule s . valid(i, s)`
+
+This matters when the initial state is underdetermined — timelines without a
+declared initial value, constrained only by ranges in the `initial {...}` block:
+
+```tasknet
+timelines {
+  battery : cumulative [0.0, 100.0] bounds [0.0, 100.0];  // no initial value
+}
+
+initial {
+  battery in [0.0, 59.0];   // mission may start anywhere in this range
+}
+
+task work {
+  pre { battery in [30.0, 100.0]; }  // but work needs at least 30
+  ...
+}
+```
+
+Here planning succeeds (it picks battery ≥ 30), but if the battery happens to
+start below 30 there is no valid schedule at all. The realizability check
+reports:
+
+```
+Checking realizability (forall initial state exists schedule):
+  [iter 1] trying initial state: battery = 0
+  → VIOLATED!
+  Initial state with no valid schedule:
+    battery = 0
+```
+
+together with the UNSAT core explaining the conflict (saved to
+`realizability_unsat_core.json`). If instead every allowed initial state is
+schedulable, the check reports HOLDS with the number of schedule "skeletons"
+needed to cover the initial region. An UNKNOWN verdict means the iteration or
+time budget ran out (`--realizability-max-iters`, `--realizability-budget`).
+
+Note that covering a whole region with one schedule involves no sampling or
+extrapolation: with the schedule's times fixed, "which initial states does this
+schedule work for?" reduces to a small inequality system in the initial-state
+variables, which is solved exactly. See the tutorial ("How one schedule covers a
+whole region of initial states") for a worked example.
+
+The result is included in `properties.json` under the name `realizability` and
+in `metadata.json`.
+
 ## User-Guided Scheduling
 
 For large tasknets (100+ tasks), the SMT solver may timeout. You can guide the solver by adding temporal constraints that narrow the search space.
