@@ -1,0 +1,38 @@
+// Final narrowing test: no initial values on timelines, initial block gives
+// a wide range, and final block demands a narrower sub-range.
+//
+// battery has no default value; initial constrains it to [40, 70].
+// The task adds 10, so the final value is in [50, 80].
+// final { battery in [50, 70] } is narrower than the full output range
+// [50, 80], so only initial values in [40, 60] satisfy both initial and
+// final. The solver must find a counterexample with initial battery in
+// (60, 70] to show the final property is VIOLATED.
+// Expected: VIOLATED.
+
+tasknet Final51 {
+  end = 100;
+
+  timelines {
+    battery : cumulative [0.0, 100.0] bounds [0.0, 100.0];
+  }
+
+  initial {
+    battery in [40.0, 70.0];
+  }
+
+  final {
+    battery in [50.0, 70.0];
+  }
+
+  task work {
+    id 1;
+    start_range [10, 10];
+    end_range   [30, 30];
+    duration 20;
+    start 10;
+
+    impacts {
+      post { battery += 10.0; }
+    }
+  }
+}

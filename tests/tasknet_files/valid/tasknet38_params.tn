@@ -3,7 +3,6 @@
 tasknet ParamsTest {
   end = 100;
 
-  // Top-level param declarations
   param GLOBAL_DURATION = 10;
   param GLOBAL_RATE = 0.5;
 
@@ -13,7 +12,7 @@ tasknet ParamsTest {
 
   taskdef work {
     param {
-      DURATION = GLOBAL_DURATION;  // Reference global param
+      DURATION = GLOBAL_DURATION;  
     }
 
     duration DURATION;
