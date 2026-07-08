@@ -1,0 +1,31 @@
+// Regression for the atomic-impact inclusion bug: an EXCLUDED optional task
+// must not fire its auto-generated __T_active timeline. p1 must be VIOLATED
+// (some schedule excludes opt1), while p2 HOLDS (req1 is required).
+// Before the fix, excluded tasks still flipped __T_active to 1, making p1
+// falsely HOLD.
+tasknet OptionalActive56 {
+  end = 100;
+
+  timelines {
+    dummy : state(a, b) = a;
+  }
+
+  optional task opt1 {
+    id 1;
+    start_range [10, 20];
+    end_range   [30, 50];
+    duration 20;
+  }
+
+  task req1 {
+    id 2;
+    start_range [60, 70];
+    end_range   [80, 95];
+    duration 20;
+  }
+
+  properties {
+    prop p1 : eventually(active(opt1));
+    prop p2 : eventually(active(req1));
+  }
+}

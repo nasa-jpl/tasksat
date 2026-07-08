@@ -286,6 +286,21 @@ class TestVerifier:
             "No temporal properties attached to this TaskNet."
         )
 
+    def test_tasknet56_optional_active_impact(self):
+        """Regression: an EXCLUDED optional task must not fire its
+        auto-generated __T_active timeline. eventually(active(opt1)) must be
+        VIOLATED (a schedule excluding opt1 is a counterexample), while the
+        required task's property HOLDS. Guards the inclusion-guard on atomic
+        timeline impacts in tasknet_smt.py."""
+        verify_out('tasknet56_optional_active_impact.tn')(
+            "*** NEW SCHEDULE***",
+            "[1/2] Checking property 'p1'...",
+            "  → VIOLATED!",
+            "[2/2] Checking property 'p2'...",
+            "  → HOLDS",
+            "Summary: 1 hold, 1 violated, 0 unknown"
+        )
+
     def test_tasknet35_instance_range(self):
         """Test instance range expansion (task T[min..max] syntax)"""
         verify_out('tasknet35_instance_range.tn')(

@@ -1531,6 +1531,12 @@ class TaskNetSMT:
 
                             if isinstance(imp.how, ImpactCumulative):
                                 v = imp.how.v  # Typically +1 (claim) or -1 (release)
+                                # Excluded optional/request tasks must not fire
+                                # their impacts (mirrors state/numeric branches)
+                                if t.kind == TaskKind.OPTIONAL:
+                                    v = If(self.optional_included[t.id], v, 0)
+                                elif t.kind == TaskKind.REQUEST:
+                                    v = If(self.request_included[t.id], v, 0)
                                 if imp.when == "maint":
                                     # +v at start, -v at end (claim/release)
                                     delta = If(zi == s, delta + v,
