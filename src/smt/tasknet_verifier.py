@@ -456,7 +456,7 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     try:
         from tasknet_gantt import create_gantt_from_schedule
         gantt_path = run_dir / "gantt.png"
-        create_gantt_from_schedule(schedule, str(gantt_path), f"Schedule: {tn.id}")
+        create_gantt_from_schedule(schedule, str(gantt_path), f"Schedule: {tn.id}", tasknet=tn)
         # Copy to latest/
         import shutil
         shutil.copy(str(gantt_path), str(latest_dir / "gantt.png"))

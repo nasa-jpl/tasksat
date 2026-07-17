@@ -348,10 +348,20 @@ class TLMutex(Formula):
     - mutex [T1, T2, T3]: within-group (all pairs mutually exclusive)
     - mutex [T1, T2] with [T3, T4]: between-group (cross-product)
 
-    Desugared to: (A.end <= B.start) or (B.end <= A.start) for all pairs
+    Operands may be task instances or taskdefs. A taskdef operand expands to all
+    of its instances (manual + auto-instantiated) during desugaring.
+
+    Within-group semantics for taskdef operands (group_b is None):
+    - cross_only=False (default, `mutex [A, B]`): flatten all operands to instances
+      and exclude every pair, INCLUDING same-taskdef pairs.
+    - cross_only=True (`mutex cross [A, B]`): exclude only pairs from DIFFERENT
+      operands; instances of the same taskdef may overlap.
+
+    Desugared to: (A.end <= B.start) or (B.end <= A.start) for each excluded pair
     """
     group_a: List[TaskName]           # First group of tasks
     group_b: Optional[List[TaskName]] # Second group (None for within-group)
+    cross_only: bool = False          # Within-group: exclude cross-operand pairs only
 
 @dataclass
 class TemporalProperty:

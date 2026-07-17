@@ -1003,8 +1003,37 @@ Within-group mutex `[A, B, C]` desugars to:
 
 Between-group mutex `[A, B] with [C, D]` desugars to the cross-product of non-overlap conditions.
 
+**Taskdef operands.** Mutex operands may be **task instances** *or* **taskdefs**. A taskdef
+operand expands to *all* of its instances — both manually declared and auto-instantiated
+(`*_auto_N`). This lets you say "no two of these ever overlap" at the type level without
+enumerating instances. Instance and taskdef names may be mixed in a single list.
+
+Given taskdefs `A → {a0, a1}` and `B → {b0, b1}`:
+
+```tasknet
+# Default: flatten every operand to its instances and exclude EVERY pair,
+# including same-taskdef pairs (a0-a1 and b0-b1).
+mutex [A, B];
+
+# cross-only: exclude only pairs from DIFFERENT operands (a0-b0, a0-b1,
+# a1-b0, a1-b1). Same-taskdef pairs a0-a1 and b0-b1 MAY overlap.
+mutex cross [A, B];
+
+# Between-group: cross-product of the two flattened groups {a0,a1} x {b0,b1}.
+mutex [A] with [B];
+```
+
+Notes:
+- The optional `cross` keyword only affects the plain within-group form. The
+  `with` form is always a cross-product of the two flattened groups and does not
+  take `cross`.
+- `mutex [A]` on a single taskdef means "no two instances of A overlap".
+- For plain instances (no taskdefs), `mutex cross [t1, t2]` is identical to
+  `mutex [t1, t2]`.
+- A taskdef operand with **zero instances** is an error.
+
 The `mutex` construct:
-- Takes one or two lists of task names in square brackets
+- Takes one or two lists of task names (instances or taskdefs) in square brackets
 - Desugars to non-overlap constraints using task boundaries
 - Can be used in both `constraints` and `properties` blocks
 - More efficient than using `active()` predicates (doesn't create additional timelines)
@@ -1029,6 +1058,7 @@ constraints {
 
 Unnamed constraints are automatically given descriptive names:
 - `mutex [A, B]` → `"mutex_A_B"`
+- `mutex cross [A, B]` → `"mutex_cross_A_B"`
 - `sequence [A, B, C]` → `"sequence_A_B_C"`
 - Other formulas → `"constraint_1"`, `"constraint_2"`, etc.
 - Works with any number of tasks (2 or more)

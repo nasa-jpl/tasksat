@@ -426,7 +426,8 @@ class TaskNetPrinter:
         elif isinstance(f, TLMutex):
             group_a_str = ", ".join(f.group_a)
             if f.group_b is None:
-                return f"mutex [{group_a_str}]"
+                kw = "mutex cross" if f.cross_only else "mutex"
+                return f"{kw} [{group_a_str}]"
             else:
                 group_b_str = ", ".join(f.group_b)
                 return f"mutex [{group_a_str}] with [{group_b_str}]"

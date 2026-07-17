@@ -227,10 +227,17 @@ Syntactic sugar for sequential task execution. Desugars to pairwise `.end <= .st
 ### Mutual Exclusion
 ```
 mutex [<task1>, <task2>, ...]
+mutex cross [<taskdef1>, <taskdef2>, ...]
 mutex [<task1>, <task2>] with [<task3>, <task4>]
 ```
 
 Syntactic sugar for mutual exclusion. Desugars to non-overlap constraints: `(A.end <= B.start) or (B.end <= A.start)`.
+
+Operands may be task instances or taskdefs; a taskdef operand expands to all of
+its instances (manual + auto-instantiated). For the plain within-group form:
+- `mutex [A, B]` flattens all operands and excludes every pair (incl. same-taskdef).
+- `mutex cross [A, B]` excludes only pairs from different operands (same-taskdef
+  instances may overlap). The `cross` keyword is not used with the `with` form.
 
 ### Constraints vs Properties
 ```
@@ -249,6 +256,7 @@ properties {
 
 **Auto-naming rules:**
 - `mutex [A, B]` → `"mutex_A_B"`
+- `mutex cross [A, B]` → `"mutex_cross_A_B"`
 - `mutex [A, B] with [C, D]` → `"mutex_A_B_with_C_D"`
 - `sequence [A, B]` → `"sequence_A_B"`
 - Generic formulas → `"constraint_N"` (counter-based)
@@ -300,7 +308,7 @@ initial_rate, taskdef, task, optional, request, id, priority, duration,
 duration_range, start, start_range, end_range, after, containedin, pre, inv, post,
 impacts, maint, initial, final, within, constraints, properties, prop, active, always,
 eventually, until, sofar, once, since, and, or, not, true, false, in,
-time, sequence, mutex, with
+time, sequence, mutex, cross, with
 ```
 
 ## Operators

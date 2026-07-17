@@ -260,10 +260,36 @@ constraints {
 }
 ```
 
+**Taskdef operands.** Mutex operands may be **task instances** OR **taskdefs**. A taskdef
+operand expands to *all* of its instances — manual and auto-instantiated (`*_auto_N`) alike.
+This lets you say "no two of these ever overlap" at the type level without enumerating
+instances. Instance and taskdef names may be mixed in one group (e.g. `mutex [A, drive1]`).
+
+Given taskdefs `A → {a0, a1}` and `B → {b0, b1}`:
+
+```tasknet
+constraints {
+  mutex [A, B];        // Default: flatten all operands, exclude EVERY pair,
+                       //   including same-taskdef pairs a0-a1 and b0-b1.
+                       //   (mutex [A] alone means "no two A instances overlap")
+  mutex cross [A, B];  // cross-only: exclude only cross-operand pairs
+                       //   (a0-b0, a0-b1, a1-b0, a1-b1); a0-a1 and b0-b1 may overlap
+  mutex [A] with [B];  // Between-group: cross-product of {a0,a1} x {b0,b1}
+}
+```
+
+- Only the plain within-group form (`group_b is None`) is affected by `cross`; the `with`
+  form is always a cross-product of the two flattened groups and does not accept `cross`.
+- For plain instance operands (no taskdefs), `mutex cross [t1, t2]` is identical to
+  `mutex [t1, t2]` (each operand is a singleton group).
+- A taskdef operand with **zero instances** is an error (raised during transform).
+
 **Implementation:**
-- Parsed as `TLMutex` AST node (tasknet_parser.py)
+- Parsed as `TLMutex` AST node with a `cross_only` flag (tasknet_parser.py); `mutex cross [...]`
+  sets `cross_only=True`
 - Desugared to task boundary comparisons in `desugar_mutex()` transform (tasknet_transforms.py)
-- Desugars BEFORE `desugar_active_predicate()` to avoid creating `__task_active` timelines
+- Desugars AFTER `instantiate_from_definitions()` (Pass 7) so taskdef operands can expand to
+  auto-instances; taskdef→instance expansion uses `inst.definition == name`
 - More efficient than `always (active(A) -> not active(B))` syntax
 
 ### Unnamed Constraints

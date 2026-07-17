@@ -75,7 +75,8 @@ def create_gantt_from_schedule(
     schedule: Dict[str, Tuple[int, int]],
     output_path: str,
     title: str = "Task Schedule",
-    figsize: Tuple[int, int] = (12, 6)
+    figsize: Tuple[int, int] = (12, 6),
+    tasknet=None
 ):
     """
     Create a Gantt chart from a schedule dictionary.
@@ -85,6 +86,9 @@ def create_gantt_from_schedule(
         output_path: Path to save the PNG file
         title: Chart title
         figsize: Figure size (width, height)
+        tasknet: Optional TaskNet AST. When provided, tasks are colored by their
+            taskdef so that all instances of the same taskdef share a color.
+            Without it, coloring falls back to per-row index.
     """
     if not schedule:
         print("Warning: Empty schedule, no chart generated")
@@ -100,10 +104,33 @@ def create_gantt_from_schedule(
     # Color palette
     colors = plt.cm.Set3.colors
 
+    # Build task -> taskdef mapping for coloring so that all instances of the
+    # same taskdef share a color (matches the Timeline Evolution chart).
+    task_to_taskdef = {}
+    taskdef_to_color = {}
+    if tasknet:
+        # Map each task to its taskdef (or use task name as fallback)
+        for task in tasknet.tasks:
+            if task.definition:
+                task_to_taskdef[task.id] = task.definition
+            else:
+                # No taskdef - use task name itself
+                task_to_taskdef[task.id] = task.id
+
+        # Assign colors to each unique taskdef
+        unique_taskdefs = sorted(set(task_to_taskdef.values()))
+        for i, taskdef in enumerate(unique_taskdefs):
+            taskdef_to_color[taskdef] = colors[i % len(colors)]
+
     # Draw bars for each task
     for i, (task_name, (start, end)) in enumerate(tasks):
         duration = end - start
-        color = colors[i % len(colors)]
+
+        # Color by taskdef if available, otherwise by task index
+        if tasknet and task_name in task_to_taskdef:
+            color = taskdef_to_color[task_to_taskdef[task_name]]
+        else:
+            color = colors[i % len(colors)]
 
         # Draw task bar
         rect = patches.Rectangle(

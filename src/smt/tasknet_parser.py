@@ -76,6 +76,7 @@ reserved = {
     # mutual exclusion
     "mutex":       "MUTEX",
     "with":        "WITH",
+    "cross":       "CROSS",
     # parameters
     "param":       "PARAM",
 }
@@ -262,9 +263,12 @@ def _generate_constraint_name(formula: Formula) -> str:
 
     if isinstance(formula, TLMutex):
         # mutex [A, B] → "mutex_A_B"
+        # mutex cross [A, B] → "mutex_cross_A_B"
         # mutex [A, B] with [C, D] → "mutex_A_B_with_C_D"
         group_a_str = "_".join(formula.group_a)
         if formula.group_b is None:
+            if formula.cross_only:
+                return f"mutex_cross_{group_a_str}"
             return f"mutex_{group_a_str}"
         else:
             group_b_str = "_".join(formula.group_b)
@@ -1705,7 +1709,15 @@ def p_tl_atom_mutex_within(p):
     "tl_atom : MUTEX LBRACKET task_name_list RBRACKET"
     # mutex [T1, T2, T3]
     tasks = p[3]
-    p[0] = TLMutex(group_a=tasks, group_b=None)
+    p[0] = TLMutex(group_a=tasks, group_b=None, cross_only=False)
+
+
+def p_tl_atom_mutex_within_cross(p):
+    "tl_atom : MUTEX CROSS LBRACKET task_name_list RBRACKET"
+    # mutex cross [A, B]: cross-operand exclusion only (taskdef instances of the
+    # same operand may overlap)
+    tasks = p[4]
+    p[0] = TLMutex(group_a=tasks, group_b=None, cross_only=True)
 
 
 def p_tl_atom_mutex_between(p):
@@ -1713,7 +1725,7 @@ def p_tl_atom_mutex_between(p):
     # mutex [T1, T2] with [T3, T4]
     group_a = p[3]
     group_b = p[7]
-    p[0] = TLMutex(group_a=group_a, group_b=group_b)
+    p[0] = TLMutex(group_a=group_a, group_b=group_b, cross_only=False)
 
 
 def p_task_name_list_single(p):

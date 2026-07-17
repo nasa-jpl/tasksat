@@ -1,0 +1,22 @@
+// Mutex over taskdefs (cross-only). A-instances may overlap each other and
+// B-instances may overlap each other, but no A overlaps any B. With end=50 and
+// four 20-unit tasks, cross-only fits (a0//a1 in [0,20], b0//b1 in [20,40]);
+// the default `mutex [A,B]` would fully serialize all four (needs 80 > 50).
+tasknet MutexTaskdef {
+  end = 80;
+
+  taskdef A { duration_range [20, 20]; after C;}
+  taskdef B { duration_range [20, 20]; }
+  taskdef C { duration_range [20, 20]; }
+
+  task a0 : A {}
+  task a1 : A {}
+  task b0 : B {}
+  task b1 : B {}
+
+  constraints {
+    prop no_overlap1: mutex [A] with [B];
+    prop no_overlap2: mutex [C];
+    prop no_overlap3: mutex [B];
+  }
+}

@@ -194,10 +194,6 @@ def apply_transforms(tn: TaskNet) -> tuple[TaskNet, bool]:
     # Pass 1: Desugar sequence [task1, task2, ...] to pairwise ordering constraints
     tn = desugar_sequence(tn)
 
-    # Pass 1.5: Desugar mutex [task1, task2, ...] to non-overlap constraints
-    # (Must come BEFORE active() desugaring to avoid creating active timelines)
-    tn = desugar_mutex(tn)
-
     # Pass 2: Desugar active(T) syntax to __T_active = 1
     tn = desugar_active_predicate(tn)
 
@@ -219,6 +215,13 @@ def apply_transforms(tn: TaskNet) -> tuple[TaskNet, bool]:
     # Pass 6: Reclassify again after auto-instantiation
     # (Newly created instances need to be linked to tasks that depend on them)
     tn = reclassify_constraints(tn)
+
+    # Pass 7: Desugar mutex [task1, task2, ...] to non-overlap constraints.
+    # (Must come AFTER instantiate_from_definitions so that taskdef operands can
+    #  expand to all their instances, including auto-instantiated *_auto_N ones.
+    #  Mutex desugars to boundary comparisons, not active(), so it does not need
+    #  to precede active() desugaring.)
+    tn = desugar_mutex(tn)
 
     # NOTE: We do NOT convert type-level to instance-level dependencies here.
     # The SMT encoder will resolve inherited type-level dependencies to specific
@@ -310,7 +313,7 @@ def _desugar_sequence_formula(f: Formula) -> Formula:
 
 
 # ==============================================================================
-# Transformation Pass 1.5: Desugar Mutex Constraints
+# Transformation Pass 7: Desugar Mutex Constraints
 # ==============================================================================
 
 def desugar_mutex(tn: TaskNet) -> TaskNet:
@@ -326,6 +329,14 @@ def desugar_mutex(tn: TaskNet) -> TaskNet:
         mutex [T1, T2] with [T3, T4]
     becomes the cross-product of all pairs from both groups.
 
+    Operands may be task instances or taskdefs. A taskdef operand expands to all
+    of its instances (manual + auto-instantiated). Within-group behavior for
+    taskdef operands is controlled by TLMutex.cross_only:
+      - cross_only=False (mutex [A, B]): flatten to instances, exclude all pairs.
+      - cross_only=True (mutex cross [A, B]): exclude only cross-operand pairs.
+
+    Runs after instantiate_from_definitions so that auto-instances exist.
+
     The transformation recursively walks all temporal formulas in constraints
     and properties, replacing TLMutex nodes with disjunctions of non-overlap conditions.
 
@@ -335,35 +346,71 @@ def desugar_mutex(tn: TaskNet) -> TaskNet:
     Returns:
         TaskNet with mutex constructs desugared to non-overlap constraints
     """
+    taskdef_ids = {t.id for t in tn.tasks if t.kind == TaskKind.DEFINITION}
+
+    def expand(name: str) -> list:
+        """Expand a taskdef name to its instance ids; leave instance names as-is.
+
+        Raises ValueError if a taskdef operand has no instances (would otherwise
+        silently vanish from the mutex constraint).
+        """
+        if name in taskdef_ids:
+            insts = [inst.id for inst in tn.tasks
+                     if inst.definition == name and inst.kind != TaskKind.DEFINITION]
+            if not insts:
+                raise ValueError(
+                    f"mutex references taskdef '{name}' which has no instances. "
+                    f"Create at least one instance of '{name}', or remove it from the mutex."
+                )
+            return insts
+        return [name]
+
     # Transform constraints
     for prop in tn.constraints:
-        prop.formula = _desugar_mutex_formula(prop.formula)
+        prop.formula = _desugar_mutex_formula(prop.formula, expand)
 
     # Transform properties
     for prop in tn.properties:
-        prop.formula = _desugar_mutex_formula(prop.formula)
+        prop.formula = _desugar_mutex_formula(prop.formula, expand)
 
     return tn
 
 
-def _desugar_mutex_formula(f: Formula) -> Formula:
+def _desugar_mutex_formula(f: Formula, expand) -> Formula:
     """
     Recursively desugar mutex [T1, T2, ...] to non-overlap disjunctions.
+
+    Args:
+        f: The formula to desugar
+        expand: Callable mapping an operand name to a list of instance ids
+                (taskdef -> its instances, instance -> [itself])
     """
     # Base case: TLMutex desugars to conjunction of non-overlap disjunctions
     if isinstance(f, TLMutex):
         constraints = []
 
         if f.group_b is None:
-            # Within-group: all pairs
-            tasks = f.group_a
-            for i in range(len(tasks)):
-                for j in range(i+1, len(tasks)):
-                    constraints.append(_make_non_overlap_formula(tasks[i], tasks[j]))
+            if f.cross_only:
+                # Within-group, cross-only: expand each operand to its own group,
+                # emit pairs only across DIFFERENT operand groups.
+                groups = [expand(name) for name in f.group_a]
+                for gi in range(len(groups)):
+                    for gj in range(gi + 1, len(groups)):
+                        for a in groups[gi]:
+                            for b in groups[gj]:
+                                constraints.append(_make_non_overlap_formula(a, b))
+            else:
+                # Within-group, default: flatten all operands, exclude every pair.
+                tasks = [inst for name in f.group_a for inst in expand(name)]
+                for i in range(len(tasks)):
+                    for j in range(i + 1, len(tasks)):
+                        constraints.append(_make_non_overlap_formula(tasks[i], tasks[j]))
         else:
-            # Between-group: cross-product
-            for task_a in f.group_a:
-                for task_b in f.group_b:
+            # Between-group: cross-product of the two flattened groups.
+            group_a = [inst for name in f.group_a for inst in expand(name)]
+            group_b = [inst for name in f.group_b for inst in expand(name)]
+            for task_a in group_a:
+                for task_b in group_b:
                     constraints.append(_make_non_overlap_formula(task_a, task_b))
 
         # Empty list: trivially true
@@ -383,15 +430,15 @@ def _desugar_mutex_formula(f: Formula) -> Formula:
     # Recursive cases: process subformulas
     elif isinstance(f, (TLAnd, TLOr, TLUntil, TLSince)):
         return type(f)(
-            left=_desugar_mutex_formula(f.left),
-            right=_desugar_mutex_formula(f.right)
+            left=_desugar_mutex_formula(f.left, expand),
+            right=_desugar_mutex_formula(f.right, expand)
         )
     elif isinstance(f, (TLNot, TLAlways, TLEventually, TLSoFar, TLOnce)):
-        return type(f)(sub=_desugar_mutex_formula(f.sub))
+        return type(f)(sub=_desugar_mutex_formula(f.sub, expand))
     elif isinstance(f, TLImplies):
         return TLImplies(
-            left=_desugar_mutex_formula(f.left),
-            right=_desugar_mutex_formula(f.right)
+            left=_desugar_mutex_formula(f.left, expand),
+            right=_desugar_mutex_formula(f.right, expand)
         )
 
     # Atomic formulas: no transformation needed
