@@ -276,6 +276,52 @@ code[class*="language-"] {
         </div>
     </div>
 
+    <!-- Static Diagrams (Collapsible, right after source code) -->
+    {% if has_structure or has_temporal %}
+    <div class="text-center mb-2">
+        <button class="btn btn-sm btn-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#diagramsSection" aria-expanded="false">
+            <i class="bi bi-images"></i> View Diagrams
+            <i class="bi bi-chevron-down"></i>
+        </button>
+    </div>
+    <div id="diagramsSection" class="collapse mb-4">
+        {% if has_structure %}
+        <div class="card mb-4">
+            <div class="card-header bg-secondary text-white">
+                <i class="bi bi-diagram-3"></i> TaskNet Structure
+            </div>
+            <div class="card-body text-center">
+                <img src="/static/report/{{ name }}/{{ timestamp }}/structure.png?v={{ timestamp }}"
+                     class="border"
+                     alt="TaskNet structure: relations (left) and timeline interactions (right)"
+                     style="cursor: pointer; max-width: 100%; height: auto;"
+                     onclick="openImageModal(this.src)">
+                <p class="text-muted small mt-2 mb-0">
+                    <i class="bi bi-info-circle"></i> Left: task/taskdef relations (after, containedin, instance&rarr;taskdef, mutex, sequence). Right: task&harr;timeline interactions (impacts colored by pre/maint/post, and reads). Click to enlarge.
+                </p>
+            </div>
+        </div>
+        {% endif %}
+        {% if has_temporal %}
+        <div class="card mb-0">
+            <div class="card-header bg-info text-white">
+                <i class="bi bi-clock-history"></i> Temporal Range Specification
+            </div>
+            <div class="card-body text-center">
+                <img src="/static/report/{{ name }}/{{ timestamp }}/temporal.png?v={{ timestamp }}"
+                     class="border"
+                     alt="Temporal ranges showing possible start/end windows"
+                     style="cursor: pointer; max-width: 100%; height: auto;"
+                     onclick="openImageModal(this.src)">
+                <p class="text-muted small mt-2 mb-0">
+                    <i class="bi bi-info-circle"></i> Shows tasks laid out on a timeline according to their start_range, end_range, and duration_range constraints. Light boxes show full possible windows; dark boxes show core windows. Click to enlarge.
+                </p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <!-- Console Output Section (Collapsible) -->
     <div class="card mb-4">
         <div class="card-header bg-secondary text-white">
@@ -655,25 +701,6 @@ code[class*="language-"] {
         </div>
     </div>
     {% endif %}
-    {% endif %}
-
-    <!-- Structure Section (static tasknet spec; shown regardless of SAT/UNSAT) -->
-    {% if has_structure %}
-    <div class="card mb-4">
-        <div class="card-header bg-secondary text-white">
-            <i class="bi bi-diagram-3"></i> TaskNet Structure
-        </div>
-        <div class="card-body text-center">
-            <img src="/static/report/{{ name }}/{{ timestamp }}/structure.png?v={{ timestamp }}"
-                 class="border"
-                 alt="TaskNet structure: relations (left) and timeline interactions (right)"
-                 style="cursor: pointer; max-width: 100%; height: auto;"
-                 onclick="openImageModal(this.src)">
-            <p class="text-muted small mt-2 mb-0">
-                <i class="bi bi-info-circle"></i> Left: task/taskdef relations (after, containedin, instance&rarr;taskdef, mutex, sequence). Right: task&harr;timeline interactions (impacts colored by pre/maint/post, and reads). Click to enlarge.
-            </p>
-        </div>
-    </div>
     {% endif %}
 
     <!-- Error Traces Section (at the end) -->
@@ -1221,5 +1248,22 @@ document.getElementById('consoleOutput').addEventListener('show.bs.collapse', fu
 
 // Timeline charts are now displayed as PNG images instead of JavaScript rendering
 // This ensures correct visualization of rate timeline slopes
+
+// Rotate chevron when diagrams section is toggled
+const diagramsSection = document.getElementById('diagramsSection');
+if (diagramsSection) {
+    diagramsSection.addEventListener('show.bs.collapse', function() {
+        const chevron = document.querySelector('[data-bs-target="#diagramsSection"] .bi-chevron-down');
+        if (chevron) {
+            chevron.classList.replace('bi-chevron-down', 'bi-chevron-up');
+        }
+    });
+    diagramsSection.addEventListener('hide.bs.collapse', function() {
+        const chevron = document.querySelector('[data-bs-target="#diagramsSection"] .bi-chevron-up');
+        if (chevron) {
+            chevron.classList.replace('bi-chevron-up', 'bi-chevron-down');
+        }
+    });
+}
 </script>
 {% endblock %}

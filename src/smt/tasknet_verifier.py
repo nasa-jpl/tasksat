@@ -237,6 +237,13 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         print(error("\n❌ WELLFORMEDNESS CHECK FAILED"))
         return  # Errors already printed by checker
 
+    # Snapshot the transformed tasknet before encoding. SMT encoding mutates
+    # task ranges (fills unconstrained start/end with MAX_INT and drops taskdefs),
+    # so the temporal range visualization must use this pre-encoding copy to show
+    # the real specification bounds.
+    import copy
+    tn_pre_encoding = copy.deepcopy(tn)
+
     use_optimization = (mode == 'optimize')
 
     try:
@@ -498,6 +505,18 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
             print(f"🗺️  Structure diagrams saved to: {run_dir}")
     except ImportError:
         print("⚠️  Structure diagram skipped (tasknet_structure_viz unavailable)")
+
+    # Generate temporal range visualization (shows time constraints horizontally)
+    try:
+        from tasknet_temporal_viz import create_temporal_range_visualization
+        temporal_path = run_dir / "temporal.png"
+        temporal_created = create_temporal_range_visualization(tn_pre_encoding, str(temporal_path))
+        if temporal_created:
+            import shutil
+            shutil.copy(str(temporal_path), str(latest_dir / "temporal.png"))
+            print(f"📊 Temporal range visualization saved to: {run_dir}")
+    except ImportError:
+        print("⚠️  Temporal range visualization skipped (matplotlib not installed)")
 
     # Save console output
     save_console_output(run_dir, latest_dir)

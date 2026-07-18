@@ -246,6 +246,7 @@ def verification_report(name, timestamp='latest'):
     has_gantt = (report_dir / 'gantt.png').exists()
     has_timeline_viz = (report_dir / 'timeline.png').exists()
     has_structure = (report_dir / 'structure.png').exists()
+    has_temporal = (report_dir / 'temporal.png').exists()
 
     # Check for error traces in this verification run's errors directory
     errors = []
@@ -296,6 +297,7 @@ def verification_report(name, timestamp='latest'):
         has_gantt=has_gantt,
         has_timeline_viz=has_timeline_viz,
         has_structure=has_structure,
+        has_temporal=has_temporal,
         metadata=metadata,
         prev_tasknet=prev_tasknet,
         next_tasknet=next_tasknet,

@@ -32,13 +32,6 @@
                     <i class="bi bi-code-square"></i> Source
                 </button>
             </li>
-            {% if has_structure %}
-            <li class="nav-item">
-                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#structure-tab">
-                    <i class="bi bi-diagram-3"></i> Structure
-                </button>
-            </li>
-            {% endif %}
             {% if schedule %}
             <li class="nav-item">
                 <button class="nav-link" data-bs-toggle="tab" data-bs-target="#schedule-tab">
@@ -66,7 +59,7 @@
         <div class="tab-content">
             <!-- Source Tab -->
             <div class="tab-pane fade show active" id="source-tab">
-                <div class="card">
+                <div class="card mb-3">
                     <div class="card-header bg-dark text-white">
                         <i class="bi bi-code-slash"></i> TaskNet Source Code
                     </div>
@@ -74,27 +67,35 @@
                         <pre class="mb-0 p-3"><code class="language-tasksat">{{ source }}</code></pre>
                     </div>
                 </div>
-            </div>
 
-            <!-- Structure Tab -->
-            {% if has_structure %}
-            <div class="tab-pane fade" id="structure-tab">
+                <!-- Structure visualization - collapsible -->
+                {% if has_structure %}
                 <div class="card">
                     <div class="card-header">
-                        <i class="bi bi-diagram-3"></i> TaskNet Structure
+                        <button class="btn btn-link text-decoration-none w-100 text-start p-0"
+                                type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#structureCollapse"
+                                aria-expanded="false"
+                                aria-controls="structureCollapse">
+                            <i class="bi bi-diagram-3"></i> TaskNet Structure Visualization
+                            <i class="bi bi-chevron-down float-end"></i>
+                        </button>
                     </div>
-                    <div class="card-body text-center">
-                        <img src="/static/report/{{ name }}/latest/structure.png"
-                             alt="TaskNet structure: relations (left) and timeline interactions (right)"
-                             style="cursor: pointer; max-width: 100%; height: auto;"
-                             onclick="openImageModal(this.src)">
-                        <p class="text-muted small mt-2 mb-0">
-                            <i class="bi bi-info-circle"></i> Left: task/taskdef relations (after, containedin, mutex, sequence). Right: task&harr;timeline interactions (impacts and reads). Click to enlarge.
-                        </p>
+                    <div class="collapse" id="structureCollapse">
+                        <div class="card-body text-center">
+                            <img src="/static/report/{{ name }}/latest/structure.png"
+                                 alt="TaskNet structure: relations (left) and timeline interactions (right)"
+                                 style="cursor: pointer; max-width: 100%; height: auto;"
+                                 onclick="openImageModal(this.src)">
+                            <p class="text-muted small mt-2 mb-0">
+                                <i class="bi bi-info-circle"></i> Left: task/taskdef relations (after, containedin, mutex, sequence). Right: task&harr;timeline interactions (impacts and reads). Click to enlarge.
+                            </p>
+                        </div>
                     </div>
                 </div>
+                {% endif %}
             </div>
-            {% endif %}
 
             <!-- Schedule Tab -->
             {% if schedule %}
@@ -243,5 +244,29 @@ function openImageModal(src) {
     const modal = new bootstrap.Modal(document.getElementById('imageModal'));
     modal.show();
 }
+
+// Rotate chevron when structure collapse is toggled
+document.addEventListener('DOMContentLoaded', function() {
+    const collapseEl = document.getElementById('structureCollapse');
+    if (collapseEl) {
+        collapseEl.addEventListener('show.bs.collapse', function() {
+            document.querySelector('[data-bs-target="#structureCollapse"] .bi-chevron-down')
+                .classList.replace('bi-chevron-down', 'bi-chevron-up');
+        });
+        collapseEl.addEventListener('hide.bs.collapse', function() {
+            document.querySelector('[data-bs-target="#structureCollapse"] .bi-chevron-up')
+                .classList.replace('bi-chevron-up', 'bi-chevron-down');
+        });
+    }
+});
 </script>
+
+<style>
+.btn-link {
+    color: inherit !important;
+}
+.btn-link:hover {
+    color: #0d6efd !important;
+}
+</style>
 {% endblock %}

@@ -1,0 +1,80 @@
+// Demonstration tasknet with varied temporal constraints
+// Shows different types of time ranges for visualization testing
+
+tasknet TemporalRangesDemo {
+  end = 1000;
+
+  timelines {
+    power : rate [0, 100] = 50;
+  }
+
+  // Early morning task - must start early
+  taskdef morning_calibration {
+    start_range [0, 50];
+    duration_range [20, 30];
+  }
+
+  // Midday observation - tightly constrained window
+  taskdef midday_obs {
+    start_range [450, 550];
+    duration_range [40, 40];
+  }
+
+  // Afternoon science - can happen anytime in second half
+  taskdef afternoon_science {
+    start_range [500, 900];
+    duration_range [60, 80];
+  }
+
+  // Evening comm - must finish before end
+  taskdef evening_comm {
+    end_range [900, 1000];
+    duration_range [30, 50];
+  }
+
+  // Flexible maintenance - can happen anytime
+  taskdef maintenance {
+    duration_range [15, 25];
+  }
+
+  // Long duration task with tight start
+  taskdef long_imaging {
+    start_range [100, 150];
+    duration_range [200, 250];
+  }
+
+  // Short burst at specific time
+  taskdef quick_burst {
+    start_range [300, 320];
+    duration_range [5, 10];
+  }
+
+  // Task with both start and end constraints
+  taskdef constrained_window {
+    start_range [600, 650];
+    end_range [700, 750];
+  }
+
+  // Create instances
+  task calib1 : morning_calibration {}
+  task midday1 : midday_obs {}
+  task afternoon1 : afternoon_science {}
+  task comm1 : evening_comm {}
+  task maint1 : maintenance {}
+  task imaging1 : long_imaging {}
+  task burst1 : quick_burst {}
+  task window1 : constrained_window {}
+
+  // Add a sequential dependency
+  taskdef post_calib_check {
+    after morning_calibration [5, 10];
+    duration_range [10, 15];
+  }
+
+  task check1 : post_calib_check {}
+
+  constraints {
+    // Midday obs and imaging cannot overlap
+    mutex [midday1, imaging1];
+  }
+}
