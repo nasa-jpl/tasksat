@@ -228,163 +228,154 @@ def create_temporal_range_visualization(tn: TaskNet, output_path: str) -> bool:
     # Propagate dependency bounds
     propagated_bounds = _propagate_dependency_bounds(tn)
 
-    # Create figure
-    fig, ax = plt.subplots(figsize=(14, max(6, len(tasks) * 0.5)))
+    # ------------------------------------------------------------------
+    # Pass 1: resolve every task's geometry so the axis extent and the
+    # right-hand label column can be laid out before anything is drawn.
+    # ------------------------------------------------------------------
+    horizon = tn.endTime or 1
 
-    # Track min/max time for axis
+    def _kind_suffix(task):
+        if task.kind == TaskKind.OPTIONAL:
+            return " (opt)"
+        if task.kind == TaskKind.REQUEST:
+            return " (req)"
+        return ""
+
+    def _range_label(sm, sM, em, eM, dm, dM):
+        """Compact constraint text; omit ranges that are just the full horizon."""
+        parts = []
+        if sm != 0 or sM != horizon:
+            parts.append(f"s [{sm}, {sM}]")
+        if em != 0 or eM != horizon:
+            parts.append(f"e [{em}, {eM}]")
+        if dm != 0 or dM != horizon:
+            parts.append(f"d [{dm}, {dM}]")
+        return "   ".join(parts)
+
+    rows = []
     min_time = float('inf')
     max_time = 0
-
-    # Tasks whose windows the spec over-constrains (start_min>start_max etc.)
-    infeasible_tasks = []
-
-    # Draw each task
     for idx, task in enumerate(tasks):
-        y_pos = len(tasks) - idx - 1  # Top to bottom
-        color = color_map.get(task.id, '#cccccc')
+        sm, sM, em, eM, dm, dM = _get_task_ranges(task, tn, propagated_bounds)
+        feasible = sm <= sM and em <= eM
+        rows.append({
+            'task': task, 'y': len(tasks) - idx - 1,
+            'color': color_map.get(task.id, '#cccccc'),
+            'sm': sm, 'sM': sM, 'em': em, 'eM': eM, 'dm': dm, 'dM': dM,
+            'feasible': feasible,
+        })
+        # Feasible windows drive the time axis; an inverted window contributes
+        # only its (still finite) endpoints.
+        min_time = min(min_time, sm, sM)
+        max_time = max(max_time, em, eM)
 
-        # Get effective ranges (with dependency propagation)
-        start_min, start_max, end_min, end_max, dur_min, dur_max = _get_task_ranges(task, tn, propagated_bounds)
+    span = max(max_time - min_time, 1)
+    infeasible_tasks = [r['task'].id for r in rows if not r['feasible']]
 
-        min_time = min(min_time, start_min)
-        max_time = max(max_time, end_max)
+    # ------------------------------------------------------------------
+    # Pass 2: draw. Thin, edgeless fills; a light "full possible window"
+    # wash with a darker "core window" nested inside it.
+    # ------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(14, max(6, len(tasks) * 0.55)))
 
-        # Infeasible window: dependency propagation drove a lower bound above its
-        # upper bound (the spec over-constrains this task). Flag it rather than
-        # drawing a nonsensical negative-width box.
-        if start_min > start_max or end_min > end_max:
-            infeasible_tasks.append(task.id)
-            height = 0.8
-            # Small fixed-width marker at the (inverted) start interval — the true
-            # window is empty, so any width would be misleading; keep it compact.
-            marker_x = min(start_min, start_max)
-            marker_w = max(0.02 * (tn.endTime or 1), 1)
+    INK = '#2b2b2b'        # primary text
+    MUTED = '#8a8a8a'      # secondary/label text
+    DANGER = '#c0392b'     # infeasible
+    full_h = 0.62          # full-window bar thickness
+    core_h = 0.62          # core sits at same height, darker
+
+    for r in rows:
+        y, color = r['y'], r['color']
+        sm, sM, em, eM = r['sm'], r['sM'], r['em'], r['eM']
+
+        if not r['feasible']:
+            # Over-constrained: a compact hatched danger marker, no misleading width.
+            mx = min(sm, sM)
+            mw = max(0.02 * span, 1)
             ax.add_patch(mpatches.Rectangle(
-                (marker_x, y_pos - height / 2), marker_w, height,
-                facecolor='none', edgecolor='red', hatch='xx', linewidth=1.5,
-            ))
-            label = task.id
-            if task.kind == TaskKind.OPTIONAL:
-                label += " (opt)"
-            elif task.kind == TaskKind.REQUEST:
-                label += " (req)"
-            ax.text(-0.02 * (max_time - min_time), y_pos, label,
-                    ha='right', va='center', fontsize=9, color='red')
-            ax.text(marker_x + marker_w + 0.01 * (max_time - min_time), y_pos,
-                    f"⚠ infeasible: s:[{start_min},{start_max}] e:[{end_min},{end_max}]",
-                    ha='left', va='center', fontsize=8, style='italic', color='red')
+                (mx, y - full_h / 2), mw, full_h,
+                facecolor='none', edgecolor=DANGER, hatch='xxx', linewidth=1.2))
+            ax.text(-0.012 * span, y, r['task'].id + _kind_suffix(r['task']),
+                    ha='right', va='center', fontsize=9, color=DANGER, fontweight='bold')
             continue
 
-        # Calculate how constrained this task is (ratio of actual range to horizon)
-        full_window_width = end_max - start_min
-        constraint_ratio = full_window_width / tn.endTime if tn.endTime > 0 else 1.0
+        # Full possible window (earliest start -> latest end): a light tint of
+        # the hue. Alpha is high enough to stay visible on white (the pastel
+        # Set3 hues wash out below ~0.5); a thin same-hue edge keeps very narrow
+        # windows from disappearing.
+        ax.add_patch(mpatches.Rectangle(
+            (sm, y - full_h / 2), max(eM - sm, 0), full_h,
+            facecolor=color, edgecolor=color, linewidth=0.5, alpha=0.55, zorder=2))
 
-        # Tasks with tight constraints (< 10% of horizon) get visual emphasis
-        is_highly_constrained = constraint_ratio < 0.1
+        # Core window (latest start -> earliest end): the guaranteed-overlap
+        # region, drawn at full saturation so it reads clearly darker.
+        if sM <= em:
+            ax.add_patch(mpatches.Rectangle(
+                (sM, y - core_h / 2), max(em - sM, 0), core_h,
+                facecolor=color, edgecolor='none', alpha=1.0, zorder=3))
 
-        # Draw the possible time window as a box
-        # The box spans from earliest possible start to latest possible end
-        height = 0.8
+        # Task name (left gutter, ink).
+        ax.text(-0.012 * span, y, r['task'].id + _kind_suffix(r['task']),
+                ha='right', va='center', fontsize=9, color=INK)
 
-        # Main box showing full possible window
-        # Use higher alpha and thicker border for highly constrained tasks
-        light_alpha = 0.5 if is_highly_constrained else 0.3
-        light_linewidth = 2 if is_highly_constrained else 1
+    # ------------------------------------------------------------------
+    # Right-hand constraint column: fixed x, left-aligned, tabular figures
+    # so the bracketed numbers line up into a readable column.
+    # ------------------------------------------------------------------
+    label_x = max_time + 0.03 * span
+    for r in rows:
+        if not r['feasible']:
+            txt = f"⚠ infeasible  s [{r['sm']}, {r['sM']}]  e [{r['em']}, {r['eM']}]"
+            ax.text(label_x, r['y'], txt, ha='left', va='center',
+                    fontsize=8, color=DANGER, family='monospace')
+            continue
+        txt = _range_label(r['sm'], r['sM'], r['em'], r['eM'], r['dm'], r['dM'])
+        if txt:
+            ax.text(label_x, r['y'], txt, ha='left', va='center',
+                    fontsize=8, color=MUTED, family='monospace')
 
-        rect = mpatches.Rectangle(
-            (start_min, y_pos - height/2),
-            full_window_width,
-            height,
-            facecolor=color,
-            edgecolor='black',
-            alpha=light_alpha,
-            linewidth=light_linewidth
-        )
-        ax.add_patch(rect)
-
-        # Show the "core" window (latest start to earliest end) if it exists
-        if start_max <= end_min:
-            core_width = end_min - start_max
-            core_alpha = 0.85 if is_highly_constrained else 0.7
-            core_linewidth = 2.5 if is_highly_constrained else 1.5
-
-            core_rect = mpatches.Rectangle(
-                (start_max, y_pos - height/2),
-                core_width,
-                height,
-                facecolor=color,
-                edgecolor='black',
-                alpha=core_alpha,
-                linewidth=core_linewidth
-            )
-            ax.add_patch(core_rect)
-
-            # Add a marker for highly constrained tasks
-            if is_highly_constrained:
-                # Add a small diamond marker at the center
-                center_x = (start_max + end_min) / 2
-                ax.plot(center_x, y_pos, marker='D', markersize=6,
-                       color='black', markerfacecolor=color,
-                       markeredgewidth=1.5, zorder=10)
-
-        # Task label
-        label = task.id
-        if task.kind == TaskKind.OPTIONAL:
-            label += " (opt)"
-        elif task.kind == TaskKind.REQUEST:
-            label += " (req)"
-
-        ax.text(-0.02 * (max_time - min_time), y_pos, label,
-                ha='right', va='center', fontsize=9)
-
-        # Show ranges as text on the right
-        range_text = []
-        if start_min != 0 or start_max != tn.endTime:
-            range_text.append(f"s:[{start_min},{start_max}]")
-        if end_min != start_min or end_max != tn.endTime:
-            range_text.append(f"e:[{end_min},{end_max}]")
-        if dur_min != 0 or dur_max != (tn.endTime - start_min):
-            range_text.append(f"d:[{dur_min},{dur_max}]")
-
-        if range_text:
-            ax.text(end_max + 0.01 * (max_time - min_time), y_pos,
-                   " ".join(range_text),
-                   ha='left', va='center', fontsize=8, style='italic',
-                   color='gray')
-
-    # Set up axes
+    # ------------------------------------------------------------------
+    # Axes & chrome — recessive, hairline, solid.
+    # ------------------------------------------------------------------
     ax.set_ylim(-1, len(tasks))
-    ax.set_xlim(min_time - 0.05 * (max_time - min_time),
-                max_time + 0.15 * (max_time - min_time))
+    ax.set_xlim(min_time - 0.04 * span, label_x + 0.30 * span)
 
-    ax.set_xlabel('Time', fontsize=11, fontweight='bold')
-    ax.set_title(f'Temporal Range Specification: {tn.id}',
-                fontsize=13, fontweight='bold', pad=15)
+    # Zero and horizon reference lines (faint, solid).
+    for xref in (0, horizon):
+        if min_time - 0.04 * span <= xref <= max_time + 0.02 * span:
+            ax.axvline(xref, color='#c8c8c8', linewidth=1, zorder=1)
+    ax.text(horizon, len(tasks) - 0.5, 'horizon', ha='center', va='bottom',
+            fontsize=7.5, color=MUTED, style='italic')
 
-    # Remove y-axis ticks (we have labels on the left)
+    ax.set_xlabel('Time', fontsize=10, color=INK)
+    ax.set_title(f'Temporal ranges — {tn.id}',
+                 fontsize=13, fontweight='bold', color=INK, pad=12)
     ax.set_yticks([])
 
-    # Grid
-    ax.grid(axis='x', alpha=0.3, linestyle='--')
+    # Solid hairline grid, one step off surface; drop the top/right spines.
+    ax.grid(axis='x', color='#e6e6e6', linewidth=1, linestyle='-', zorder=0)
+    ax.set_axisbelow(True)
+    for side in ('top', 'right', 'left'):
+        ax.spines[side].set_visible(False)
+    ax.spines['bottom'].set_color('#c8c8c8')
+    ax.tick_params(axis='x', colors=MUTED, labelsize=8, length=0)
 
-    # Legend - placed below the x-axis label so the two don't overlap
-    legend_text = [
-        'Light box: Full possible window (earliest start → latest end)',
-        'Dark box: Core window (latest start → earliest end)',
+    # Legend via proxy artists (robust vs. hand-placed annotations).
+    handles = [
+        mpatches.Patch(facecolor='#9e9e9e', alpha=0.35, edgecolor='none',
+                       label='Full possible window (earliest start → latest end)'),
+        mpatches.Patch(facecolor='#6e6e6e', alpha=0.9, edgecolor='none',
+                       label='Core window (latest start → earliest end)'),
     ]
     if infeasible_tasks:
-        legend_text.append(
-            'Red hatch: over-constrained (no feasible window): '
-            + ', '.join(infeasible_tasks))
-    ax.annotate('\n'.join(legend_text),
-                xy=(0.5, 0), xycoords='axes fraction',
-                xytext=(0, -42), textcoords='offset points',
-                ha='center', va='top',
-                fontsize=9, style='italic',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
+        handles.append(mpatches.Patch(facecolor='none', edgecolor=DANGER,
+                                      hatch='xxx', label='Over-constrained (no feasible window)'))
+    ax.legend(handles=handles, loc='upper center', bbox_to_anchor=(0.5, -0.10),
+              ncol=len(handles), frameon=False, fontsize=8.5,
+              handlelength=1.4, columnspacing=1.8, labelcolor=INK)
 
-    # tight_layout can warn when long right-side annotations don't fit; the
-    # final savefig uses bbox_inches='tight' anyway, so suppress the noise.
+    # tight_layout can warn when long right-side labels don't fit; savefig uses
+    # bbox_inches='tight' anyway, so suppress the noise.
     import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
