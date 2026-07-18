@@ -657,6 +657,25 @@ code[class*="language-"] {
     {% endif %}
     {% endif %}
 
+    <!-- Structure Section (static tasknet spec; shown regardless of SAT/UNSAT) -->
+    {% if has_structure %}
+    <div class="card mb-4">
+        <div class="card-header bg-secondary text-white">
+            <i class="bi bi-diagram-3"></i> TaskNet Structure
+        </div>
+        <div class="card-body text-center">
+            <img src="/static/report/{{ name }}/{{ timestamp }}/structure.png?v={{ timestamp }}"
+                 class="border"
+                 alt="TaskNet structure: relations (left) and timeline interactions (right)"
+                 style="cursor: pointer; max-width: 100%; height: auto;"
+                 onclick="openImageModal(this.src)">
+            <p class="text-muted small mt-2 mb-0">
+                <i class="bi bi-info-circle"></i> Left: task/taskdef relations (after, containedin, instance&rarr;taskdef, mutex, sequence). Right: task&harr;timeline interactions (impacts colored by pre/maint/post, and reads). Click to enlarge.
+            </p>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Error Traces Section (at the end) -->
     {% if errors %}
     <div class="card mb-4">

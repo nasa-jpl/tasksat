@@ -192,6 +192,14 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         print(error(f"❌ SYNTAX ERROR: {e}"))
         return
 
+    # Keep a DEEP COPY of the pre-transform AST for the static structure
+    # visualization: mutex/sequence survive only before desugaring, and
+    # apply_transforms mutates task/timeline/formula objects in place (auto-
+    # instances, __*_active timelines, desugared formulas), so a plain reference
+    # would not preserve the original spec.
+    import copy
+    tn_pre_transform = copy.deepcopy(tn)
+
     # Apply AST transformations (desugar derived constructs)
     try:
         tn, auto_instantiation_occurred = apply_transforms(tn)
@@ -475,6 +483,21 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         print(f"📈 Timeline evolution saved to: {timeline_path}")
     except ImportError:
         print("⚠️  Timeline evolution chart skipped (matplotlib not installed)")
+
+    # Generate static tasknet structure visualization (uses the pre-transform AST
+    # so mutex/sequence edges are visible; rendered via Graphviz, not matplotlib).
+    # Produces two images: <base>_relations.png and <base>_timelines.png.
+    try:
+        from tasknet_structure_viz import create_structure_visualization
+        structure_base = run_dir / "structure.png"
+        created = create_structure_visualization(tn_pre_transform, str(structure_base))
+        if created:
+            import shutil
+            for src_png in created:
+                shutil.copy(src_png, str(latest_dir / Path(src_png).name))
+            print(f"🗺️  Structure diagrams saved to: {run_dir}")
+    except ImportError:
+        print("⚠️  Structure diagram skipped (tasknet_structure_viz unavailable)")
 
     # Save console output
     save_console_output(run_dir, latest_dir)

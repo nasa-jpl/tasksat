@@ -1331,124 +1331,63 @@ Fix by either: (a) adding instances of the required task definitions, or (b) rem
 
 ## Visualizing Tasknets
 
-For complex tasknets with many tasks and timelines, it can be helpful to visualize the structure of the model. TaskSAT includes two visualization tools that generate graph diagrams showing task dependencies and timeline interactions.
+For complex tasknets with many tasks and timelines, it can be helpful to visualize the
+**static structure** of the model — its tasks, taskdefs, dependencies, resource
+interactions, and constraints. This is distinct from the schedule/timeline charts, which
+visualize a *solved* schedule. The structure diagram describes the specification itself and
+does not require solving (it is meaningful even for UNSAT tasknets).
 
-### Visualization Tools
+### Visualization Tool
 
-TaskSAT provides two visualization layouts:
+TaskSAT provides `tasknet_structure_viz.py`, which renders the tasknet structure as a single
+PNG containing two Graphviz panels **side by side** (composited into one image so both panels
+share a single scale — a node box on the left is exactly the same size as one on the right):
 
-1. **Standard Layout** (`tasknet_visualize.py`): Generates task dependency graphs and timeline interaction graphs with a left-to-right layout
-2. **Vertical Layout** (`tasknet_visualize_vert.py`): Generates task dependency graphs with vertical containment (container tasks above/below contained tasks) and temporal ordering
+1. **Task / taskdef relations** (left panel): tasks and taskdefs as nodes; edges for `after`
+   (labeled with the gap range), `containedin` (labeled with start/end offsets),
+   instance→taskdef ("of"), `mutex` (symmetric no-overlap), and `sequence` (ordering chain).
+2. **Task ↔ timeline interactions** (right panel): a bipartite graph with tasks in the left
+   column and timelines in the right; solid edges for `impacts` (writes, colored by timing —
+   pre=green, maint=blue, post=red) and dotted edges for `pre`/`inv`/`post` reads.
 
-### Basic Usage - Standard Layout
-
-To visualize a tasknet file, use the `tasknet_visualize.py` script:
-
-```bash
-python src/smt/tasknet_visualize.py tests/tasknet_files/examples/rover2.tn
-```
-
-This generates two types of graphs in a `visualizations/` directory next to your tasknet file:
-
-1. **Task Dependency Graph** (`*_tasks.dot` and `*_tasks.png`): Shows relationships between tasks
-2. **Timeline Interaction Graph** (`*_timeline_interactions.dot` and `*_timeline_interactions.png`): Shows how tasks interact with timelines
-
-### Basic Usage - Vertical Layout
-
-For a vertical containment-focused layout:
+### Basic Usage
 
 ```bash
-python src/smt/tasknet_visualize_vert.py tests/tasknet_files/examples/rover2.tn
+python src/smt/tasknet_structure_viz.py tests/tasknet_files/examples/rover2.tn
 ```
 
-This generates a task dependency graph (`*_tasks_timeline.dot` and `*_tasks_timeline.png`) with:
-- Vertical positioning showing containment relationships (container tasks appear in same rank as contained tasks)
-- Horizontal temporal ordering (earlier tasks to the left)
-- Dependency arrows pointing backward (dependent → prerequisite)
-
-Both `.dot` (Graphviz format) and `.png` (rendered image) files are generated automatically if Graphviz is installed on your system.
-
-### Understanding the Task Dependency Graph
-
-The task dependency graph shows:
-
-- **Task instances** (boxes): Actual tasks that will be scheduled
-- **Explicit dependencies** (blue solid arrows): `after` and `containedin` relationships declared in the tasknet
-- **Implicit dependencies** (green dashed arrows): Dependencies inferred from timeline states (e.g., when one task sets a boolean flag that another task requires)
-
-**Arrow Directions:**
-- In the **standard layout**, arrows point forward in time (A → B means B comes after A)
-- In the **vertical layout**, arrows point backward showing dependencies (B → A means B depends on A)
-
-For example, if task A sets `completed = true` in its `post` block and task B requires `completed = true` as a `pre` condition:
-- Standard layout: Shows A → B (labeled "assumes completed")
-- Vertical layout: Shows B → A (labeled "assumes completed")
-
-By default, task definitions (templates) are hidden, showing only task instances for clarity.
-
-### Understanding the Timeline Interaction Graph
-
-The timeline interaction graph shows:
-
-- **Timelines** (ellipses): State variables from your tasknet
-- **Tasks** (boxes): Tasks that read or modify timelines
-- **Constraint arrows**: Pre-conditions, invariants, and post-conditions on timelines
-- **Impact arrows**: How tasks modify timeline values (assignments, additions, rates)
-
-This helps you understand which tasks affect which timelines and what constraints are in place.
-
-### Customization Options
-
-#### Include Detailed Information (Standard Layout Only)
-
-Add the `--detail` flag to include additional information like time ranges, constraint details, and impact specifics:
+By default this writes `<tasknet_dir>/visualizations/<name>_structure.png`. To choose the
+output location, pass a path as a second argument:
 
 ```bash
-python src/smt/tasknet_visualize.py tests/tasknet_files/examples/rover2.tn --detail
+python src/smt/tasknet_structure_viz.py tests/tasknet_files/examples/rover2.tn /path/to/out.png
 ```
 
-#### Show Task Definitions
+Graphviz (`dot`) must be installed. If it is not available, the tool prints a warning and
+exits without producing an image. (Compositing the two panels needs the Python `PIL`/Pillow
+package; without it, the two panels are written as separate `_relations`/`_timelines` PNGs.)
 
-To include task definitions (templates) in addition to task instances (available on both tools):
+### Node styling
 
-```bash
-python src/smt/tasknet_visualize.py tests/tasknet_files/examples/rover2.tn --show-definitions
-# or
-python src/smt/tasknet_visualize_vert.py tests/tasknet_files/examples/rover2.tn --show-definitions
-```
+- **Tasks** are boxes colored **by taskdef family**, using the same palette as the Gantt and
+  Timeline Evolution charts — so a task that is teal in the schedule chart is teal here too.
+  All instances of a taskdef (and the taskdef node itself) share one color. Task *kind* is
+  shown by border/label: taskdefs have a bold border and "(taskdef)"; optional/request tasks
+  have a dashed border and a "(optional)"/"(request)" label.
+- **Timelines** are shaped by type: state = yellow hexagon, atomic = plum diamond,
+  rate = coral box, cumulative = light-cyan box, claimable = pink oval.
 
-#### Custom Output Location
+### In the web UI
 
-By default, visualizations are created in a `visualizations/` subdirectory next to your tasknet file. To specify a different location (available on both tools):
+When you verify a tasknet, the structure diagram is generated automatically and shown in the
+web interface: a **Structure** tab on the tasknet detail page (and a **TaskNet Structure**
+card in the verification report), alongside the existing Gantt and Timeline Evolution views.
 
-```bash
-python src/smt/tasknet_visualize.py tests/tasknet_files/examples/rover2.tn --output-dir /path/to/output
-# or
-python src/smt/tasknet_visualize_vert.py tests/tasknet_files/examples/rover2.tn --output-dir /path/to/output
-```
+### Note on mutex / sequence
 
-### Example: Visualizing the Rover2 Tasknet
-
-Running the standard visualization on our rover example:
-
-```bash
-python src/smt/tasknet_visualize.py tests/tasknet_files/examples/rover2.tn
-```
-
-Produces:
-- `tests/tasknet_files/examples/visualizations/rover2_tasks.png`: Shows the four task instances (charge, drive, heating, collect) and their dependencies
-- `tests/tasknet_files/examples/visualizations/rover2_timeline_interactions.png`: Shows the five timelines (arm, location, data, battery, temperature) and how each task interacts with them
-
-Running the vertical layout visualization:
-
-```bash
-python src/smt/tasknet_visualize_vert.py tests/tasknet_files/examples/rover2.tn
-```
-
-Produces:
-- `tests/tasknet_files/examples/visualizations/rover2_tasks_timeline.png`: Shows tasks with vertical containment and horizontal temporal ordering
-
-Both visualizations will show that the `collect` task has an implicit dependency on the `drive` task (via the `location` timeline being set to `target`), helping you understand the ordering constraints in your model.
+`mutex` and `sequence` are shown as high-level edges between their operands. The tool parses
+the tasknet *before* desugaring so these constructs remain visible (after desugaring they
+become low-level boundary comparisons). `mutex cross [...]` is labeled "mutex (cross)".
 
 
 

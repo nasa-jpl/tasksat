@@ -110,6 +110,7 @@ def tasknet_detail(name):
     timeline_file = latest_dir / 'timeline.json'
     gantt_file = latest_dir / 'gantt.png'
     timeline_viz_file = latest_dir / 'timeline.png'
+    structure_file = latest_dir / 'structure.png'
 
     schedule_data = None
     timeline_data = None
@@ -143,6 +144,7 @@ def tasknet_detail(name):
         timeline=timeline_data,
         has_gantt=gantt_file.exists(),
         has_timeline_viz=timeline_viz_file.exists(),
+        has_structure=structure_file.exists(),
         errors=errors
     )
 
@@ -243,6 +245,7 @@ def verification_report(name, timestamp='latest'):
     # Check for visualization files
     has_gantt = (report_dir / 'gantt.png').exists()
     has_timeline_viz = (report_dir / 'timeline.png').exists()
+    has_structure = (report_dir / 'structure.png').exists()
 
     # Check for error traces in this verification run's errors directory
     errors = []
@@ -292,6 +295,7 @@ def verification_report(name, timestamp='latest'):
         unsat_core=unsat_core_data,
         has_gantt=has_gantt,
         has_timeline_viz=has_timeline_viz,
+        has_structure=has_structure,
         metadata=metadata,
         prev_tasknet=prev_tasknet,
         next_tasknet=next_tasknet,

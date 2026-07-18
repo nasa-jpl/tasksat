@@ -32,6 +32,13 @@
                     <i class="bi bi-code-square"></i> Source
                 </button>
             </li>
+            {% if has_structure %}
+            <li class="nav-item">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#structure-tab">
+                    <i class="bi bi-diagram-3"></i> Structure
+                </button>
+            </li>
+            {% endif %}
             {% if schedule %}
             <li class="nav-item">
                 <button class="nav-link" data-bs-toggle="tab" data-bs-target="#schedule-tab">
@@ -68,6 +75,26 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Structure Tab -->
+            {% if has_structure %}
+            <div class="tab-pane fade" id="structure-tab">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-diagram-3"></i> TaskNet Structure
+                    </div>
+                    <div class="card-body text-center">
+                        <img src="/static/report/{{ name }}/latest/structure.png"
+                             alt="TaskNet structure: relations (left) and timeline interactions (right)"
+                             style="cursor: pointer; max-width: 100%; height: auto;"
+                             onclick="openImageModal(this.src)">
+                        <p class="text-muted small mt-2 mb-0">
+                            <i class="bi bi-info-circle"></i> Left: task/taskdef relations (after, containedin, mutex, sequence). Right: task&harr;timeline interactions (impacts and reads). Click to enlarge.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
 
             <!-- Schedule Tab -->
             {% if schedule %}

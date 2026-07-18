@@ -2,7 +2,7 @@ tasknet Rover2 {
   end = 400;
 
   timelines {
-    arm : atomic = false;
+    arm : atomic = 0;
     location : state(home, target) = home;
     data : cumulative [0.0, 50.0] bounds [0.0, 100.0] = 0.0;
     battery : rate [10.0, 100.0] bounds [0.0, 100.0] = 60.0;
@@ -66,20 +66,17 @@ tasknet Rover2 {
     pre {
       location = target;
       battery in [60.0, 100.0];
-      arm = false;
+      arm = 0;
     }
 
     impacts {
-      pre {
-        arm = true; 
-      }
       maint {
-        battery -~ 0.5;   
+        arm += 1;         // claim the arm for the duration of collect (auto-released)
+        battery -~ 0.5;
         temperature -~ 0.2;
       }
       post {
-        data += 40.0;  
-        arm = false;  
+        data += 40.0;
       }
     }
   }
