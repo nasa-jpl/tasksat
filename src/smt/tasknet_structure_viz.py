@@ -149,6 +149,19 @@ def _taskdef_color_map(tn: TaskNet) -> dict:
 
 def _task_node(task: Task, color_map: dict) -> Node:
     label = task.id
+
+    # Add range information if available
+    range_info = []
+    if task.startrng:
+        range_info.append(f"start: [{task.startrng.low}, {task.startrng.high}]")
+    if task.endrng:
+        range_info.append(f"end: [{task.endrng.low}, {task.endrng.high}]")
+    if task.durrng:
+        range_info.append(f"dur: [{task.durrng.low}, {task.durrng.high}]")
+
+    if range_info:
+        label += "\n" + "\n".join(range_info)
+
     # Taskdef DEFINITION nodes are drawn double-bordered; optional/request noted in label.
     if task.kind == TaskKind.DEFINITION:
         label += "\n(taskdef)"
