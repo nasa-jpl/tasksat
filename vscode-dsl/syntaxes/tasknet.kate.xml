@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE language SYSTEM "language.dtd">
+<language name="tasknet" section="Sources" extensions="*.tn" version="1" kateversion="5.0" author="tasksat" license="MIT">
+  <highlighting>
+    <list name="keywords">
+      <item>tasknet</item>
+      <item>timelines</item>
+      <item>taskdef</item>
+      <item>task</item>
+      <item>optional</item>
+      <item>request</item>
+      <item>end</item>
+      <item>initial</item>
+      <item>initial_rate</item>
+      <item>constraints</item>
+      <item>properties</item>
+      <item>prop</item>
+      <item>pre</item>
+      <item>inv</item>
+      <item>post</item>
+      <item>maint</item>
+      <item>impacts</item>
+      <item>after</item>
+      <item>containedin</item>
+      <item>start_range</item>
+      <item>end_range</item>
+      <item>duration_range</item>
+      <item>duration</item>
+      <item>start</item>
+      <item>priority</item>
+      <item>id</item>
+      <item>bounds</item>
+      <item>in</item>
+    </list>
+    <list name="types">
+      <item>state</item>
+      <item>atomic</item>
+      <item>claim</item>
+      <item>claimable</item>
+      <item>cumul</item>
+      <item>cumulative</item>
+      <item>rate</item>
+    </list>
+    <contexts>
+      <context name="Normal" attribute="Normal Text" lineEndContext="#stay">
+        <DetectChar attribute="Comment" context="Comment" char="#"/>
+        <keyword attribute="Keyword" context="#stay" String="keywords"/>
+        <keyword attribute="DataType" context="#stay" String="types"/>
+        <Float attribute="Number" context="#stay"/>
+        <Int attribute="Number" context="#stay"/>
+        <AnyChar attribute="Operator" context="#stay" String="+-=&lt;&gt;~"/>
+      </context>
+      <context name="Comment" attribute="Comment" lineEndContext="#pop"/>
+    </contexts>
+    <itemDatas>
+      <itemData name="Normal Text" defStyleNum="dsNormal"/>
+      <itemData name="Keyword"     defStyleNum="dsKeyword"  bold="1"/>
+      <itemData name="DataType"    defStyleNum="dsDataType"/>
+      <itemData name="Number"      defStyleNum="dsDecVal"/>
+      <itemData name="Operator"    defStyleNum="dsOperator"/>
+      <itemData name="Comment"     defStyleNum="dsComment"/>
+    </itemDatas>
+    <general>
+      <comments>
+        <comment name="singleLine" start="#"/>
+      </comments>
+    </general>
+  </highlighting>
+</language>
