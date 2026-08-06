@@ -364,20 +364,11 @@ class TestVerifier:
             "drive2__drive : start =",
         )
 
-    def test_tasknet62_compositional_holds(self):
-        """Compositional inductive-invariant sequencing (--compositional): a
-        session Cycle drives idle->busy->idle and preserves P = {mode = idle}.
-        Both sub-checks pass (AA safety + AE realizability-under-P), so one
-        session preserving P discharges any-length sequence. Projection reduces
-        the two-instance network (cycle1, cycle2) to the single session cycle1."""
-        verify_out('tasknet62_compositional_holds.tn',
-                   extra_args=['--compositional'])(
-            "Checking compositional invariant",
-            "→ HOLDS ✓ (AA safety=holds, AE realizability-under-P=holds)",
-            "session 'cycle1' preserves the invariant",
-            "cycle1__activate",
-        )
-
+    # Note: the HOLDS fixture (tasknet62) has 20 chained session instances to
+    # demonstrate N-independence. Its full-CLI run is slow (~60s) because the
+    # standard validity/property phases are not N-independent, so it is covered
+    # by a DIRECT check_compositional() call in tests/test_compositional.py
+    # instead. The single-instance AE-violated case is fast end-to-end:
     def test_tasknet63_compositional_ae_violated(self):
         """Compositional check catches the vacuity trap: P = {charge in [20,100]}
         but the session's work task needs charge >= 30 with nothing to replenish

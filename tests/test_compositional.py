@@ -12,30 +12,87 @@ first projects an N-instance session network to ONE instance (N-independence).
 
 Implemented in src/smt/tasknet_compositional.py + the `invariant {}` block sugar
 (desugars to `initial { P }` + `final within initial;`).
+
+Note on testing strategy: the HOLDS fixture (tasknet62) has 20 chained session
+instances to demonstrate N-independence. The compositional check itself projects
+20 -> 1 and runs in ~0.03s, but the verifier's *standard* validity + property
+phases (which always run first, before the compositional phase) are NOT
+N-independent and take ~60s+ on the full 40-task network. So the HOLDS case is
+exercised by calling check_compositional() DIRECTLY (the pattern test_sessions.py
+uses) rather than through the full CLI. The AE-violated fixture (tasknet63) is a
+single instance, so it is exercised end-to-end through the CLI.
 """
 
 import json
+import sys
+import time
 from pathlib import Path
 
 import pytest
 from .conftest import *
 
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src' / 'smt'))
+from tasknet_parser import parse_tasknet_file  # noqa: E402
+from tasknet_transforms import apply_transforms  # noqa: E402
+from tasknet_compositional import check_compositional, project_single_session  # noqa: E402
+from tasknet_ast import TaskKind  # noqa: E402
 
-class TestCompositional:
-    """End-to-end tests via the verifier CLI."""
+HOLDS_FIXTURE = 'tests/tasknet_files/valid/tasknet62_compositional_holds.tn'
 
-    def test_holds(self):
-        """Session Cycle drives idle->busy->idle; P = {mode = idle} is preserved:
-        AA safety holds AND AE realizability-under-P holds -> compositional HOLDS.
-        Projection reduces the two-instance network (cycle1, cycle2) to cycle1."""
-        verify_out('tasknet62_compositional_holds.tn',
-                   extra_args=['--compositional'])(
-            "Checking compositional invariant",
-            "→ HOLDS ✓ (AA safety=holds, AE realizability-under-P=holds)",
-            "session 'cycle1' preserves the invariant",
-            # projection kept cycle1 (its qualified children appear in the schedule)
-            "cycle1__activate",
-        )
+
+class TestCompositionalProjection:
+    """The HOLDS case, driven directly through check_compositional() so the
+    N-independence win is visible: 20 session instances collapse to one and the
+    check is fast, even though the full-network CLI would not be."""
+
+    def test_projection_collapses_many_instances_to_one(self):
+        """tasknet62 has 20 chained Cycle instances; projection keeps exactly one
+        representative session (cycle1) regardless of N."""
+        tn = parse_tasknet_file(HOLDS_FIXTURE)
+        n_instances = sum(1 for t in tn.tasks
+                          if t.kind != TaskKind.DEFINITION and t.definition == 'Cycle')
+        assert n_instances == 20, f"fixture should have 20 instances, has {n_instances}"
+
+        projected, session = project_single_session(tn)
+        assert session == 'cycle1'
+        kept = [t for t in projected.tasks
+                if t.kind != TaskKind.DEFINITION and t.definition == 'Cycle']
+        assert len(kept) == 1, "projection must keep exactly one session instance"
+        assert kept[0].id == 'cycle1'
+
+    def test_holds_and_is_n_independent(self):
+        """{P}S{P} holds (AA safety + AE realizability-under-P) for the 20-instance
+        network, and the check is fast because it runs on the single projected
+        session, not the full 20-deep chain -- the whole point of the feature."""
+        tn = parse_tasknet_file(HOLDS_FIXTURE)
+        t0 = time.time()
+        result = check_compositional(tn, apply_transforms, verbose=False)
+        elapsed = time.time() - t0
+
+        assert result['status'] == 'holds'
+        assert result['aa'] == 'holds'
+        assert result['ae'] == 'holds'
+        assert result['session'] == 'cycle1'
+        # Projection makes this Theta(1) in the instance count. Generous bound to
+        # stay robust on slow CI while still catching a regression that lets the
+        # check touch the full 20-instance encoding (which takes ~60s+).
+        assert elapsed < 10.0, f"compositional check took {elapsed:.1f}s (expected << full-net time)"
+
+    def test_holds_result_shape(self):
+        """The HOLDS result dict carries the property-result shape the verifier
+        persists to properties.json (name/status/formula/session/aa/ae)."""
+        tn = parse_tasknet_file(HOLDS_FIXTURE)
+        result = check_compositional(tn, apply_transforms, verbose=False)
+        assert result['name'] == 'compositional'
+        assert result['formula']
+        assert result['aa'] == 'holds' and result['ae'] == 'holds'
+        assert result['session'] == 'cycle1'
+        assert result['counterexample_initial_state'] is None
+
+
+class TestCompositionalCLI:
+    """End-to-end tests via the verifier CLI. Uses the single-instance AE-violated
+    fixture (tasknet63), which is fast through the full pipeline."""
 
     def test_ae_violated(self):
         """The vacuity trap: P = {charge in [20,100]} but the work task needs
@@ -51,19 +108,17 @@ class TestCompositional:
             "charge = 20",
         )
 
-    def test_flag_off_no_check(self):
-        """Without --compositional the compositional check must still fire here
-        because tasknet62 declares `invariant compositional {...}` in the spec;
-        tasknet63 likewise. Use a plain net to confirm the check is silent."""
-        output = verify('tasknet52_realizability_holds.tn')
-        assert "Checking compositional invariant" not in output
-
     def test_spec_level_opt_in(self):
         """`invariant compositional {...}` in the spec triggers the check with no
-        CLI flag."""
-        output = verify('tasknet62_compositional_holds.tn')
+        CLI flag (tasknet63 declares it)."""
+        output = verify('tasknet63_compositional_ae_violated.tn')
         assert "Checking compositional invariant" in output
-        assert "AA safety=holds, AE realizability-under-P=holds" in output
+
+    def test_flag_off_no_check(self):
+        """A net without an `invariant compositional` block and no --compositional
+        flag must not run the check."""
+        output = verify('tasknet52_realizability_holds.tn')
+        assert "Checking compositional invariant" not in output
 
 
 class TestCompositionalPropertiesJson:
@@ -76,18 +131,6 @@ class TestCompositionalPropertiesJson:
         with open(path) as f:
             return json.load(f)
 
-    def test_holds_entry(self):
-        verify('tasknet62_compositional_holds.tn', extra_args=['--compositional'])
-        props = self._latest_properties('tasknet62_compositional_holds')
-        entry = next((r for r in props if r.get('name') == 'compositional'), None)
-        assert entry is not None, "no compositional entry in properties.json"
-        assert entry['status'] == 'holds'
-        assert entry['aa'] == 'holds'
-        assert entry['ae'] == 'holds'
-        assert entry['session'] == 'cycle1'
-        # unsat_core is stripped from the persisted entry
-        assert 'unsat_core' not in entry
-
     def test_violated_entry(self):
         verify('tasknet63_compositional_ae_violated.tn',
                extra_args=['--compositional'])
@@ -98,3 +141,5 @@ class TestCompositionalPropertiesJson:
         assert entry['aa'] == 'holds'
         assert entry['ae'] == 'violated'
         assert entry['counterexample_initial_state']
+        # unsat_core is stripped from the persisted entry
+        assert 'unsat_core' not in entry

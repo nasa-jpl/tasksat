@@ -11,11 +11,14 @@
 #   AE realizability-P  : from mode = idle, some schedule lands back in idle   (holds)
 # => {P}S{P}, so forall N . {P}S^N{P}. Verify with --compositional.
 #
-# Two instances (cycle1, cycle2) are present to confirm projection reduces the
-# check to ONE session instance regardless of N.
+# TWENTY chained instances (cycle1 .. cycle20) are present to showcase the point
+# of the compositional check: N-independence. Projection reduces the check to ONE
+# session instance regardless of N, so verifying that 20-deep chain preserves P
+# costs the same as verifying a single session -- the single-session {P}S{P}
+# result discharges all 20.
 
 tasknet CompositionalHolds {
-  end = 400;
+  end = 1500;
 
   timelines {
     mode : state(idle, busy) = idle;
@@ -45,4 +48,22 @@ tasknet CompositionalHolds {
 
   task cycle1 : Cycle;
   task cycle2 : Cycle { after cycle1; }
+  task cycle3 : Cycle { after cycle2; }
+  task cycle4 : Cycle { after cycle3; }
+  task cycle5 : Cycle { after cycle4; }
+  task cycle6 : Cycle { after cycle5; }
+  task cycle7 : Cycle { after cycle6; }
+  task cycle8 : Cycle { after cycle7; }
+  task cycle9 : Cycle { after cycle8; }
+  task cycle10 : Cycle { after cycle9; }
+  task cycle11 : Cycle { after cycle10; }
+  task cycle12 : Cycle { after cycle11; }
+  task cycle13 : Cycle { after cycle12; }
+  task cycle14 : Cycle { after cycle13; }
+  task cycle15 : Cycle { after cycle14; }
+  task cycle16 : Cycle { after cycle15; }
+  task cycle17 : Cycle { after cycle16; }
+  task cycle18 : Cycle { after cycle17; }
+  task cycle19 : Cycle { after cycle18; }
+  task cycle20 : Cycle { after cycle19; }
 }
