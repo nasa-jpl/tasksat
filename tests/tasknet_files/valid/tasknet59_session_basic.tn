@@ -1,0 +1,35 @@
+# Test: Basic session sugar (Phase 1 compositional scaling).
+# A taskdef with nested `task` children ("session") flattens into ordinary
+# qualified instances (drive1__preheat, drive1__drive) before the solver runs.
+# The child's bare sibling reference `after preheat` is qualified to
+# `drive1__preheat` by flatten_sessions(). No solver changes are involved.
+# Expected: Valid schedule found; drive1__drive starts after drive1__preheat ends.
+
+tasknet SessionBasic {
+  end = 400;
+
+  timelines {
+    location : state(home, target) = home;
+  }
+
+  taskdef PreHeat {
+    duration_range [30, 40];
+  }
+
+  taskdef Drive {
+    duration_range [60, 80];
+    impacts {
+      post {
+        location = target;
+      }
+    }
+  }
+
+  # Session: a taskdef whose body declares nested `task` children.
+  taskdef DriveSession {
+    task preheat : PreHeat;
+    task drive   : Drive { after preheat; }
+  }
+
+  task drive1 : DriveSession;
+}

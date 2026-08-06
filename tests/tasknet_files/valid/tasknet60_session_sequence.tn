@@ -1,0 +1,37 @@
+# Test: Session-to-session sequencing with conservative fan-out.
+# Two DriveSession instances, `drive2 after drive1` at the session level.
+# flatten_sessions() fans a session-level `after` out onto EVERY child of the
+# referrer, referencing ALL children of the target session (conservative
+# "after the whole predecessor session"). So each drive2 child starts after
+# both drive1__preheat and drive1__drive have ended.
+# Expected: Valid schedule; the entire drive2 session follows the entire drive1
+# session. Horizon is generous so two full preheat+drive sessions fit.
+
+tasknet SessionSequence {
+  end = 800;
+
+  timelines {
+    location : state(home, target) = home;
+  }
+
+  taskdef PreHeat {
+    duration_range [30, 40];
+  }
+
+  taskdef Drive {
+    duration_range [60, 80];
+    impacts {
+      post {
+        location = target;
+      }
+    }
+  }
+
+  taskdef DriveSession {
+    task preheat : PreHeat;
+    task drive   : Drive { after preheat; }
+  }
+
+  task drive1 : DriveSession;
+  task drive2 : DriveSession { after drive1; }
+}

@@ -136,6 +136,51 @@ Creates: `predrive_auto_0` (for drive1), `predrive_auto_1` (for drive2)
 
 **Why one-per-dependent?** Allows independent scheduling - each drive can have its predrive at different times, potentially overlapping.
 
+### Sessions (Nested Subtasks)
+
+A `taskdef` whose body contains nested `task` declarations is a **session**. It is
+**pure sugar**: each session instance is flattened into ordinary qualified
+instances before any solver work — **zero solver changes, no new semantics**.
+
+**Key behavior:**
+- **Qualified naming**: each child becomes `{instance}__{child}` (SEP = `__`,
+  parse-safe). There is NO dotted-name (`drive1.preheat`) surface syntax.
+- **Sibling refs qualified**: a child's bare sibling reference (`after preheat`,
+  `containedin maintainheat`) is rewritten to the qualified sibling
+  (`after drive1__preheat`), scoping it to its own instance.
+- **Conservative fan-out**: a session-level `after <otherSession>` applies to
+  EVERY child of the referrer and references ALL children of the target
+  ("after the whole predecessor session").
+- **Transform pass**: `tasknet_transforms.py:flatten_sessions()`, Pass 0.5 —
+  after `expand_task_ranges`, before `desugar_sequence` and (crucially) before
+  `instantiate_from_definitions`.
+- **View with**: `--transform-only` (writes `.tasksat/transformed/<file>_transformed.tn`).
+
+**Example:**
+```tasknet
+taskdef PreHeat { duration_range [30, 40]; }
+taskdef Drive   { duration_range [60, 80]; }
+
+taskdef DriveSession {
+  task preheat : PreHeat;
+  task drive   : Drive { after preheat; }
+}
+
+task drive1 : DriveSession;
+task drive2 : DriveSession { after drive1; }
+```
+Flattens to `drive1__preheat`, `drive1__drive` (after `drive1__preheat`),
+`drive2__preheat` (after all drive1 children), `drive2__drive` (after its sibling
++ all drive1 children).
+
+**Implementation:**
+- AST: `children: List[Task]` field on `Task` and `TaskRange` in [tasknet_ast.py](src/smt/tasknet_ast.py)
+- Parser: `task_def` admitted as a `task_body_item`, collected into `children` in [tasknet_parser.py](src/smt/tasknet_parser.py)
+- Transform: `flatten_sessions()` (Pass 0.5) in [tasknet_transforms.py](src/smt/tasknet_transforms.py)
+- Printer: emits `children` for round-trip fidelity in [tasknet_printer.py](src/smt/tasknet_printer.py)
+- Tests: unit ([tests/test_sessions.py](tests/test_sessions.py)) + end-to-end (`tasknet59`–`61` in [tests/test_verifier1.py](tests/test_verifier1.py))
+- This is **Phase 1** of the compositional-scaling design ([jpl/mexec/doc/compositional-scaling.tex](jpl/mexec/doc/compositional-scaling.tex)); Phase 2 (`--compositional`) is future work.
+
 ### Parameters
 
 TaskSAT supports parameters at three scopes: tasknet-level, taskdef-level, and task-level. Parameters allow you to define reusable values and avoid magic numbers in your specifications.

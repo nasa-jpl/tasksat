@@ -116,6 +116,28 @@ request task <name>[<min>..<max>] : <taskdef> { ... }       # min required + (ma
 
 Expanded tasks inherit all properties from the range declaration.
 
+### Sessions (nested subtasks)
+
+A `taskdef` body may contain nested `task` declarations, making it a *session*:
+
+```
+taskdef <name> {
+  task <child> : <taskdef> { ... }    # nested subtask (any task body)
+  task <child> : <taskdef> { after <sibling>; }   # siblings referenced by bare name
+  ...
+}
+```
+
+Each session instance is flattened (pure sugar, no solver change) into ordinary
+qualified instances named `{instance}__{child}`:
+- `task drive1 : DriveSession` → `drive1__preheat`, `drive1__drive`, ...
+- Bare sibling refs (`after preheat`) are qualified to `drive1__preheat`.
+- A session-level `after <otherSession>` fans out onto every child of the
+  referrer, referencing all children of the target (conservative "after the
+  whole predecessor session").
+
+Inspect the expansion with `--transform-only`.
+
 ## Task Dependencies
 
 ### After (with optional time gap)

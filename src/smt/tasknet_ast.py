@@ -202,6 +202,10 @@ class Task:
     inv: Optional[List[TlCon]] = None
     post: Optional[List[TlCon]] = None
     impacts: Optional[List[Impact]] = None
+    # Nested subtasks (session sugar): declared inside a taskdef body.
+    # Flattened into ordinary qualified instances by flatten_sessions() in
+    # tasknet_transforms.py; empty for ordinary tasks.
+    children: List["Task"] = field(default_factory=list)
 
 @dataclass
 class TaskRange:
@@ -232,6 +236,8 @@ class TaskRange:
     inv: Optional[List[TlCon]] = None
     post: Optional[List[TlCon]] = None
     impacts: Optional[List[Impact]] = None
+    # Nested subtasks (session sugar), same as Task.children.
+    children: List["Task"] = field(default_factory=list)
 
 # ----- Temporal-logic formulas -----
 

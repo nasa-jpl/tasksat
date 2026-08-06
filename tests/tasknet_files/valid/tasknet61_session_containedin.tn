@@ -1,0 +1,41 @@
+# Test: Session with a `containedin` sibling dependency (three children).
+# The DriveSession has preheat, maintainheat, and drive children. The drive
+# child is `containedin maintainheat` and `after preheat` — both bare sibling
+# references, qualified to drive1__maintainheat / drive1__preheat by
+# flatten_sessions(). Exercises qualify_containedin in addition to qualify_after.
+# Expected: Valid schedule; drive1__drive runs inside drive1__maintainheat and
+# after drive1__preheat.
+
+tasknet SessionContainedin {
+  end = 400;
+
+  timelines {
+    location : state(home, target) = home;
+  }
+
+  taskdef PreHeat {
+    duration_range [20, 30];
+  }
+
+  taskdef MaintainHeat {
+    duration_range [120, 150];
+  }
+
+  taskdef Drive {
+    duration_range [40, 60];
+    impacts {
+      post {
+        location = target;
+      }
+    }
+  }
+
+  taskdef DriveSession {
+    task preheat      : PreHeat;
+    task maintainheat : MaintainHeat { after preheat; }
+    task drive        : Drive { after preheat; containedin maintainheat; }
+  }
+
+  task drive1 : DriveSession;
+  task drive2 : DriveSession {after drive1;}
+}

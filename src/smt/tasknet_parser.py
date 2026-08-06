@@ -733,6 +733,7 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
     inv_list: List[TlCon] = []
     post_list: List[TlCon] = []
     impacts_list: List[Impact] = []
+    children_list: List[Task] = []
 
     for item_kind, value in items:
         if item_kind == "param":
@@ -779,6 +780,9 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
             post_list.extend(value)
         elif item_kind == "impacts":
             impacts_list.extend(value)
+        elif item_kind == "child":
+            # Nested subtask (session sugar); value is a Task/TaskRange
+            children_list.append(value)
         else:
             raise ValueError(f"Unknown task_body_item kind: {item_kind!r}")
 
@@ -824,6 +828,7 @@ def _build_task(name: str, items: List, kind: TaskKind, definition: Optional[str
         inv=inv,
         post=post,
         impacts=impacts,
+        children=children_list,
     )
 
 
@@ -857,6 +862,7 @@ def _build_task_range(name: str, min_instances: int, max_instances: int,
     inv_list: List[TlCon] = []
     post_list: List[TlCon] = []
     impacts_list: List[Impact] = []
+    children_list: List[Task] = []
 
     for item_kind, value in items:
         if item_kind == "param":
@@ -898,6 +904,8 @@ def _build_task_range(name: str, min_instances: int, max_instances: int,
             post_list.extend(value)
         elif item_kind == "impacts":
             impacts_list.extend(value)
+        elif item_kind == "child":
+            children_list.append(value)
         else:
             raise ValueError(f"Unknown task_body_item kind: {item_kind!r}")
 
@@ -945,6 +953,7 @@ def _build_task_range(name: str, min_instances: int, max_instances: int,
         inv=inv,
         post=post,
         impacts=impacts,
+        children=children_list,
     )
 
 
@@ -1039,6 +1048,13 @@ def p_task_body_item_post_block(p):
 def p_task_body_item_impacts(p):
     "task_body_item : task_impacts"
     p[0] = ("impacts", p[1])
+
+
+def p_task_body_item_child(p):
+    "task_body_item : task_def"
+    # Nested task/taskdef declaration (session sugar). Collected into the
+    # parent's `children` list; flattened by flatten_sessions() in transforms.
+    p[0] = ("child", p[1])
 
 
 def p_task_id(p):

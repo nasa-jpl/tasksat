@@ -367,6 +367,15 @@ class TaskNetPrinter:
         if task.impacts:
             self.print_impacts_block(out, task.impacts)
 
+        # Nested subtasks (session sugar). Present on pre-flatten ASTs; after
+        # flatten_sessions() these are gone (children promoted to instances).
+        if getattr(task, "children", None):
+            for child in task.children:
+                if isinstance(child, TaskRange):
+                    self.print_task_range(out, child)
+                else:
+                    self.print_task(out, child)
+
         self.indent_level -= 1
         self._writeln(out, f"{self._indent()}}}")
 

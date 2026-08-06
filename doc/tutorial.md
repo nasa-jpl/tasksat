@@ -1052,6 +1052,50 @@ taskdef drive {
 }
 ```
 
+## Sessions: Grouping Subtasks
+
+Auto-instantiation reduces boilerplate for *single* repeated predecessors. When
+you have a repeating **group** of subtasks — a preheat, then a contained drive,
+say — you can package them as a **session**: a `taskdef` whose body declares
+nested `task` children.
+
+```tasknet
+taskdef PreHeat { duration_range [30, 40]; }
+taskdef Drive   { duration_range [60, 80]; }
+
+taskdef DriveSession {
+  task preheat : PreHeat;
+  task drive   : Drive { after preheat; }   // refer to siblings by bare name
+}
+
+// Instantiate the whole group with one declaration each:
+task drive1 : DriveSession;
+task drive2 : DriveSession { after drive1; }
+```
+
+A session is **pure sugar**: before the solver runs, each instance is flattened
+into ordinary qualified instances named `{instance}__{child}`. The spec above
+becomes:
+
+```tasknet
+task drive1__preheat : PreHeat {}
+task drive1__drive   : Drive { after drive1__preheat; }
+
+task drive2__preheat : PreHeat { after drive1__preheat, drive1__drive; }
+task drive2__drive   : Drive { after drive2__preheat, drive1__preheat, drive1__drive; }
+```
+
+Two rules govern the rewrite:
+
+1. **Sibling references are qualified**: `drive`'s `after preheat` becomes
+   `after drive1__preheat` — siblings stay wired within their own instance.
+2. **Session-to-session `after` fans out (conservative)**: `drive2 after drive1`
+   makes *every* `drive2` child start after *all* `drive1` children end — i.e.
+   "after the whole predecessor session."
+
+Because it is sugar, sessions add no solver cost and no new semantics. Inspect
+the flattened network with `--transform-only`.
+
 ## Time-Constrained Dependencies
 
 TaskSAT supports optional time ranges on `after` and `containedin` dependencies to express temporal gaps and offsets between tasks.

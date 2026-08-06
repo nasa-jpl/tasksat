@@ -640,6 +640,67 @@ task drive2 : drive {}
 # (solver must ensure predrive1.end <= drive1.start AND predrive1.end <= drive2.start)
 ```
 
+### Sessions (Nested Subtasks)
+
+A `taskdef` may declare **nested `task` children** inside its body, turning it
+into a **session**: a reusable group of subtasks with their own internal
+structure. Instantiating the session once expands to the whole group.
+
+```tasknet
+taskdef PreHeat { duration_range [30, 40]; }
+taskdef Drive   { duration_range [60, 80]; }
+
+taskdef DriveSession {
+  task preheat : PreHeat;
+  task drive   : Drive { after preheat; }   // sibling reference by bare name
+}
+
+task drive1 : DriveSession;
+task drive2 : DriveSession { after drive1; }
+```
+
+**Sessions are pure sugar.** They are flattened away before the solver runs —
+there are no solver changes and no new semantics. Each session instance expands
+into ordinary qualified instances, one per child:
+
+```tasknet
+// drive1 : DriveSession expands to:
+task drive1__preheat : PreHeat {}
+task drive1__drive   : Drive { after drive1__preheat; }
+```
+
+**How flattening works:**
+
+1. **Qualified naming**: each child becomes `{instance}__{child}` (e.g.
+   `drive1__preheat`). The separator is `__`; there is **no** dotted-name
+   (`drive1.preheat`) surface syntax.
+2. **Sibling references are qualified**: a child that refers to a sibling by
+   bare name (`after preheat`, `containedin maintainheat`) is rewritten to the
+   qualified sibling (`after drive1__preheat`) — so siblings stay wired within
+   the same instance and never leak across instances.
+3. **Session-to-session dependencies fan out (conservative)**: a session-level
+   `after <otherSession>` (e.g. `drive2 after drive1`) applies to **every** child
+   of the referrer and references **all** children of the target. This means the
+   entire `drive2` session starts after the entire `drive1` session ends
+   ("after the whole predecessor session").
+
+**Example fan-out** for the two-instance spec above:
+
+```tasknet
+task drive2__preheat : PreHeat { after drive1__preheat, drive1__drive; }
+task drive2__drive   : Drive   { after drive2__preheat, drive1__preheat, drive1__drive; }
+```
+
+**Inspect the expansion** with `--transform-only` (writes
+`.tasksat/transformed/<file>_transformed.tn`).
+
+**Benefits:**
+- **Grouping and reuse**: define a multi-step pattern once, instantiate it many times
+- **Encapsulation**: subtasks name their siblings locally; the flattening pass
+  supplies the qualification
+- **No solver cost**: sessions add zero new solver constructs — the flattened
+  network is exactly what you would have written by hand
+
 **Standalone Tasks**
 
 Tasks can also be defined directly without using definitions:

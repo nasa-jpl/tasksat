@@ -318,3 +318,48 @@ class TestVerifier:
             "  → HOLDS",
             "Summary: 3 hold, 0 violated, 0 unknown"
         )
+
+    def test_tasknet59_session_basic(self):
+        """Session sugar: a taskdef with nested `task` children flattens into
+        qualified instances (drive1__preheat, drive1__drive) before the solver
+        runs. The child's bare sibling ref `after preheat` is qualified during
+        flattening, so drive1__drive is scheduled after drive1__preheat."""
+        verify_out('tasknet59_session_basic.tn', mode='satisfy')(
+            "*** NEW SCHEDULE***",
+            "✓ Valid schedule found!",
+            "drive1__preheat: start =",
+            "drive1__drive : start =",
+        )
+
+    def test_tasknet60_session_sequence(self):
+        """Session-to-session sequencing: `drive2 after drive1` fans out
+        conservatively onto every child of drive2, referencing all children of
+        drive1 (after the whole predecessor session). The entire drive2 session
+        follows the entire drive1 session."""
+        verify_out('tasknet60_session_sequence.tn', mode='satisfy')(
+            "*** NEW SCHEDULE***",
+            "✓ Valid schedule found!",
+            "drive1__preheat: start =",
+            "drive1__drive : start =",
+            "drive2__preheat: start =",
+            "drive2__drive : start =",
+        )
+
+    def test_tasknet61_session_containedin(self):
+        """Session with a `containedin` sibling dependency (three children),
+        sequenced twice via `drive2 after drive1`. drive1__drive is
+        `containedin drive1__maintainheat` and after drive1__preheat — both
+        bare sibling refs qualified during flattening (exercises
+        qualify_containedin alongside qualify_after). The session-level
+        `after drive1` fans out onto every drive2 child, so the whole drive2
+        session (its own containment intact) follows the whole drive1 session."""
+        verify_out('tasknet61_session_containedin.tn', mode='satisfy')(
+            "*** NEW SCHEDULE***",
+            "✓ Valid schedule found!",
+            "drive1__preheat: start =",
+            "drive1__maintainheat: start =",
+            "drive1__drive : start =",
+            "drive2__preheat: start =",
+            "drive2__maintainheat: start =",
+            "drive2__drive : start =",
+        )

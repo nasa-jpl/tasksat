@@ -191,6 +191,17 @@ def apply_transforms(tn: TaskNet) -> tuple[TaskNet, bool]:
     # Example: task T[2..4] → T_0, T_1, T_2, T_3
     tn = expand_task_ranges(tn)
 
+    # Pass 0.5: Flatten session subtasks (Phase 1 sugar).
+    # A taskdef with nested `task` children (a "session") and its instances are
+    # replaced by qualified child instances (drive1__preheat, ...). Runs after
+    # range expansion so every concrete session instance is flattened, and before
+    # reclassify/instantiate so the children are treated as ordinary taskdef
+    # instances by everything downstream (field resolution, auto-instantiation
+    # suppression, mutex, encoding).
+    original_task_count_pre_flatten = len(tn.tasks)
+    tn = flatten_sessions(tn)
+    session_flattening_occurred = len(tn.tasks) != original_task_count_pre_flatten
+
     # Pass 1: Desugar sequence [task1, task2, ...] to pairwise ordering constraints
     tn = desugar_sequence(tn)
 
@@ -231,7 +242,174 @@ def apply_transforms(tn: TaskNet) -> tuple[TaskNet, bool]:
     # tn = expand_macros(tn)              # Hypothetical: expand task templates
     # tn = inline_definitions(tn)         # Hypothetical: inline task definitions
 
-    return tn, auto_instantiation_occurred
+    # Report the transformed tasknet (for --transform-only) whenever a
+    # structural rewrite occurred — auto-instantiation OR session flattening.
+    return tn, (auto_instantiation_occurred or session_flattening_occurred)
+
+
+# ==============================================================================
+# Transformation Pass 0.5: Flatten Session Subtasks
+# ==============================================================================
+
+def flatten_sessions(tn: TaskNet) -> TaskNet:
+    """
+    Flatten session sugar into ordinary qualified task instances (Phase 1).
+
+    A "session" is a taskdef whose body contains nested ``task`` declarations
+    (``Task.children``). Session taskdefs are templates; their instances are
+    expanded into one qualified instance per child::
+
+        taskdef DriveSession {
+          task preheat : PreHeat;
+          task drive   : Drive { after preheat; }
+        }
+        drive1 : DriveSession;
+        drive2 : DriveSession { after drive1; }
+
+    flattens to six ordinary instances ``drive1__preheat``, ``drive1__drive``,
+    ``drive2__preheat``, ``drive2__drive`` (children carry their own ``definition``
+    so the existing instance→taskdef machinery resolves their fields).
+
+    Rewriting rules:
+      * Child names are prefixed with the session-instance name: ``<inst>__<child>``.
+      * A child's *sibling* references (bare ``after``/``containedin`` targets that
+        name another child) are rewritten to the qualified sibling name.
+      * The session instance's own ``after``/``containedin`` dependencies fan out
+        onto *every* child (conservative: "start after the whole predecessor
+        session"). A dependency naming another **session instance** expands to all
+        of that session's children; a dependency on an ordinary task is kept as-is.
+      * Session-instance timing/kind (kind, startrng/endrng/durrng, priority) is
+        NOT imposed on children — subtask timing comes from the child taskdefs.
+
+    Pure sugar: the flattened network is semantically an ordinary hand-written
+    network and is handed unchanged to the rest of the pipeline. No scaling
+    benefit — that is Phase 2 (--compositional).
+    """
+    SEP = "__"
+
+    # A session taskdef = DEFINITION with nested children.
+    session_defs: Dict[str, Task] = {
+        t.id: t for t in tn.tasks
+        if t.kind == TaskKind.DEFINITION and t.children
+    }
+    if not session_defs:
+        return tn  # nothing to flatten
+
+    # Session instances = non-definition tasks whose definition is a session def.
+    def is_session_instance(t) -> bool:
+        return (not isinstance(t, TaskRange)
+                and t.kind != TaskKind.DEFINITION
+                and t.definition in session_defs)
+
+    # Map each session instance name → its qualified child names (for fan-out of
+    # inter-session dependencies). Built before rewriting so all instances known.
+    inst_child_names: Dict[str, list] = {}
+    for t in tn.tasks:
+        if is_session_instance(t):
+            sdef = session_defs[t.definition]
+            inst_child_names[t.id] = [f"{t.id}{SEP}{c.id}" for c in sdef.children]
+
+    def deep_copy_tlcons(tlcons):
+        if not tlcons:
+            return None
+        return [TlCon(tc.id, tc.cons.copy()) for tc in tlcons]
+
+    def deep_copy_impacts(impacts):
+        if not impacts:
+            return None
+        return [Impact(imp.id, imp.when, imp.how) for imp in impacts]
+
+    def qualify_after(dep: AfterDependency, inst_name: str, sibling_ids: Set[str]):
+        """Rewrite a child's after-dep: sibling → qualified; else keep."""
+        if dep.task_id in sibling_ids:
+            return [AfterDependency(task_id=f"{inst_name}{SEP}{dep.task_id}", gap=dep.gap)]
+        return [AfterDependency(task_id=dep.task_id, gap=dep.gap)]
+
+    def qualify_containedin(dep: ContainedinDependency, inst_name: str, sibling_ids: Set[str]):
+        if dep.task_id in sibling_ids:
+            return [ContainedinDependency(task_id=f"{inst_name}{SEP}{dep.task_id}",
+                                          start_offset=dep.start_offset, end_offset=dep.end_offset)]
+        return [ContainedinDependency(task_id=dep.task_id,
+                                      start_offset=dep.start_offset, end_offset=dep.end_offset)]
+
+    def expand_session_after(dep: AfterDependency):
+        """Session-instance after-dep → fan out to targets' children if the
+        target is itself a session instance; otherwise keep as-is."""
+        if dep.task_id in inst_child_names:
+            return [AfterDependency(task_id=q, gap=dep.gap) for q in inst_child_names[dep.task_id]]
+        return [AfterDependency(task_id=dep.task_id, gap=dep.gap)]
+
+    def expand_session_containedin(dep: ContainedinDependency):
+        if dep.task_id in inst_child_names:
+            return [ContainedinDependency(task_id=q, start_offset=dep.start_offset,
+                                          end_offset=dep.end_offset)
+                    for q in inst_child_names[dep.task_id]]
+        return [ContainedinDependency(task_id=dep.task_id, start_offset=dep.start_offset,
+                                      end_offset=dep.end_offset)]
+
+    new_tasks: list = []
+    for t in tn.tasks:
+        # Drop session taskdefs (templates) — their children become instances.
+        if t.kind == TaskKind.DEFINITION and t.children:
+            continue
+
+        if not is_session_instance(t):
+            new_tasks.append(t)
+            continue
+
+        # Expand this session instance into one qualified instance per child.
+        sdef = session_defs[t.definition]
+        sibling_ids = {c.id for c in sdef.children}
+
+        # Session-level dependencies fan out onto every child.
+        session_after = []
+        for dep in (t.after_instances or []):
+            session_after.extend(expand_session_after(dep))
+        session_containedin = []
+        for dep in (t.containedin_instances or []):
+            session_containedin.extend(expand_session_containedin(dep))
+
+        for child in sdef.children:
+            q_id = f"{t.id}{SEP}{child.id}"
+
+            child_after = []
+            for dep in (child.after_instances or []):
+                child_after.extend(qualify_after(dep, t.id, sibling_ids))
+            child_containedin = []
+            for dep in (child.containedin_instances or []):
+                child_containedin.extend(qualify_containedin(dep, t.id, sibling_ids))
+
+            # Session-level deps apply to every child (conservative fan-out).
+            child_after.extend([AfterDependency(task_id=d.task_id, gap=d.gap)
+                                for d in session_after])
+            child_containedin.extend([ContainedinDependency(task_id=d.task_id,
+                                       start_offset=d.start_offset, end_offset=d.end_offset)
+                                      for d in session_containedin])
+
+            new_tasks.append(Task(
+                id=q_id,
+                ident=child.ident,
+                kind=t.kind,  # child instance inherits session-instance kind
+                params=list(child.params) if child.params else [],
+                definition=child.definition,  # child's own taskdef (e.g. PreHeat)
+                priority=child.priority,
+                startrng=child.startrng,
+                endrng=child.endrng,
+                durrng=child.durrng,
+                dur=child.dur,
+                start=child.start,
+                after_instances=child_after or None,
+                containedin_instances=child_containedin or None,
+                after_definitions=child.after_definitions.copy() if child.after_definitions else None,
+                containedin_definitions=child.containedin_definitions.copy() if child.containedin_definitions else None,
+                pre=deep_copy_tlcons(child.pre),
+                inv=deep_copy_tlcons(child.inv),
+                post=deep_copy_tlcons(child.post),
+                impacts=deep_copy_impacts(child.impacts),
+            ))
+
+    tn.tasks = new_tasks
+    return tn
 
 
 # ==============================================================================
