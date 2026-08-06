@@ -134,3 +134,36 @@ def test_no_sessions_is_noop():
     tn, occurred = apply_transforms(tn)
     assert occurred is False
     assert {t.id for t in tn.tasks} == {"a", "b"}
+
+
+def test_flatten_reported_even_when_task_count_unchanged():
+    """Regression: with ONE session instance of a TWO-child session, flattening
+    removes 2 tasks (the session taskdef + its instance) and adds 2 (the two
+    qualified children), leaving len(tn.tasks) unchanged. The rewrite must still
+    be reported (occurred=True) — a count-delta heuristic would miss it and
+    --transform-only would decline to write the inspection file (the tasknet59
+    symptom). Guards flatten_sessions' structural changed flag."""
+    spec = """
+    tasknet TwoChildOneInstance {
+        end = 100;
+        timelines { location : state(home, target) = home; }
+        taskdef PreHeat { duration_range [5, 10]; }
+        taskdef Drive   { duration_range [10, 20]; }
+        taskdef DriveSession {
+            task preheat : PreHeat;
+            task drive   : Drive { after preheat; }
+        }
+        task d1 : DriveSession;
+    }
+    """
+    tn = parse_tasknet(spec)
+    # Before flatten: PreHeat, Drive, DriveSession, d1 = 4 tasks.
+    count_before = len(tn.tasks)
+    assert count_before == 4
+    tn, occurred = apply_transforms(tn)
+    # After flatten: PreHeat, Drive, d1__preheat, d1__drive = 4 tasks (unchanged!).
+    assert len(tn.tasks) == count_before  # the count trap
+    assert occurred is True               # ...yet the rewrite is reported
+    ids = {t.id for t in tn.tasks}
+    assert "DriveSession" not in ids and "d1" not in ids
+    assert "d1__preheat" in ids and "d1__drive" in ids

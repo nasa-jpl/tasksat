@@ -398,6 +398,14 @@ class TaskNet:
     # after the last scheduled task must satisfy these). None = no final block.
     final_constraints: Optional[List[TlCon]] = None
     final_extends_initial: bool = False
+    # Invariant block (compositional sugar): a predicate P on shared state that a
+    # session is claimed to preserve ({P}S{P}). Kept raw here so --transform-only
+    # shows provenance; desugar_invariant() folds it into initial_constraints +
+    # `final within initial` (so effective_final_constraints() == P). None = no block.
+    invariant_constraints: Optional[List[TlCon]] = None
+    # Opt-in to the compositional inductive-invariant check (set by `invariant
+    # compositional { ... }` surface syntax, or by the --compositional CLI flag).
+    compositional: bool = False
 
     def effective_final_constraints(self) -> List[TlCon]:
         """The full list of final constraints to check, resolving the

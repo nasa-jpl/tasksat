@@ -191,6 +191,12 @@ code[class*="language-"] {
                        {% if metadata.realizability %}checked{% endif %}>
                 <label class="form-check-label small" for="chkRealizability">Realizability</label>
             </div>
+            <div class="form-check form-check-inline me-2 align-middle"
+                 title="Compositional inductive-invariant sequencing: verify ONE session preserves the invariant P ({P}S{P}) so ANY-length sequence preserves it (needs an `invariant {...}` block)">
+                <input class="form-check-input" type="checkbox" id="chkCompositional"
+                       {% if metadata.compositional %}checked{% endif %}>
+                <label class="form-check-label small" for="chkCompositional">Compositional</label>
+            </div>
             <button id="btnReVerify" class="btn btn-primary me-2 btn-verify"
                     onclick="runVerification()"
                     title="Re-run verification on the source file">
@@ -592,16 +598,30 @@ code[class*="language-"] {
                                         {% for tl, val in prop.counterexample_initial_state.items() %}{{ tl }} = {{ val }}{% if not loop.last %}, {% endif %}{% endfor %}
                                     </small>
                                     {% endif %}
+                                {% elif prop.name == 'compositional' %}
+                                    <br><small class="text-muted">AA safety = <strong>{{ prop.aa }}</strong>, AE realizability-under-P = <strong>{{ prop.ae }}</strong>{% if prop.session %} (session <code>{{ prop.session }}</code>){% endif %}</small>
+                                    {% if prop.note %}
+                                    <br><small class="text-muted">{{ prop.note }}</small>
+                                    {% endif %}
+                                    {% if prop.counterexample_initial_state %}
+                                    <br><small class="text-danger">P-state with no P-preserving schedule:
+                                        {% for tl, val in prop.counterexample_initial_state.items() %}{{ tl }} = {{ val }}{% if not loop.last %}, {% endif %}{% endfor %}
+                                    </small>
+                                    {% endif %}
                                 {% endif %}
                             </td>
                             <td><small>{{ prop.duration_sec }}s</small></td>
                             <td>
-                                {% if prop.status == 'violated' and prop.name != 'realizability' %}
+                                {% if prop.status == 'violated' and prop.name not in ['realizability', 'compositional'] %}
                                 <button class="btn btn-sm btn-outline-danger" onclick="viewErrorTrace('{{ prop.name }}')">
                                     <i class="bi bi-graph-down"></i> Error Trace
                                 </button>
                                 {% elif prop.name == 'realizability' and prop.status == 'violated' %}
                                 <button class="btn btn-sm btn-outline-danger" onclick="viewJson('realizability_unsat_core', '/static/report/{{ name }}/{{ timestamp }}/realizability_unsat_core.json')">
+                                    <i class="bi bi-braces"></i> Unsat Core
+                                </button>
+                                {% elif prop.name == 'compositional' and prop.status == 'violated' %}
+                                <button class="btn btn-sm btn-outline-danger" onclick="viewJson('compositional_unsat_core', '/static/report/{{ name }}/{{ timestamp }}/compositional_unsat_core.json')">
                                     <i class="bi bi-braces"></i> Unsat Core
                                 </button>
                                 {% endif %}
@@ -922,7 +942,8 @@ function runVerification() {
         },
         body: JSON.stringify({
             mode: document.getElementById('selVerifyMode').value,
-            realizability: document.getElementById('chkRealizability').checked
+            realizability: document.getElementById('chkRealizability').checked,
+            compositional: document.getElementById('chkCompositional').checked
         })
     })
     .then(response => response.json())
@@ -1165,7 +1186,8 @@ function saveCode() {
         body: JSON.stringify({
             source: newCode,
             mode: document.getElementById('selVerifyMode').value,
-            realizability: document.getElementById('chkRealizability').checked
+            realizability: document.getElementById('chkRealizability').checked,
+            compositional: document.getElementById('chkCompositional').checked
         })
     })
     .then(response => response.json())

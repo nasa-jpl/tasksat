@@ -20,6 +20,8 @@ reserved = {
     "initial_rate":   "INITIAL_RATE",
     "final":          "FINAL",
     "within":         "WITHIN",
+    "invariant":      "INVARIANT",
+    "compositional":  "COMPOSITIONAL",
     "task":           "TASK",
     "taskdef":        "TASKDEF",
     "optional":       "OPTIONAL",
@@ -208,6 +210,8 @@ def p_tasknet(p):
     properties: List[TemporalProperty] = []
     final_cons: Optional[List[TlCon]] = None
     final_extends: bool = False
+    invariant_cons: Optional[List[TlCon]] = None
+    compositional: bool = False
 
     for kind, value in items:
         if kind == "end":
@@ -226,6 +230,12 @@ def p_tasknet(p):
                 final_cons = []
             final_cons.extend(block_cons)
             final_extends = final_extends or extends
+        elif kind == "invariant":
+            block_cons, is_comp = value
+            if invariant_cons is None:
+                invariant_cons = []
+            invariant_cons.extend(block_cons)
+            compositional = compositional or is_comp
         elif kind == "constraints_tl":
             constraints_tl.extend(value)
         elif kind == "properties":
@@ -247,6 +257,8 @@ def p_tasknet(p):
         properties=properties,
         final_constraints=final_cons,
         final_extends_initial=final_extends,
+        invariant_constraints=invariant_cons,
+        compositional=compositional,
     )
 
 
@@ -315,6 +327,10 @@ def p_tasknet_body_item_initial(p):
 def p_tasknet_body_item_final(p):
     "tasknet_body_item : final_block"
     p[0] = ("final", p[1])
+
+def p_tasknet_body_item_invariant(p):
+    "tasknet_body_item : invariant_block"
+    p[0] = ("invariant", p[1])
 
 def p_tasknet_body_item_task(p):
     "tasknet_body_item : task_def"
@@ -583,6 +599,16 @@ def p_final_block_within_blockless(p):
     "final_block : FINAL WITHIN INITIAL SEMI"
     # `final within initial;` — the final property is exactly the initial block
     p[0] = ([], True)
+
+# ------------ invariant block (compositional inductive-invariant sugar) ------------
+
+def p_invariant_block_plain(p):
+    "invariant_block : INVARIANT LBRACE tlcon_list RBRACE"
+    p[0] = (p[3], False)  # (list[TlCon], compositional?)
+
+def p_invariant_block_compositional(p):
+    "invariant_block : INVARIANT COMPOSITIONAL LBRACE tlcon_list RBRACE"
+    p[0] = (p[4], True)   # (list[TlCon], compositional?)
 
 # ------------ tasks ------------
 

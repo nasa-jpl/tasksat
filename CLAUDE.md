@@ -179,7 +179,62 @@ Flattens to `drive1__preheat`, `drive1__drive` (after `drive1__preheat`),
 - Transform: `flatten_sessions()` (Pass 0.5) in [tasknet_transforms.py](src/smt/tasknet_transforms.py)
 - Printer: emits `children` for round-trip fidelity in [tasknet_printer.py](src/smt/tasknet_printer.py)
 - Tests: unit ([tests/test_sessions.py](tests/test_sessions.py)) + end-to-end (`tasknet59`–`61` in [tests/test_verifier1.py](tests/test_verifier1.py))
-- This is **Phase 1** of the compositional-scaling design ([jpl/mexec/doc/compositional-scaling.tex](jpl/mexec/doc/compositional-scaling.tex)); Phase 2 (`--compositional`) is future work.
+- This is **Phase 1** of the compositional-scaling design ([jpl/mexec/doc/compositional-scaling.tex](jpl/mexec/doc/compositional-scaling.tex)); the inductive-invariant special case (`--compositional`) is shipped — see [Compositional Inductive-Invariant Sequencing](#compositional-inductive-invariant-sequencing---compositional).
+
+### Compositional Inductive-Invariant Sequencing (`--compositional`)
+
+Opt-in scaling check: verify that ONE session preserves a predicate `P` (`{P}S{P}`)
+and conclude that ANY-length sequence of that session preserves `P` — verify once,
+sequence for free, N-independent. This is the `pre = post = P` special case of a
+session interface (Phase 2 of the compositional-scaling design).
+
+**Invariant block sugar.** `invariant { P }` desugars to `initial { P }` +
+`final within initial;` (so `effective_final_constraints() == P` and `P@0` seeds
+the realizability init region). Add `compositional` — `invariant compositional { P }`
+— to opt into the check from the spec (equivalent to passing `--compositional`).
+
+```tasknet
+invariant compositional { mode = idle; }   // check {P}S{P} => forall N . {P}S^N{P}
+```
+
+**Two checks (both required for HOLDS).** `{P}S{P}` needs BOTH, over the same P:
+- **AA safety** — `∀i.∀s. valid(i,s) → P(final)`. Exactly the existing
+  `final within initial` property check.
+- **AE realizability-under-P** — `∀state⊨P. ∃s. valid(state,s) ∧ P(final)`. The
+  `--realizability` CEGIS confined to P and requiring the schedule to land back in P
+  (`check_realizability(..., require_final=True)`).
+
+Safety ALONE is **vacuously true** for P-states that admit no schedule (the "vacuity
+trap") and does not license sequencing; AE closes that gap. Verdict is **HOLDS iff
+BOTH hold**, VIOLATED if either is violated, else UNKNOWN.
+
+**Single-session projection.** `project_single_session()` reduces an N-instance
+session network to a 1-instance network (reading session structure from the
+pre-transform AST), so both checks run in Θ(1) task time regardless of N; the result
+discharges all N.
+
+**Assumption (this cut):** γ = 0 — no inter-session gap drift. Cross-session
+dependencies are dropped by the projection; the γ-closure check
+(`∀v⊨P. P(v+γ)`) is a deferred follow-up.
+
+**Usage:**
+```bash
+python src/smt/tasknet_verifier.py net.tn --compositional
+# or opt in from the spec with `invariant compositional { ... }` (no flag needed)
+# Tuning: --compositional-max-iters (default 50), --compositional-budget (default 60s)
+```
+Results ship in `properties.json` under the name `compositional` (with `aa`/`ae`
+sub-statuses and `session`) and in `metadata.json`; an AE counterexample's unsat core
+is written to `compositional_unsat_core.json`.
+
+**Implementation:**
+- AST: `TaskNet.invariant_constraints` / `compositional` fields in [tasknet_ast.py](src/smt/tasknet_ast.py)
+- Parser: `invariant_block` productions + `invariant`/`compositional` keywords in [tasknet_parser.py](src/smt/tasknet_parser.py)
+- Transform: `desugar_invariant()` (Pass -2, runs first) in [tasknet_transforms.py](src/smt/tasknet_transforms.py)
+- Projection + orchestration: [tasknet_compositional.py](src/smt/tasknet_compositional.py)
+- AE-under-P: `check_realizability(..., require_final=True)` in [tasknet_realizability.py](src/smt/tasknet_realizability.py)
+- CLI + Phase 3.5 reporting: [tasknet_verifier.py](src/smt/tasknet_verifier.py)
+- Tests: [tests/test_compositional.py](tests/test_compositional.py) + fixtures `tasknet62` (HOLDS) / `tasknet63` (AE-violated)
 
 ### Parameters
 

@@ -1,0 +1,39 @@
+# Test: Compositional inductive-invariant sequencing (AE-VIOLATED case).
+#
+# Demonstrates the "vacuity trap": AA safety alone would (vacuously) pass, but
+# the session does NOT preserve the invariant because some P-state admits no
+# P-preserving schedule. Only the AE realizability-under-P check catches it.
+#
+# Invariant P = { charge in [20, 100] }. The session's work task requires
+# charge >= 30 to run and nothing replenishes charge before it. So:
+#   AA safety           : every VALID schedule ends with charge in [20,100]   (holds)
+#                         (valid => start charge >= 30 => final in [50,100])
+#   AE realizability-P  : charge = 25 satisfies P but admits NO schedule       (VIOLATED)
+# => {P}S{P} FAILS. Verify with --compositional: expect compositional VIOLATED.
+
+tasknet CompositionalAEViolated {
+  end = 100;
+
+  timelines {
+    charge : cumulative [0.0, 100.0] bounds [0.0, 100.0];
+  }
+
+  invariant compositional { charge in [20.0, 100.0]; }
+
+  taskdef Work {
+    duration_range [20, 20];
+    pre {
+      charge in [30.0, 100.0];
+    }
+    impacts {
+      post { charge += 20.0; }
+    }
+  }
+
+  # Single-child session.
+  taskdef Job {
+    task work : Work;
+  }
+
+  task job1 : Job;
+}

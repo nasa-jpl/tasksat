@@ -23,12 +23,14 @@ ERRORS_DIR = TASKSAT_ROOT / '.tasksat' / 'errors'
 TESTS_DIR = TASKSAT_ROOT / 'tests' / 'tasknet_files'
 
 
-def verifier_cmd(tn_path, mode, realizability=False):
+def verifier_cmd(tn_path, mode, realizability=False, compositional=False):
     """Build the tasknet_verifier.py command line."""
     cmd = ['python', str(TASKSAT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py'),
            str(tn_path), '--mode', mode]
     if realizability:
         cmd.append('--realizability')
+    if compositional:
+        cmd.append('--compositional')
     return cmd
 
 
@@ -315,6 +317,7 @@ def api_verify(name):
     data = request.get_json() if request.is_json else {}
     mode = data.get('mode', 'optimize')
     realizability = bool(data.get('realizability', False))
+    compositional = bool(data.get('compositional', False))
 
     if mode not in ['optimize', 'satisfy']:
         return jsonify({'status': 'error', 'message': 'Invalid mode. Use "optimize" or "satisfy"'}), 400
@@ -350,7 +353,7 @@ def api_verify(name):
     start_time = time.time()
     try:
         result = subprocess.run(
-            verifier_cmd(tn_file, mode, realizability),
+            verifier_cmd(tn_file, mode, realizability, compositional),
             capture_output=True,
             text=True,
             timeout=300  # 5 minute timeout
@@ -407,6 +410,7 @@ def api_create():
         source = data.get('source', '')
         mode = data.get('mode', 'optimize')
         realizability = bool(data.get('realizability', False))
+        compositional = bool(data.get('compositional', False))
 
         if not name:
             return jsonify({'status': 'error', 'message': 'Filename is required'}), 400
@@ -439,7 +443,7 @@ def api_create():
         # Run verification
         start_time = time.time()
         result = subprocess.run(
-            verifier_cmd(file_path, mode, realizability),
+            verifier_cmd(file_path, mode, realizability, compositional),
             capture_output=True,
             text=True,
             timeout=300
@@ -499,6 +503,7 @@ def api_upload():
     # Get mode from form data (default: optimize)
     mode = request.form.get('mode', 'optimize')
     realizability = request.form.get('realizability', 'false').lower() == 'true'
+    compositional = request.form.get('compositional', 'false').lower() == 'true'
     if mode not in ['optimize', 'satisfy']:
         return jsonify({'status': 'error', 'message': 'Invalid mode'}), 400
 
@@ -513,7 +518,7 @@ def api_upload():
         # Run verifier
         start_time = time.time()
         result = subprocess.run(
-            verifier_cmd(upload_path, mode, realizability),
+            verifier_cmd(upload_path, mode, realizability, compositional),
             capture_output=True,
             text=True,
             timeout=300
@@ -628,6 +633,7 @@ def api_save_and_verify(name):
         source = data.get('source', '')
         mode = data.get('mode', 'optimize')
         realizability = bool(data.get('realizability', False))
+        compositional = bool(data.get('compositional', False))
 
         # Find original source file
         latest_dir = SCHEDULES_DIR / name / 'latest'
@@ -648,7 +654,7 @@ def api_save_and_verify(name):
         # Run verification
         start_time = time.time()
         result = subprocess.run(
-            verifier_cmd(source_path, mode, realizability),
+            verifier_cmd(source_path, mode, realizability, compositional),
             capture_output=True,
             text=True,
             timeout=300
@@ -870,6 +876,7 @@ def api_verify_file():
         file_path = data.get('file_path', '')
         mode = data.get('mode', 'optimize')
         realizability = bool(data.get('realizability', False))
+        compositional = bool(data.get('compositional', False))
 
         if not file_path:
             return jsonify({'status': 'error', 'message': 'File path is required'}), 400
@@ -888,7 +895,7 @@ def api_verify_file():
         # Run verifier on the real file (no copying)
         start_time = time.time()
         result = subprocess.run(
-            verifier_cmd(file_path, mode, realizability),
+            verifier_cmd(file_path, mode, realizability, compositional),
             capture_output=True,
             text=True,
             timeout=300

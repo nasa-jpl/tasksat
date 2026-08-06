@@ -9,6 +9,7 @@ tasknet <identifier> {
   timelines { ... }
   initial { ... }
   final { ... }
+  invariant { ... }
   taskdef <name> { ... }
   task <name> : <taskdef> { ... }
   constraints { ... }
@@ -322,13 +323,45 @@ final within initial {
 final within initial;
 ```
 
+## Invariant (Inductive-Invariant Sequencing)
+
+An `invariant { P }` block is sugar that desugars to `initial { P }` +
+`final within initial;` — the `pre = post = P` special case of a session
+interface. Adding the `compositional` keyword (or passing `--compositional`)
+opts the spec into the compositional sequencing check: verify that ONE session
+preserves the predicate P (`{P}S{P}`) and conclude that ANY-length sequence of
+that session preserves P (verify once, sequence for free, N-independent).
+
+```
+invariant {
+  <timeline> = <value>;
+  <timeline> in [<min>, <max>];
+}
+
+invariant compositional {          # opt into the --compositional check in-spec
+  <timeline> = <value>;
+}
+```
+
+The check has two parts over the same P (both must hold for a HOLDS verdict):
+- **AA safety**: every valid schedule ends in P (the `final within initial`
+  property check).
+- **AE realizability-under-P**: every state satisfying P admits some
+  P-preserving schedule (the `--realizability` CEGIS confined to P). This closes
+  the "vacuity trap" where safety alone is vacuously true for P-states that admit
+  no schedule.
+
+Assumes γ = 0 (no inter-session gap drift) in this first cut. Run with:
+`python src/smt/tasknet_verifier.py net.tn --compositional`.
+
 ## Keywords
 
 ```
 tasknet, end, param, timelines, state, bool, atomic, cumulative, claimable, rate, bounds,
 initial_rate, taskdef, task, optional, request, id, priority, duration,
 duration_range, start, start_range, end_range, after, containedin, pre, inv, post,
-impacts, maint, initial, final, within, constraints, properties, prop, active, always,
+impacts, maint, initial, final, within, invariant, compositional, constraints,
+properties, prop, active, always,
 eventually, until, sofar, once, since, and, or, not, true, false, in,
 time, sequence, mutex, cross, with
 ```
@@ -436,4 +469,6 @@ tasknet RoverMission {
 python src/smt/tasknet_verifier.py tasknet.tn
 python src/smt/tasknet_verifier.py tasknet.tn --mode satisfy
 python src/smt/tasknet_verifier.py tasknet.tn --transform-only
+python src/smt/tasknet_verifier.py tasknet.tn --realizability
+python src/smt/tasknet_verifier.py tasknet.tn --compositional
 ```

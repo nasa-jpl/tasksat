@@ -1,0 +1,48 @@
+# Test: Compositional inductive-invariant sequencing (HOLDS case).
+#
+# A session `Cycle` drives a modal timeline idle -> busy -> idle: activate sets
+# mode = busy, deactivate (after activate) sets it back to idle. The invariant
+# P = { mode = idle } is claimed to be preserved by one session, hence by any
+# sequence of them.
+#
+# `invariant compositional { mode = idle; }` opts into the check. It desugars to
+# `initial { mode = idle; }` + `final within initial;`, so:
+#   AA safety           : every valid schedule ends with mode = idle          (holds)
+#   AE realizability-P  : from mode = idle, some schedule lands back in idle   (holds)
+# => {P}S{P}, so forall N . {P}S^N{P}. Verify with --compositional.
+#
+# Two instances (cycle1, cycle2) are present to confirm projection reduces the
+# check to ONE session instance regardless of N.
+
+tasknet CompositionalHolds {
+  end = 400;
+
+  timelines {
+    mode : state(idle, busy) = idle;
+  }
+
+  taskdef Activate {
+    duration_range [20, 30];
+    impacts {
+      post { mode = busy; }
+    }
+  }
+
+  taskdef Deactivate {
+    duration_range [20, 30];
+    impacts {
+      post { mode = idle; }
+    }
+  }
+
+  # Session: activate then deactivate.
+  taskdef Cycle {
+    task activate   : Activate;
+    task deactivate : Deactivate { after activate; }
+  }
+
+  invariant compositional { mode = idle; }
+
+  task cycle1 : Cycle;
+  task cycle2 : Cycle { after cycle1; }
+}

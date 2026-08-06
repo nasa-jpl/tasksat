@@ -179,7 +179,9 @@ def write_transformed_tasknet(tn, output_path: str, input_path: str):
 
 def main(path: str, mode: str = 'optimize', transform_only: bool = False,
          realizability: bool = False, realizability_max_iters: int = 50,
-         realizability_budget: float = 60.0):
+         realizability_budget: float = 60.0,
+         compositional: bool = False, compositional_max_iters: int = 50,
+         compositional_budget: float = 60.0):
     print('\n\n\n\n\n\n\n' + header('*** NEW SCHEDULE***') + '\n')
 
     start_time = time.time()
@@ -200,9 +202,11 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     import copy
     tn_pre_transform = copy.deepcopy(tn)
 
-    # Apply AST transformations (desugar derived constructs)
+    # Apply AST transformations (desugar derived constructs). The returned flag
+    # signals a structural rewrite (auto-instantiation OR session flattening) —
+    # it gates whether the transformed inspection file is written, not verification.
     try:
-        tn, auto_instantiation_occurred = apply_transforms(tn)
+        tn, structural_rewrite_occurred = apply_transforms(tn)
     except Exception as e:
         import traceback
         error_details = f"Transform error: {str(e)}\n\n{traceback.format_exc()}"
@@ -211,8 +215,9 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         save_failed_verification(path, mode, start_time, error_details, error_type="error")
         return
 
-    # Automatically write transformed tasknet if auto-instantiation occurred
-    if auto_instantiation_occurred:
+    # Automatically write transformed tasknet if a structural rewrite occurred
+    # (auto-instantiation or session flattening)
+    if structural_rewrite_occurred:
         try:
             write_transformed_tasknet(tn, None, path)
         except Exception as e:
@@ -225,8 +230,8 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
 
     # Exit early if only transforming
     if transform_only:
-        if not auto_instantiation_occurred:
-            print(info("No auto-instantiation occurred. No transformed file written."))
+        if not structural_rewrite_occurred:
+            print(info("No structural rewrite (auto-instantiation or session flattening) occurred. No transformed file written."))
         print(success("✓ Transformation complete. Exiting without verification."))
         return
 
@@ -360,6 +365,36 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         property_results.append({
             k: v for k, v in realizability_result.items() if k != 'unsat_core'})
 
+    # Phase 3.5 (opt-in): Compositional inductive-invariant sequencing check.
+    # Fires when --compositional is passed OR the spec declares
+    # `invariant compositional { ... }`. Uses the PRE-transform AST (session
+    # children + invariant block intact).
+    compositional_result = None
+    if compositional or getattr(tn_pre_transform, 'compositional', False):
+        from tasknet_compositional import check_compositional
+        print(header("\nChecking compositional invariant {P}S{P} => forall N {P}S^N{P}:"))
+        compositional_result = check_compositional(
+            tn_pre_transform, apply_transforms,
+            max_iters=compositional_max_iters, budget_sec=compositional_budget)
+
+        cr = compositional_result
+        detail = f"AA safety={cr.get('aa')}, AE realizability-under-P={cr.get('ae')}"
+        if cr['status'] == 'holds':
+            print(success(f"  → HOLDS ✓ ({detail})"))
+            print(dim(f"    {cr['note']}"))
+        elif cr['status'] == 'violated':
+            print(error(f"  → VIOLATED! ({detail})"))
+            print(f"    {cr['note']}")
+            if cr.get('counterexample_initial_state'):
+                print("  Initial state (satisfies P) with no P-preserving schedule:")
+                for tl, val in cr['counterexample_initial_state'].items():
+                    print(f"    {tl} = {val}")
+        else:
+            print(warning(f"  → UNKNOWN ⚠ ({cr['note']})"))
+
+        property_results.append({
+            k: v for k, v in compositional_result.items() if k != 'unsat_core'})
+
     end_time = time.time()
 
     print(f"\n{bold('=== Timing ===')}")
@@ -374,9 +409,12 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
 
     print(f"Total time: {end_time - start_time:.2f} seconds")
 
-    # Print success message if no violations (including realizability)
+    # Print success message if no violations (including realizability + compositional)
+    compositional_violated = (compositional_result is not None
+                              and compositional_result['status'] == 'violated')
     if not violations and not (realizability_result is not None
-                               and realizability_result['status'] == 'violated'):
+                               and realizability_result['status'] == 'violated') \
+            and not compositional_violated:
         print(success("\n✓ All constraints and properties satisfied!") if num_properties > 0 else success("\n✓ Valid schedule found!"))
 
     # Export schedule as JSON and generate visualizations
@@ -412,7 +450,8 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     # counts, even though it produces no error trace)
     realizability_violated = (realizability_result is not None
                               and realizability_result['status'] == 'violated')
-    status = "violated" if (violations or realizability_violated) else "success"
+    status = "violated" if (violations or realizability_violated
+                            or compositional_violated) else "success"
 
     metadata = {
         "source_path": str(input_path.absolute()),
@@ -428,6 +467,9 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     if realizability_result is not None:
         metadata["realizability"] = realizability_result['status']
         metadata["realizability_check_sec"] = realizability_result['duration_sec']
+    if compositional_result is not None:
+        metadata["compositional"] = compositional_result['status']
+        metadata["compositional_check_sec"] = compositional_result['duration_sec']
     metadata_path = run_dir / "metadata.json"
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
@@ -452,6 +494,14 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
             with open(d / "realizability_unsat_core.json", 'w') as f:
                 json.dump(realizability_result['unsat_core'], f, indent=2)
         print(dim(f"📄 Realizability unsat core saved to: {run_dir}/realizability_unsat_core.json"))
+
+    # Save the compositional AE counterexample's unsat core (why a P-state admits
+    # no P-preserving schedule)
+    if compositional_result is not None and compositional_result.get('unsat_core'):
+        for d in (run_dir, latest_dir):
+            with open(d / "compositional_unsat_core.json", 'w') as f:
+                json.dump(compositional_result['unsat_core'], f, indent=2)
+        print(dim(f"📄 Compositional unsat core saved to: {run_dir}/compositional_unsat_core.json"))
 
     # Save schedule as JSON
     json_path = run_dir / "schedule.json"
@@ -612,6 +662,12 @@ if __name__ == "__main__":
                         help='Maximum CEGIS iterations for the realizability check (default: 50)')
     parser.add_argument('--realizability-budget', type=float, default=60.0,
                         help='Wall-clock budget in seconds for the realizability check (default: 60)')
+    parser.add_argument('--compositional', action='store_true',
+                        help='Check the inductive-invariant sequencing property {P}S{P} => forall N {P}S^N{P}: project one session and verify AA safety + AE realizability-under-P for the invariant P (also triggered by `invariant compositional {...}` in the spec)')
+    parser.add_argument('--compositional-max-iters', type=int, default=50,
+                        help='Maximum CEGIS iterations for the compositional AE check (default: 50)')
+    parser.add_argument('--compositional-budget', type=float, default=60.0,
+                        help='Wall-clock budget in seconds for the compositional AE check (default: 60)')
     args = parser.parse_args()
 
     # Capture console output
@@ -623,7 +679,10 @@ if __name__ == "__main__":
         main(args.tasknet_file, args.mode, args.transform_only,
              realizability=args.realizability,
              realizability_max_iters=args.realizability_max_iters,
-             realizability_budget=args.realizability_budget)
+             realizability_budget=args.realizability_budget,
+             compositional=args.compositional,
+             compositional_max_iters=args.compositional_max_iters,
+             compositional_budget=args.compositional_budget)
     finally:
         sys.stdout = old_stdout
 

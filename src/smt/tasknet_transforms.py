@@ -184,6 +184,12 @@ def apply_transforms(tn: TaskNet) -> tuple[TaskNet, bool]:
         - Transformed TaskNet with all derived constructs desugared to core primitives
         - Boolean indicating whether auto-instantiation created new task instances
     """
+    # Pass -2: Desugar the `invariant { P }` block into `initial { P }` +
+    # `final within initial;`. Runs before parameter resolution so any ParamRef
+    # inside P is resolved uniformly with the initial/final blocks, and before
+    # flatten_sessions so P is in place while session structure is still available.
+    tn = desugar_invariant(tn)
+
     # Pass -1: Resolve parameters FIRST (before any other transforms)
     tn = resolve_parameters(tn)
 
@@ -198,9 +204,7 @@ def apply_transforms(tn: TaskNet) -> tuple[TaskNet, bool]:
     # reclassify/instantiate so the children are treated as ordinary taskdef
     # instances by everything downstream (field resolution, auto-instantiation
     # suppression, mutex, encoding).
-    original_task_count_pre_flatten = len(tn.tasks)
-    tn = flatten_sessions(tn)
-    session_flattening_occurred = len(tn.tasks) != original_task_count_pre_flatten
+    tn, session_flattening_occurred = flatten_sessions(tn)
 
     # Pass 1: Desugar sequence [task1, task2, ...] to pairwise ordering constraints
     tn = desugar_sequence(tn)
@@ -248,10 +252,44 @@ def apply_transforms(tn: TaskNet) -> tuple[TaskNet, bool]:
 
 
 # ==============================================================================
+# Transformation Pass -2: Desugar Invariant Block
+# ==============================================================================
+
+def desugar_invariant(tn: TaskNet) -> TaskNet:
+    """Desugar ``invariant { P }`` into ``initial { P }`` + ``final within initial;``.
+
+    Pure transform-layer rewrite (no encoder change). The invariant predicate P
+    is appended to ``initial_constraints`` (so it seeds ``init_region_constraints``
+    and ``_encode_init_predicate`` at zone 0) and ``final_extends_initial`` is set
+    with an empty own-final list, so that ``effective_final_constraints() == P``
+    exactly. This makes the two compositional checks fall out of existing
+    machinery: AA safety = the ``final within initial`` property check, and
+    AE realizability-under-P = the realizability CEGIS seeded with P.
+
+    No-op when there is no invariant block.
+    """
+    if not getattr(tn, "invariant_constraints", None):
+        return tn
+
+    # Fold P into the initial block (P must hold at entry / zone 0).
+    tn.initial_constraints = list(tn.initial_constraints) + list(tn.invariant_constraints)
+
+    # Make the final property `final within initial` extended by nothing, so
+    # effective_final_constraints() == initial_constraints == (old initial) + P.
+    if tn.final_constraints is None:
+        tn.final_constraints = []
+    tn.final_extends_initial = True
+
+    # Consumed.
+    tn.invariant_constraints = None
+    return tn
+
+
+# ==============================================================================
 # Transformation Pass 0.5: Flatten Session Subtasks
 # ==============================================================================
 
-def flatten_sessions(tn: TaskNet) -> TaskNet:
+def flatten_sessions(tn: TaskNet) -> tuple[TaskNet, bool]:
     """
     Flatten session sugar into ordinary qualified task instances (Phase 1).
 
@@ -284,6 +322,13 @@ def flatten_sessions(tn: TaskNet) -> TaskNet:
     Pure sugar: the flattened network is semantically an ordinary hand-written
     network and is handed unchanged to the rest of the pipeline. No scaling
     benefit — that is Phase 2 (--compositional).
+
+    Returns ``(tn, changed)`` where ``changed`` is True iff at least one session
+    taskdef was present and flattened. This is a *structural* signal, not a
+    task-count delta: a single-child, single-instance session (2 items in → 2
+    items out) rewrites the network without changing ``len(tn.tasks)``, so a
+    count comparison would miss it and ``--transform-only`` would decline to
+    write the inspection file.
     """
     SEP = "__"
 
@@ -293,7 +338,7 @@ def flatten_sessions(tn: TaskNet) -> TaskNet:
         if t.kind == TaskKind.DEFINITION and t.children
     }
     if not session_defs:
-        return tn  # nothing to flatten
+        return tn, False  # nothing to flatten
 
     # Session instances = non-definition tasks whose definition is a session def.
     def is_session_instance(t) -> bool:
@@ -409,7 +454,7 @@ def flatten_sessions(tn: TaskNet) -> TaskNet:
             ))
 
     tn.tasks = new_tasks
-    return tn
+    return tn, True
 
 
 # ==============================================================================

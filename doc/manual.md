@@ -407,6 +407,25 @@ initial { mode = idle; battery = 50.0; }
 final within initial;   // schedule must end exactly as it started
 ```
 
+### The Invariant Block
+
+An `invariant { P }` block is **sugar** for `initial { P }` + `final within
+initial;` — it says "start satisfying `P` and end satisfying `P`". It exists to
+express the `pre = post = P` shape used by the compositional sequencing check (see
+[Compositional Sequencing](#compositional-sequencing) below); on its own it is
+just the two blocks combined.
+
+```tasknet
+invariant { mode = idle; }   // == initial { mode = idle; } + final within initial;
+```
+
+Adding the `compositional` keyword opts the spec into the compositional check
+without a CLI flag:
+
+```tasknet
+invariant compositional { mode = idle; }   // also runs the --compositional check
+```
+
 ## A Word on Constraints
 
 The constraints shown above for initializing timelines represent the general form of constraints, also used in pre, inv, and post conditions introduced below.
@@ -1293,6 +1312,67 @@ whole region of initial states") for a worked example.
 
 The result is included in `properties.json` under the name `realizability` and
 in `metadata.json`.
+
+### Compositional Sequencing
+
+TaskSAT's global encoding does not scale: solve time blows up past a few dozen
+tasks. But real missions repeat a structure — the same *session* (a
+[nested-subtask taskdef](#sessions-nested-subtasks)) run over and over. The
+compositional check turns that repetition into a scaling argument: pick a
+predicate `P` on shared state, verify that **one** session preserves it, and
+conclude that **any-length sequence** of that session preserves it — verify once,
+sequence for free, independent of `N`.
+
+This is the `pre = post = P` special case: the session's precondition and
+postcondition are the same predicate `P`, so `{P} S {P}` composes inductively to
+`∀N . {P} Sⁿ {P}`. Write `P` as an [invariant block](#the-invariant-block) and
+opt in:
+
+```bash
+python src/smt/tasknet_verifier.py tasknet.tn --compositional
+```
+```tasknet
+invariant compositional { mode = idle; }   // or plain `invariant {}` + --compositional
+```
+
+**Semantics:** `{P} S {P}  =>  forall N . {P} Sⁿ {P}`  (assuming γ = 0, below).
+
+**Two checks, both required.** `{P} S {P}` holds only if BOTH hold over the same `P`:
+
+- **AA safety** — `∀i.∀s. valid(i,s) → P(final)`: every valid schedule ends in `P`.
+  This is exactly the [`final within initial`](#the-final-block) property check
+  that the invariant desugar produces.
+- **AE realizability-under-P** — `∀state⊨P. ∃s. valid(state,s) ∧ P(final)`: every
+  state satisfying `P` admits *some* schedule that lands back in `P`. This is the
+  [realizability](#realizability-check) CEGIS confined to `P`.
+
+Safety alone is **vacuously true** for a `P`-state that admits no schedule at all
+(the "vacuity trap"), and that does not license sequencing — you could never take
+the next session from such a state. AE closes the gap. The verdict is **HOLDS iff
+both hold**, VIOLATED if either is violated, else UNKNOWN:
+
+```
+Checking compositional invariant {P}S{P} => forall N {P}S^N{P}:
+  → HOLDS ✓ (AA safety=holds, AE realizability-under-P=holds)
+    session 'cycle1' preserves the invariant ...; any-length sequence preserves it.
+```
+
+**Projection (the scaling win).** Before running the two checks, the tool
+*projects* an `N`-instance session network down to a single representative
+instance, so both checks run in `Θ(1)` task time regardless of `N`; the
+single-session result discharges all `N`. The chosen session appears in the
+output (e.g. `session 'cycle1'`).
+
+**Assumption: γ = 0.** This first cut targets the no-inter-session-drift case:
+cross-session gaps do not perturb the shared state (the projection drops
+cross-session dependencies). The γ-closure obligation (`∀v⊨P. P(v+γ)`) is a
+deferred follow-up.
+
+The result is included in `properties.json` under the name `compositional` (with
+`aa`/`ae` sub-statuses and the projected `session`) and in `metadata.json`. When
+AE fails, the counterexample `P`-state and its UNSAT core are written to
+`compositional_unsat_core.json`. Budgets are tunable with
+`--compositional-max-iters` and `--compositional-budget`.
 
 ## User-Guided Scheduling
 

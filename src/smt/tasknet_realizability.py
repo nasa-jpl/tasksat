@@ -126,22 +126,33 @@ def _format_initial_state(enc, istar) -> dict:
 
 
 def check_realizability(tn: TaskNet, max_iters: int = 50, budget_sec: float = 60.0,
-                        per_check_timeout_ms: int = 10000, verbose: bool = True) -> dict:
+                        per_check_timeout_ms: int = 10000, verbose: bool = True,
+                        require_final: bool = False, name: str = 'realizability',
+                        formula: Optional[str] = None) -> dict:
     """
     Run the realizability check. Returns a dict shaped like a property result
     (name/status/duration_sec/formula) plus:
       iterations, skeletons_found, note,
       counterexample_initial_state (dict or None), unsat_core (dict or None).
+
+    require_final: when True, the existential schedule must additionally land in
+    the final region (``_encode_final_holds()``), turning the check into the
+    inductive-invariant realizability-under-P form
+    ``forall state |= P . exists s . valid(state, s) AND P(final)`` used by the
+    compositional checker. The initial region already includes P@0 (the invariant
+    desugar folds P into the initial block, which seeds init_region_constraints).
+    name/formula override the reported labels.
     """
     t0 = time.time()
+    formula_str = formula if formula is not None else FORMULA_STR
 
     def result(status: str, note: str, iterations: int = 0, skeletons: int = 0,
                counterexample=None, unsat_core=None) -> dict:
         return {
-            'name': 'realizability',
+            'name': name,
             'status': status,
             'duration_sec': round(time.time() - t0, 3),
-            'formula': FORMULA_STR,
+            'formula': formula_str,
             'iterations': iterations,
             'skeletons_found': skeletons,
             'note': note,
@@ -156,13 +167,25 @@ def check_realizability(tn: TaskNet, max_iters: int = 50, budget_sec: float = 60
     init_vars = _zone0_vars(template)
     init_names = {str(v) for v in init_vars}
 
-    if _initial_fully_determined(template):
+    # Under require_final we must confirm an ACTUAL P-preserving schedule exists
+    # for every P-state (a fully-determined initial state still needs its final
+    # landing verified), so skip the validity-coincides fast path.
+    if not require_final and _initial_fully_determined(template):
         return result(
             'holds',
             "initial state is fully determined by declarations; "
             "coincides with the validity check")
 
     Phi = And(*template.solver.assertions())
+    if require_final:
+        # Phi must also require the schedule to land in P(final), so that the
+        # generalized covered-region (Not(Exists(aux, Phi_sigma))) blocks ONLY
+        # initial states covered by a P-PRESERVING skeleton — else HOLDS would be
+        # unsound. The template is track=False and its solver is never checked, so
+        # _encode_final_holds()'s _con_holds_zone side effects are harmless here.
+        final_holds = template._encode_final_holds()
+        if final_holds is not True:
+            Phi = And(Phi, final_holds)
 
     # S_init: the initial region, progressively carved by blocking clauses.
     S = Solver()
@@ -217,12 +240,21 @@ def check_realizability(tn: TaskNet, max_iters: int = 50, budget_sec: float = 60
         enc = TaskNetTL(tn, error_trace=False, use_optimization=False)
         for v, val in istar:
             enc.add_tracked(v == val, f"realizability_pin: initial {v} = {val}")
+        if require_final:
+            # Require the schedule to end back in P: UNSAT now means this P-state
+            # admits no P-PRESERVING schedule (the vacuity-trap witness).
+            final_holds = enc._encode_final_holds()
+            if final_holds is not True:
+                enc.add_tracked(final_holds,
+                                "compositional: invariant P must hold at final state")
         model, unsat_core_data = enc.solve()
 
         if model is None:
             counterexample = _format_initial_state(enc, istar)
-            return result('violated',
-                          "initial state with NO valid schedule found",
+            note = ("initial state satisfying P with NO P-preserving schedule found"
+                    if require_final else
+                    "initial state with NO valid schedule found")
+            return result('violated', note,
                           iterations=it, skeletons=skeletons,
                           counterexample=counterexample,
                           unsat_core=unsat_core_data)

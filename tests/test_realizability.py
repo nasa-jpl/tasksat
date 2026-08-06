@@ -92,3 +92,34 @@ class TestInitRegionRecording:
         offenders = [str(v) for v in free if str(v) not in zone0_names]
         assert not offenders, (
             f"init_region_constraints mention non-zone-0 variables: {offenders}")
+
+    def test_invariant_folds_into_zone0_region(self):
+        """After the `invariant {}` desugar folds P into the initial block, the
+        recorded init region must STILL mention only zone-0 vars — the extra
+        P@0 conjunction must not leak evolution/schedule variables. Guards the
+        compositional AE path (init region = P-region)."""
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent.parent / 'src' / 'smt'))
+        from tasknet_parser import parse_tasknet_file
+        from tasknet_transforms import apply_transforms
+        from tasknet_smt import TaskNetTL
+        from tasknet_compositional import project_single_session
+        from tasknet_realizability import _zone0_vars
+        from z3 import And
+        from z3.z3util import get_vars
+
+        tn = parse_tasknet_file(
+            'tests/tasknet_files/valid/tasknet62_compositional_holds.tn')
+        projected, _ = project_single_session(tn)
+        projected, _ = apply_transforms(projected)
+        enc = TaskNetTL(projected, error_trace=False,
+                        use_optimization=False, track=False)
+
+        assert enc.init_region_constraints, "init region must not be empty"
+        zone0_names = {str(v) for v in _zone0_vars(enc)}
+        free = get_vars(And(*enc.init_region_constraints))
+        offenders = [str(v) for v in free if str(v) not in zone0_names]
+        assert not offenders, (
+            f"init_region_constraints mention non-zone-0 variables after "
+            f"invariant desugar: {offenders}")
