@@ -88,6 +88,42 @@ class TestCompositionalProjection:
         assert result['aa'] == 'holds' and result['ae'] == 'holds'
         assert result['session'] == 'cycle1'
         assert result['counterexample_initial_state'] is None
+        # No user properties block -> no per-session results.
+        assert result['per_session_properties'] == []
+
+
+PER_SESSION_FIXTURE = ('tests/tasknet_files/valid/'
+                       'tasknet64_compositional_per_session_props.tn')
+
+
+class TestPerSessionProperties:
+    """User `properties {...}` under --compositional are checked ONCE on the
+    projected single session and reported per-session (verify once, holds for
+    all N) rather than on the full N-instance network."""
+
+    def test_properties_checked_per_session(self):
+        """Both shared-timeline properties hold on the projected session and are
+        tagged per_session=True; the compositional verdict still HOLDS."""
+        tn = parse_tasknet_file(PER_SESSION_FIXTURE)
+        result = check_compositional(tn, apply_transforms, verbose=False)
+
+        assert result['status'] == 'holds'
+        ps = {p['name']: p for p in result['per_session_properties']}
+        assert set(ps) == {'mode_well_defined', 'reaches_idle'}
+        for p in ps.values():
+            assert p['status'] == 'holds'
+            assert p['per_session'] is True
+
+    def test_per_session_is_n_independent(self):
+        """The per-session property check runs on the single projected session,
+        so it is fast regardless of the 5-instance (N) chain length."""
+        tn = parse_tasknet_file(PER_SESSION_FIXTURE)
+        t0 = time.time()
+        result = check_compositional(tn, apply_transforms, verbose=False)
+        elapsed = time.time() - t0
+        assert result['status'] == 'holds'
+        assert len(result['per_session_properties']) == 2
+        assert elapsed < 10.0, f"per-session check took {elapsed:.1f}s (expected << full-net)"
 
 
 class TestCompositionalCLI:

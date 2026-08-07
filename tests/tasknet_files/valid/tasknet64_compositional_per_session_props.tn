@@ -1,0 +1,45 @@
+# Test: compositional check WITH user temporal properties (per-session checking).
+#
+# Same modal session as tasknet62 (idle -> busy -> idle), invariant P = {mode = idle}.
+# Adds a `properties {...}` block over the SHARED `mode` timeline. Under
+# --compositional these are checked ONCE on the projected single session and
+# reported "per session" (holds within every session of the chain), rather than
+# on the full N-instance network (which would be O(N) and defeat the point).
+#
+# Both properties hold, so the per-session results are HOLDS with per_session=True.
+
+tasknet CompositionalPerSessionProps {
+  end = 1500;
+
+  timelines {
+    mode : state(idle, busy) = idle;
+  }
+
+  taskdef Activate {
+    duration_range [20, 30];
+    impacts { post { mode = busy; } }
+  }
+
+  taskdef Deactivate {
+    duration_range [20, 30];
+    impacts { post { mode = idle; } }
+  }
+
+  taskdef Cycle {
+    task activate   : Activate;
+    task deactivate : Deactivate { after activate; }
+  }
+
+  invariant compositional { mode = idle; }
+
+  properties {
+    prop mode_well_defined: always (mode = idle or mode = busy);
+    prop reaches_idle: eventually (mode = idle);
+  }
+
+  task cycle1 : Cycle;
+  task cycle2 : Cycle { after cycle1; }
+  task cycle3 : Cycle { after cycle2; }
+  task cycle4 : Cycle { after cycle3; }
+  task cycle5 : Cycle { after cycle4; }
+}

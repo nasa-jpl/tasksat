@@ -19,67 +19,11 @@ TaskSAT can be applied to scheduling problems in autonomous systems, such as spa
 
 ## System Architecture
 
-```
-  ┌─────────────────────┐
-  │   TaskNet (.tn)     │  User-written specification
-  │    Specification    │
-  └──────────┬──────────┘
-             │
-             v
-  ╔═════════════════════╗
-  ║   Parser (PLY)      ║  Lexer + Parser (Python Lex-Yacc)
-  ╚══════════┬══════════╝
-             │
-             v
-  ┌─────────────────────┐
-  │        AST          │  Abstract Syntax Tree
-  └──────────┬──────────┘
-             │
-             v
-  ╔═════════════════════╗
-  ║  Transformations    ║  AST transformations:
-  ║                     ║  - Auto-instantiation
-  ║                     ║  - Desugar syntax
-  ║                     ║  - Inject task state timelines
-  ╚══════════┬══════════╝
-             │
-             v
-  ┌─────────────────────┐
-  │  Transformed AST    │  With auto-generated tasks
-  └──────────┬──────────┘
-             │
-             v
-  ╔═════════════════════╗
-  ║  Wellformedness     ║  Semantic validation
-  ║     Checker         ║  (type checking, constraint validation)
-  ╚══════════┬══════════╝
-             │
-             v
-  ┌─────────────────────┐
-  │   Validated AST     │  Semantically valid AST
-  └──────────┬──────────┘
-             │
-             v
-  ╔═════════════════════╗
-  ║   SMT Encoder       ║  Zone-based time discretization
-  ║                     ║  Converts to quantifier-free formulas
-  ╚══════════┬══════════╝
-             │
-             v
-  ┌─────────────────────┐
-  │   Z3 Formula        │  SMT constraints (Real + Int + Bool)
-  └──────────┬──────────┘
-             │
-             v
-  ╔═════════════════════╗
-  ║    Z3 Solver        ║  SMT solving (satisfy or optimize mode)
-  ╚══════════┬══════════╝
-             │
-             v
-  ┌─────────────────────┐
-  │  Schedule / UNSAT   │  Valid schedule or proof of infeasibility
-  └─────────────────────┘
-```
+<p align="center">
+  <img src="doc/architecture.png" alt="TaskSAT verification pipeline: TaskNet spec → Parser → AST → Transformations → Wellformedness Checker → SMT Encoder → Z3 Formula → Z3 Solver → Schedule/UNSAT" width="380">
+</p>
+
+<sub>Diagram source: [`doc/architecture.dot`](doc/architecture.dot). Regenerate with `dot -Tpng -Gdpi=150 doc/architecture.dot -o doc/architecture.png`.</sub>
 
 ## Generated Files
 

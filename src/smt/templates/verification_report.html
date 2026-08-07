@@ -573,9 +573,12 @@ code[class*="language-"] {
                                 <i class="bi bi-question-circle-fill text-secondary" title="Unknown"></i>
                                 {% endif %}
                             </td>
-                            <td><code>{{ prop.name }}</code></td>
+                            <td><code>{{ prop.name }}</code>{% if prop.per_session %} <span class="badge bg-info text-dark" title="Checked once on a single session; holds within every session of the chain (verify once, holds for all N). This is a per-session guarantee, not a whole-run one.">per session</span>{% endif %}</td>
                             <td>
                                 <small><code>{{ prop.formula }}</code></small>
+                                {% if prop.per_session and prop.note %}
+                                    <br><small class="text-muted">{{ prop.note }}</small>
+                                {% endif %}
                                 {% if prop.name == 'realizability' %}
                                     {% if prop.note %}
                                     <br><small class="text-muted">{{ prop.note }}</small>

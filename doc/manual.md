@@ -1369,6 +1369,28 @@ instance, so both checks run in `Θ(1)` task time regardless of `N`; the
 single-session result discharges all `N`. The chosen session appears in the
 output (e.g. `session 'cycle1'`).
 
+**Per-session temporal properties.** If the spec also has a `properties {...}`
+block, those properties are checked **once on the projected single session** (not
+on the full `N`-instance network) and reported **"per session"**:
+
+```
+Checking 2 temporal properties per session:
+[1/2] Checking property 'mode_well_defined'...
+  → HOLDS ✓ (per session)
+```
+
+Because every session is interchangeable, a property that holds on the projected
+session holds *within every session* of the chain — so this scales `N`-independently
+just like the invariant. The guarantee is deliberately **per-session** ("holds
+within each session"), not whole-run ("holds over the entire `N`-session run"); for
+an `always (Q)` property over shared state the two coincide, but for liveness like
+`eventually (Q)` they differ (per-session means once *per session*). Results carry
+`per_session: true` in `properties.json` and a "per session" badge in the web report.
+A property that cannot be evaluated on one session (e.g. it names a specific
+instance dropped by the projection) is reported UNKNOWN with a note rather than
+checked on the full network. Checking user properties on the full chain would
+silently reintroduce the `O(N)` cost the compositional check exists to avoid.
+
 **Assumption: γ = 0.** This first cut targets the no-inter-session-drift case:
 cross-session gaps do not perturb the shared state (the projection drops
 cross-session dependencies). The γ-closure obligation (`∀v⊨P. P(v+γ)`) is a

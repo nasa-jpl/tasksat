@@ -2678,7 +2678,9 @@ class TaskNetTL(TaskNetSMT):
         self.solver.add(False)
         return False
       
-    def check_temporal_properties(self, skip_final: bool = False):
+    def check_temporal_properties(self, skip_final: bool = False,
+                                  skip_properties: bool = False,
+                                  per_session: bool = False):
         """
         For each TemporalProperty in self.tn.properties, check whether it holds
         for all schedules/zone-traces that satisfy:
@@ -2694,6 +2696,19 @@ class TaskNetTL(TaskNetSMT):
                 at the final state on the projected single-session network. The
                 full-network `final` check would be redundant and, on large
                 sequences, times out to an unhelpful UNKNOWN.
+            skip_properties: when True, do not check the user `properties {...}`
+                (only the `final` block, subject to skip_final). Used in the main
+                Phase-2 pass when the compositional check is active: the user
+                properties are instead checked ONCE on the projected single
+                session (per_session=True below), which scales N-independently.
+            per_session: when True, this call is running on the projected
+                single-session network. User-property results are tagged
+                `per_session=True` and their console verdicts are suffixed
+                "(per session)" to make clear the guarantee is "holds within each
+                session", not "holds over the whole N-session run". A property
+                that cannot be evaluated on one session (e.g. it references
+                another session instance dropped by the projection) is reported
+                as UNKNOWN rather than crashing.
 
         Returns: (property_results, violations)
           - property_results: list of dicts with detailed results for each property
@@ -2702,15 +2717,19 @@ class TaskNetTL(TaskNetSMT):
         print()
 
         # 0) If no properties and no final block, done.
+        props_to_check = [] if skip_properties else list(getattr(self.tn, "properties", None) or [])
         has_final = (getattr(self.tn, "final_constraints", None) is not None
                      and not skip_final)
-        if not getattr(self.tn, "properties", None) and not has_final:
+        if not props_to_check and not has_final:
             print("\nNo temporal properties attached to this TaskNet.")
             return [], []
         else:
             from color_utils import header
-            total_checks = len(self.tn.properties) + (1 if has_final else 0)
-            print(header(f"\nChecking {total_checks} temporal properties:"))
+            total_checks = len(props_to_check) + (1 if has_final else 0)
+            # "per session" only when there are actual user properties to tag;
+            # the lone `final` AA-safety check is not a per-session user property.
+            suffix = " per session" if (per_session and props_to_check) else ""
+            print(header(f"\nChecking {total_checks} temporal properties{suffix}:"))
 
         # Realizability already verified by initial validity check in tasknet_verifier.py
         # Skip redundant check to eliminate one solver call (optimization)
@@ -2718,15 +2737,16 @@ class TaskNetTL(TaskNetSMT):
         # PROPERTY CHECKS: look for counterexamples
         import sys
         import time
-        total_props = len(self.tn.properties)
+        total_props = len(props_to_check)
         total_checks = total_props + (1 if has_final else 0)
+        ps_tag = " (per session)" if per_session else ""
         holds_count = 0
         violated_count = 0
         unknown_count = 0
         violations = []
         property_results = []
 
-        for idx, prop in enumerate(self.tn.properties, start=1):
+        for idx, prop in enumerate(props_to_check, start=1):
             # Show progress indicator before checking - with newline to force flush
             print(f"[{idx}/{total_checks}] Checking property '{prop.name}'...")
             sys.stdout.flush()
@@ -2735,19 +2755,46 @@ class TaskNetTL(TaskNetSMT):
 
             # Always use Solver() for property checks (faster counterexample finding)
             # use_optimization=False ensures we use Solver() even if main schedule used Optimize()
-            enc = TaskNetTL(self.tn, error_trace=self.error_trace, use_optimization=False)
             phi = prop.formula
-            enc.solver.add(Not(enc._encode_formula_at_pos(phi, 0)))
-
-            # Set timeout to prevent hanging on difficult properties (10 seconds)
-            enc.solver.set("timeout", 10000)
-
-            res = enc.solver.check()
+            # On the projected single session, a property that references a
+            # dropped instance cannot be encoded — treat that as UNKNOWN (it is
+            # not a per-session property) rather than letting it crash the run.
+            try:
+                enc = TaskNetTL(self.tn, error_trace=self.error_trace, use_optimization=False)
+                enc.solver.add(Not(enc._encode_formula_at_pos(phi, 0)))
+                enc.solver.set("timeout", 10000)  # 10s, prevents hanging
+                res = enc.solver.check()
+                encode_error = None
+            except Exception as e:  # noqa: BLE001 — surface as UNKNOWN, keep going
+                res = None
+                encode_error = e
             prop_duration = time.time() - prop_start
 
-            if res == sat:
+            from tasknet_printer import TaskNetPrinter
+            printer = TaskNetPrinter()
+            formula_str = printer.print_tl_formula(prop.formula)
+
+            if encode_error is not None:
+                from color_utils import warning
+                note = ("cannot be evaluated on a single session"
+                        + (" (references another session instance)"
+                           if per_session else "")
+                        + f": {encode_error}")
+                print(warning(f"  → UNKNOWN ⚠{ps_tag} ({note})"))
+                unknown_count += 1
+                entry = {
+                    'name': prop.name,
+                    'status': 'unknown',
+                    'duration_sec': round(prop_duration, 3),
+                    'formula': formula_str,
+                    'note': note,
+                }
+                if per_session:
+                    entry['per_session'] = True
+                property_results.append(entry)
+            elif res == sat:
                 from color_utils import error
-                print(error("  → VIOLATED!"))
+                print(error(f"  → VIOLATED!{ps_tag}"))
                 violated_count += 1
                 model = enc.solver.model()
 
@@ -2767,51 +2814,45 @@ class TaskNetTL(TaskNetSMT):
                     'violation_zones': violation_zones
                 })
 
-                # Pretty print formula
-                from tasknet_printer import TaskNetPrinter
-                printer = TaskNetPrinter()
-                formula_str = printer.print_tl_formula(prop.formula)
-
-                property_results.append({
+                entry = {
                     'name': prop.name,
                     'status': 'violated',
                     'duration_sec': round(prop_duration, 3),
                     'formula': formula_str,
                     'violation_zones': violation_zones
-                })
+                }
+                if per_session:
+                    entry['per_session'] = True
+                property_results.append(entry)
 
             elif str(res) == "unsat":
                 from color_utils import success
-                print(success("  → HOLDS ✓"))
+                print(success(f"  → HOLDS ✓{ps_tag}"))
                 holds_count += 1
 
-                # Pretty print formula
-                from tasknet_printer import TaskNetPrinter
-                printer = TaskNetPrinter()
-                formula_str = printer.print_tl_formula(prop.formula)
-
-                property_results.append({
+                entry = {
                     'name': prop.name,
                     'status': 'holds',
                     'duration_sec': round(prop_duration, 3),
                     'formula': formula_str
-                })
+                }
+                if per_session:
+                    entry['per_session'] = True
+                property_results.append(entry)
             else:
                 from color_utils import warning
-                print(warning("  → UNKNOWN ⚠"))
+                print(warning(f"  → UNKNOWN ⚠{ps_tag}"))
                 unknown_count += 1
 
-                # Pretty print formula
-                from tasknet_printer import TaskNetPrinter
-                printer = TaskNetPrinter()
-                formula_str = printer.print_tl_formula(prop.formula)
-
-                property_results.append({
+                entry = {
                     'name': prop.name,
                     'status': 'unknown',
                     'duration_sec': round(prop_duration, 3),
                     'formula': formula_str
-                })
+                }
+                if per_session:
+                    entry['per_session'] = True
+                property_results.append(entry)
 
         # FINAL STATE PROPERTY: check the final block (if any) as a property.
         # Semantics: for every valid schedule, the terminal state (right after the

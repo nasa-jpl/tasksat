@@ -343,11 +343,18 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     # so skip the redundant full-network `final` check here — on large sequences
     # it only times out to an unhelpful UNKNOWN. (`invariant compositional {P}`
     # desugars to `initial {P}` + `final within initial`.)
+    #
+    # The user `properties {...}` are ALSO skipped here when compositional: they
+    # are instead checked once on the projected single session (Phase 3.5) and
+    # reported "per session", which scales N-independently. Checking them on the
+    # full N-instance network would silently reintroduce the O(N) cost that the
+    # compositional check exists to avoid.
     compositional_active = (compositional
                             or getattr(tn_pre_transform, 'compositional', False))
     property_start = time.time()
     property_results, violations = enc.check_temporal_properties(
-        skip_final=compositional_active)
+        skip_final=compositional_active,
+        skip_properties=compositional_active)
     property_end = time.time()
 
     # Phase 3 (opt-in): Realizability check (forall initial state exists schedule)
@@ -401,8 +408,14 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         else:
             print(warning(f"  → UNKNOWN ⚠ ({cr['note']})"))
 
+        # Merge the per-session user-property results (checked once on the
+        # projected session) into the overall property list, then append the
+        # compositional entry itself (dropping the bulky unsat_core and the
+        # now-merged per_session_properties list).
+        property_results.extend(compositional_result.get('per_session_properties', []))
         property_results.append({
-            k: v for k, v in compositional_result.items() if k != 'unsat_core'})
+            k: v for k, v in compositional_result.items()
+            if k not in ('unsat_core', 'per_session_properties')})
 
     end_time = time.time()
 

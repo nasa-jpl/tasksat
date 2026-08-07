@@ -131,7 +131,8 @@ def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_c
     t0 = time.time()
 
     def result(status, note, session=None, aa=None, ae=None,
-               counterexample=None, unsat_core=None) -> dict:
+               counterexample=None, unsat_core=None,
+               per_session_properties=None) -> dict:
         return {
             'name': 'compositional',
             'status': status,
@@ -143,6 +144,10 @@ def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_c
             'note': note,
             'counterexample_initial_state': counterexample,
             'unsat_core': unsat_core,
+            # User `properties {...}` checked once on the projected session; the
+            # caller merges these into the overall property results (each tagged
+            # per_session=True). Empty when the spec has no properties block.
+            'per_session_properties': per_session_properties or [],
         }
 
     # 1) Project to a single session instance.
@@ -160,16 +165,22 @@ def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_c
     # 2) Desugar the invariant + run the rest of the pipeline on the projected net.
     projected, _ = apply_transforms(projected)
 
-    # 3) AA safety: the `final within initial` property check. The projected net
-    # is a throwaway copy used only to derive AA (the `final` block) and AE, so
-    # clear any user `properties {...}` first — otherwise this sub-check re-runs
-    # (and re-prints) every user property that Phase 2 already checked on the full
-    # network, producing a confusing second "Checking N temporal properties" block.
-    projected.properties = []
+    # 3) AA safety + per-session user properties, both on the projected net.
+    #
+    # The projected net carries `initial {P}` (from the invariant desugar), so a
+    # property that holds here holds "from any P-state, within one session" — the
+    # per-session guarantee. Because every session is interchangeable, that
+    # discharges the property for all N sessions in the chain (Phase 2 skipped
+    # them precisely so we can check them once here instead of O(N) on the full
+    # network). We check the user properties AND the `final` block (= AA safety)
+    # in one pass; only the user properties get the per_session tag.
     enc = TaskNetTL_cls(projected, error_trace=False, use_optimization=False)
-    prop_results, _violations = enc.check_temporal_properties()
+    prop_results, _violations = enc.check_temporal_properties(per_session=True)
     final_entry = next((r for r in prop_results if r.get('name') == 'final'), None)
     aa_status = final_entry['status'] if final_entry else 'unknown'
+    # Per-session user-property results (everything except the `final` AA artifact)
+    # are surfaced to the caller so they appear in properties.json / the report.
+    per_session_props = [r for r in prop_results if r.get('name') != 'final']
 
     # 4) AE realizability-under-P: schedule must land back in P.
     ae = check_realizability(
@@ -209,4 +220,5 @@ def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_c
         cex, core = None, None
 
     return result(status, note, session=session, aa=aa_status, ae=ae_status,
-                  counterexample=cex, unsat_core=core)
+                  counterexample=cex, unsat_core=core,
+                  per_session_properties=per_session_props)
