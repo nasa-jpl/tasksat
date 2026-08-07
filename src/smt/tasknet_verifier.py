@@ -338,8 +338,16 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     enc.pretty_print(m)
 
     # Phase 2: Property verification
+    # When the compositional check will run, its AA sub-check already verifies
+    # the invariant P at the final state (on the projected single-session net),
+    # so skip the redundant full-network `final` check here — on large sequences
+    # it only times out to an unhelpful UNKNOWN. (`invariant compositional {P}`
+    # desugars to `initial {P}` + `final within initial`.)
+    compositional_active = (compositional
+                            or getattr(tn_pre_transform, 'compositional', False))
     property_start = time.time()
-    property_results, violations = enc.check_temporal_properties()
+    property_results, violations = enc.check_temporal_properties(
+        skip_final=compositional_active)
     property_end = time.time()
 
     # Phase 3 (opt-in): Realizability check (forall initial state exists schedule)
@@ -370,7 +378,7 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     # `invariant compositional { ... }`. Uses the PRE-transform AST (session
     # children + invariant block intact).
     compositional_result = None
-    if compositional or getattr(tn_pre_transform, 'compositional', False):
+    if compositional_active:
         from tasknet_compositional import check_compositional
         print(header("\nChecking compositional invariant {P}S{P} => forall N {P}S^N{P}:"))
         compositional_result = check_compositional(
@@ -378,7 +386,8 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
             max_iters=compositional_max_iters, budget_sec=compositional_budget)
 
         cr = compositional_result
-        detail = f"AA safety={cr.get('aa')}, AE realizability-under-P={cr.get('ae')}"
+        detail = (f"safety (every run keeps P)={cr.get('aa')}, "
+                  f"realizability (some run keeps P)={cr.get('ae')}")
         if cr['status'] == 'holds':
             print(success(f"  → HOLDS ✓ ({detail})"))
             print(dim(f"    {cr['note']}"))

@@ -1420,12 +1420,23 @@ package; without it, the two panels are written as separate `_relations`/`_timel
   have a dashed border and a "(optional)"/"(request)" label.
 - **Timelines** are shaped by type: state = yellow hexagon, atomic = plum diamond,
   rate = coral box, cumulative = light-cyan box, claimable = pink oval.
+- **Sessions** ([nested-subtask taskdefs](#sessions-grouping-subtasks)) render as a
+  **nested box (cluster) per session instance** — e.g. `drive1` and `drive2` each a
+  labeled box enclosing their `preheat`/`drive` subtasks, with the sibling
+  `after`/`containedin` edges drawn inside and session-to-session dependencies drawn
+  box-to-box. In the Gantt and Timeline Evolution charts the same subtasks are grouped
+  into a contiguous band per instance, share one color per session, and are labeled
+  `instance / subtask` (e.g. `drive1 / preheat`) rather than the flattened `drive1__preheat`.
 
 ### In the web UI
 
 When you verify a tasknet, the structure diagram is generated automatically and shown in the
 web interface: a **Structure** tab on the tasknet detail page (and a **TaskNet Structure**
 card in the verification report), alongside the existing Gantt and Timeline Evolution views.
+
+The Gantt and Timeline Evolution charts grow taller with the number of task rows so rows
+never overlap, and are shown in a scrollable, drag-to-resize panel (pan both axes; click to
+enlarge) — so a schedule with many tasks (e.g. a long session sequence) stays readable.
 
 ### Note on mutex / sequence
 

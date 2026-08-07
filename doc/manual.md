@@ -1351,10 +1351,16 @@ Safety alone is **vacuously true** for a `P`-state that admits no schedule at al
 the next session from such a state. AE closes the gap. The verdict is **HOLDS iff
 both hold**, VIOLATED if either is violated, else UNKNOWN:
 
+The console labels the two checks in plain English — *safety (every run keeps P)*
+is AA, *realizability (some run keeps P)* is AE:
+
 ```
 Checking compositional invariant {P}S{P} => forall N {P}S^N{P}:
-  → HOLDS ✓ (AA safety=holds, AE realizability-under-P=holds)
-    session 'cycle1' preserves the invariant ...; any-length sequence preserves it.
+  → HOLDS ✓ (safety (every run keeps P)=holds, realizability (some run keeps P)=holds)
+    Session 'cycle1' keeps invariant P true: from any state where P holds, (1) every
+    valid schedule ends with P still true (safety) and (2) at least one valid schedule
+    exists that ends with P still true (realizability). So chaining any number of these
+    sessions keeps P true — verified once, holds for all N. ...
 ```
 
 **Projection (the scaling win).** Before running the two checks, the tool

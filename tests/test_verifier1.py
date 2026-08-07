@@ -378,7 +378,8 @@ class TestVerifier:
         verify_out('tasknet63_compositional_ae_violated.tn',
                    extra_args=['--compositional'])(
             "Checking compositional invariant",
-            "→ VIOLATED! (AA safety=holds, AE realizability-under-P=violated)",
-            "vacuity trap",
+            "→ VIOLATED! (safety (every run keeps P)=holds, "
+            "realizability (some run keeps P)=violated)",
+            "Realizability VIOLATED",
             "charge = 20",
         )

@@ -2678,13 +2678,22 @@ class TaskNetTL(TaskNetSMT):
         self.solver.add(False)
         return False
       
-    def check_temporal_properties(self):
+    def check_temporal_properties(self, skip_final: bool = False):
         """
         For each TemporalProperty in self.tn.properties, check whether it holds
         for all schedules/zone-traces that satisfy:
           - schedule/zone semantics
           - initial_constraints (zone 0)
           - temporal constraints (self.tn.constraints) at position 0
+
+        Args:
+            skip_final: when True, do not check the `final` block as a property.
+                Used when the compositional check is active: `invariant
+                compositional {P}` desugars to `initial {P}` + `final within
+                initial`, and the compositional AA sub-check already verifies P
+                at the final state on the projected single-session network. The
+                full-network `final` check would be redundant and, on large
+                sequences, times out to an unhelpful UNKNOWN.
 
         Returns: (property_results, violations)
           - property_results: list of dicts with detailed results for each property
@@ -2693,7 +2702,8 @@ class TaskNetTL(TaskNetSMT):
         print()
 
         # 0) If no properties and no final block, done.
-        has_final = getattr(self.tn, "final_constraints", None) is not None
+        has_final = (getattr(self.tn, "final_constraints", None) is not None
+                     and not skip_final)
         if not getattr(self.tn, "properties", None) and not has_final:
             print("\nNo temporal properties attached to this TaskNet.")
             return [], []

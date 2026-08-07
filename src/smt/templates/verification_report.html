@@ -586,7 +586,7 @@ code[class*="language-"] {
                                     </small>
                                     {% endif %}
                                 {% elif prop.name == 'compositional' %}
-                                    <br><small class="text-muted">AA safety = <strong>{{ prop.aa }}</strong>, AE realizability-under-P = <strong>{{ prop.ae }}</strong>{% if prop.session %} (session <code>{{ prop.session }}</code>){% endif %}</small>
+                                    <br><small class="text-muted">safety (every run keeps P) = <strong>{{ prop.aa }}</strong>, realizability (some run keeps P) = <strong>{{ prop.ae }}</strong>{% if prop.session %} (session <code>{{ prop.session }}</code>){% endif %}</small>
                                     {% if prop.note %}
                                     <br><small class="text-muted">{{ prop.note }}</small>
                                     {% endif %}
@@ -640,11 +640,12 @@ code[class*="language-"] {
                 {% if has_gantt %}
                 <div class="col-lg-6 mb-3">
                     <h6>Gantt Chart</h6>
-                    <img src="/static/report/{{ name }}/{{ timestamp }}/gantt.png"
-                         class="img-fluid border"
-                         alt="Gantt Chart"
-                         style="cursor: pointer;"
-                         onclick="openImageModal(this.src)">
+                    <div class="border" style="overflow: auto; max-height: 600px; resize: vertical;">
+                        <img src="/static/report/{{ name }}/{{ timestamp }}/gantt.png"
+                             alt="Gantt Chart"
+                             style="cursor: pointer; max-width: none;"
+                             onclick="openImageModal(this.src)">
+                    </div>
                 </div>
                 {% endif %}
 
@@ -697,13 +698,14 @@ code[class*="language-"] {
         </div>
         <div class="card-body">
             <h6>Timeline Evolution with Rate Slopes</h6>
-            <img src="/static/report/{{ name }}/{{ timestamp }}/timeline.png?v={{ timestamp }}"
-                 class="img-fluid border"
-                 alt="Timeline Evolution"
-                 style="cursor: pointer; width: 100%;"
-                 onclick="openImageModal(this.src)">
+            <div class="border" style="overflow: auto; max-height: 600px; resize: vertical;">
+                <img src="/static/report/{{ name }}/{{ timestamp }}/timeline.png?v={{ timestamp }}"
+                     alt="Timeline Evolution"
+                     style="cursor: pointer; max-width: none;"
+                     onclick="openImageModal(this.src)">
+            </div>
             <p class="text-muted small mt-2">
-                <i class="bi bi-info-circle"></i> Purple lines indicate rate timelines showing continuous evolution. Click to enlarge.
+                <i class="bi bi-info-circle"></i> Scroll to pan; drag the bottom edge to resize. Purple lines indicate rate timelines showing continuous evolution. Click to enlarge.
             </p>
         </div>
     </div>

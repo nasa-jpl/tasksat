@@ -52,12 +52,19 @@ def create_timeline_evolution_plot(
     num_timelines = len(evolution['timelines'])
     num_subplots = 1 + num_timelines
 
-    # Create figure with subplots
-    fig_height = 4 + num_timelines * 2  # Scale height based on timeline count
+    # Scale the Gantt panel with the row count so rows never overlap (each task
+    # occupies one row; ~0.28in/row keeps labels legible). A fixed panel squashes
+    # dozens of session subtasks into an unreadable band (see 20-cycle nets).
+    num_rows = max(1, len(schedule))
+    gantt_height = max(3.0, num_rows * 0.28)  # inches
+    timeline_height = 2.0                      # inches per timeline panel
+
+    # Create figure with subplots; height in inches = Gantt + all timeline panels.
+    fig_height = gantt_height + num_timelines * timeline_height
     fig, axes = plt.subplots(
         num_subplots, 1,
         figsize=(16, fig_height),
-        gridspec_kw={'height_ratios': [3] + [2] * num_timelines}
+        gridspec_kw={'height_ratios': [gantt_height] + [timeline_height] * num_timelines}
     )
 
     # Make axes always a list even if only one subplot

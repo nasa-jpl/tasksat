@@ -102,8 +102,9 @@ class TestCompositionalCLI:
         verify_out('tasknet63_compositional_ae_violated.tn',
                    extra_args=['--compositional'])(
             "Checking compositional invariant",
-            "→ VIOLATED! (AA safety=holds, AE realizability-under-P=violated)",
-            "vacuity trap",
+            "→ VIOLATED! (safety (every run keeps P)=holds, "
+            "realizability (some run keeps P)=violated)",
+            "Realizability VIOLATED",
             "Initial state (satisfies P) with no P-preserving schedule:",
             "charge = 20",
         )

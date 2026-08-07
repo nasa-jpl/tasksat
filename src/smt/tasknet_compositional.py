@@ -38,7 +38,10 @@ from tasknet_ast import TaskNet, Task, TaskRange, TaskKind
 from tasknet_smt import TaskNetTL
 from tasknet_realizability import check_realizability
 
-FORMULA_STR = "{P} S {P}  =>  forall N . {P} S^N {P}   (gamma = 0)"
+FORMULA_STR = ("{P} S {P}  =>  forall N . {P} S^N {P}   (gamma = 0)"
+               "  —  if one run of the session keeps invariant P true, "
+               "then running it any number of times back-to-back also keeps P true "
+               "(assuming no timing-gap drift between sessions).")
 
 
 def _session_defs(tn: TaskNet) -> dict:
@@ -157,7 +160,12 @@ def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_c
     # 2) Desugar the invariant + run the rest of the pipeline on the projected net.
     projected, _ = apply_transforms(projected)
 
-    # 3) AA safety: the `final within initial` property check.
+    # 3) AA safety: the `final within initial` property check. The projected net
+    # is a throwaway copy used only to derive AA (the `final` block) and AE, so
+    # clear any user `properties {...}` first — otherwise this sub-check re-runs
+    # (and re-prints) every user property that Phase 2 already checked on the full
+    # network, producing a confusing second "Checking N temporal properties" block.
+    projected.properties = []
     enc = TaskNetTL_cls(projected, error_trace=False, use_optimization=False)
     prop_results, _violations = enc.check_temporal_properties()
     final_entry = next((r for r in prop_results if r.get('name') == 'final'), None)
@@ -173,19 +181,25 @@ def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_c
     # 5) Combine: HOLDS iff both hold; VIOLATED if either violated; else UNKNOWN.
     if aa_status == 'holds' and ae_status == 'holds':
         status = 'holds'
-        note = (f"session '{session}' preserves the invariant (AA safety + "
-                f"AE realizability-under-P both hold); any-length sequence "
-                f"preserves it. gamma = 0 assumed.")
+        note = (f"Session '{session}' keeps invariant P true: from any state "
+                f"where P holds, (1) every valid schedule ends with P still true "
+                f"(safety) and (2) at least one valid schedule exists that ends "
+                f"with P still true (realizability). So chaining any number of "
+                f"these sessions keeps P true — verified once, holds for all N. "
+                f"(Assumes no timing-gap drift between sessions.)")
         cex, core = None, None
     elif aa_status == 'violated' or ae_status == 'violated':
         status = 'violated'
         if aa_status == 'violated':
-            note = ("AA safety VIOLATED: some valid schedule ends outside the "
-                    "invariant P — the session does not preserve P.")
+            note = ("Safety VIOLATED: some valid schedule starts with invariant "
+                    "P true but ends with P false — one run of the session can "
+                    "break P, so chaining sessions is not safe.")
             cex, core = None, None
         else:
-            note = ("AE VIOLATED: a P-state admits no P-preserving schedule "
-                    "(the vacuity trap) — sequencing is not licensed.")
+            note = ("Realizability VIOLATED: there is a state where P holds but "
+                    "NO valid schedule exists that keeps P true. Safety alone is "
+                    "vacuously true there (no schedule to break P), so it does "
+                    "not license chaining — see the counterexample state below.")
             cex = ae.get('counterexample_initial_state')
             core = ae.get('unsat_core')
     else:

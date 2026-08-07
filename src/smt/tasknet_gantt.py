@@ -132,8 +132,12 @@ def create_gantt_from_schedule(
 
     task_names = [_clean_label(t[0]) for t in tasks]
 
-    # Create figure
-    fig, ax = plt.subplots(figsize=figsize)
+    # Grow the figure height with the row count so rows never overlap (each task
+    # is one row). The caller's figsize sets the width and the floor height; tall
+    # schedules (e.g. 20-cycle session nets) expand beyond it at ~0.28in/row.
+    fig_w, fig_h = figsize
+    fig_h = max(fig_h, len(task_names) * 0.28 + 1.0)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
 
     # Color palette
     colors = plt.cm.Set3.colors

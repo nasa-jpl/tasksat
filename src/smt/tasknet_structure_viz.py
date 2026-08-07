@@ -530,10 +530,14 @@ def _node_line(n: Node) -> str:
             f'fillcolor="{n.fillcolor}", style="{n.style}"];')
 
 
-def _edge_line(e: Edge) -> str:
+def _edge_line(e: Edge, use_xlabel: bool = False) -> str:
     attrs = [f'color="{e.color}"']
     if e.label:
-        attrs.append(f'label="{_esc(e.label)}"')
+        # `xlabel` (free-floating) instead of `label` avoids a Graphviz crash
+        # (fixLabelOrder assertion in mincross.c) that fires when edge labels
+        # combine with many clusters. See generate_relations_dot's fallback.
+        key = "xlabel" if use_xlabel else "label"
+        attrs.append(f'{key}="{_esc(e.label)}"')
         attrs.append(f'fontcolor="{e.color}"')
     if e.style != "solid":
         attrs.append(f'style={e.style}')
@@ -546,8 +550,12 @@ def _edge_line(e: Edge) -> str:
     return f'  "{e.from_id}" -> "{e.to_id}" [{", ".join(attrs)}];'
 
 
-def generate_relations_dot(tn: TaskNet) -> str:
-    """Graph 1: task / taskdef relations (after, containedin, of, mutex, sequence)."""
+def generate_relations_dot(tn: TaskNet, use_xlabel: bool = False) -> str:
+    """Graph 1: task / taskdef relations (after, containedin, of, mutex, sequence).
+
+    `use_xlabel` renders edge labels as free-floating xlabels; the renderer sets
+    it on a retry when inline labels + many clusters trip a Graphviz crash.
+    """
     nodes, edges = build_task_relation_graph(_prepare(tn))
 
     lines: List[str] = []
@@ -584,7 +592,7 @@ def generate_relations_dot(tn: TaskNet) -> str:
             lines.append(_node_line(n))
     lines.append('')
     for e in edges:
-        lines.append(_edge_line(e))
+        lines.append(_edge_line(e, use_xlabel=use_xlabel))
     lines.append("}")
     return "\n".join(lines)
 
@@ -639,8 +647,12 @@ def check_dot_available() -> bool:
         return False
 
 
-def _render(dot_text: str, out_png: Path) -> bool:
-    """Write a .dot next to out_png and render it to PNG. Returns success."""
+def _render(dot_text: str, out_png: Path, quiet: bool = False) -> bool:
+    """Write a .dot next to out_png and render it to PNG. Returns success.
+
+    `quiet` suppresses the failure warning — used for a first attempt that has a
+    fallback retry, so an expected-and-recovered failure doesn't alarm the user.
+    """
     out_png.parent.mkdir(parents=True, exist_ok=True)
     dot_path = out_png.with_suffix('.dot')
     with open(dot_path, 'w') as f:
@@ -650,7 +662,8 @@ def _render(dot_text: str, out_png: Path) -> bool:
                        capture_output=True, check=True)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"⚠️  Failed to render {out_png.name}: {e}", file=sys.stderr)
+        if not quiet:
+            print(f"⚠️  Failed to render {out_png.name}: {e}", file=sys.stderr)
         return False
 
 
@@ -745,7 +758,12 @@ def create_structure_visualization(tn: TaskNet, output_path: str) -> List[str]:
     # Note: the generate_*_dot functions each call _prepare() to expand ranges.
     rel_png = out.with_name(f"{out.stem}_relations.png")
     tl_png = out.with_name(f"{out.stem}_timelines.png")
-    ok_rel = _render(generate_relations_dot(tn), rel_png)
+    # Inline edge labels look best, but combined with many session clusters they
+    # can trip a Graphviz crash (fixLabelOrder assertion). If the first attempt
+    # fails, retry with free-floating xlabels, which sidestep the bug.
+    ok_rel = _render(generate_relations_dot(tn), rel_png, quiet=True)
+    if not ok_rel:
+        ok_rel = _render(generate_relations_dot(tn, use_xlabel=True), rel_png)
     ok_tl = _render(generate_timeline_dot(tn), tl_png)
     if not (ok_rel and ok_tl):
         return [str(p) for p, ok in ((rel_png, ok_rel), (tl_png, ok_tl)) if ok]
