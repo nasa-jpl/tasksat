@@ -18,7 +18,7 @@ tasknet TestPropertyViolation {
     duration 10;
     after drain1;
     impacts {
-      post { battery +~ -50.0; }  // This will violate the property
+      post { battery +~ -50.0; }  // This will violate the temporal property
     }
   }
 

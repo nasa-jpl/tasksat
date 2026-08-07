@@ -54,6 +54,30 @@ from tasknet_ast import (
 
 
 # ============================================================================
+# Sessions
+# ============================================================================
+
+# Separator used by flatten_sessions() to build qualified child names
+# (`{instance}__{child}`). Kept in sync with tasknet_transforms.SEP. It is the
+# only reliable session-membership signal in a flattened schedule/AST, since a
+# flattened child Task carries its OWN taskdef, not a session-parent reference.
+SESSION_SEP = "__"
+
+
+def split_session_id(task_id: str) -> Tuple[Optional[str], str]:
+    """Split a (possibly flattened) task id on the session separator.
+
+    'drive1__preheat' -> ('drive1', 'preheat'); 'collect' -> (None, 'collect').
+    `*_auto_N` auto-instances use a single-underscore `_auto_` infix (not `__`),
+    so they correctly return (None, id) and keep flat behavior.
+    """
+    if SESSION_SEP in task_id:
+        head, _, tail = task_id.partition(SESSION_SEP)
+        return head, tail
+    return None, task_id
+
+
+# ============================================================================
 # DOT primitives
 # ============================================================================
 
@@ -64,6 +88,7 @@ class Node:
     shape: str = "box"
     fillcolor: str = "white"
     style: str = "filled"
+    cluster: Optional[str] = None  # session-instance id, if this node is a session child
 
 
 @dataclass
@@ -74,6 +99,8 @@ class Edge:
     style: str = "solid"
     color: str = "black"
     dir: str = "forward"  # "forward" | "none" (for symmetric mutex edges)
+    ltail: str = ""  # source cluster (clips edge at cluster border; needs compound=true)
+    lhead: str = ""  # target cluster
 
 
 def _esc(text: str) -> str:
@@ -241,18 +268,117 @@ def _mutex_edges_from_formula(f: Formula, taskdef_ids: set,
         _mutex_edges_from_formula(f.sub, taskdef_ids, edges, seen)
 
 
+def _session_defs(tn: TaskNet) -> dict:
+    """Map session-taskdef id -> its Task (DEFINITION with nested children).
+
+    Same predicate as tasknet_transforms.flatten_sessions(): a session is a
+    taskdef whose body declares nested `task` children.
+    """
+    return {t.id: t for t in tn.tasks
+            if t.kind == TaskKind.DEFINITION and getattr(t, 'children', None)}
+
+
 def build_task_relation_graph(tn: TaskNet) -> Tuple[List[Node], List[Edge]]:
-    """Panel 1: task/taskdef nodes and after/containedin/defines/mutex/sequence edges."""
+    """Panel 1: task/taskdef nodes and after/containedin/defines/mutex/sequence edges.
+
+    Session instances (a task instantiated from a session taskdef, i.e. a taskdef
+    with nested children) are rendered as a nested box (Graphviz cluster) holding
+    one node per subtask, with the subtasks' sibling after/containedin edges drawn
+    inside. A session-level `after` between two instances becomes a cluster→cluster
+    edge. This mirrors flatten_sessions(): each subtask node is `{inst}__{child}`.
+    """
     nodes: List[Node] = []
     edges: List[Edge] = []
     task_ids = {t.id for t in tn.tasks}
     taskdef_ids = {t.id for t in tn.tasks if t.kind == TaskKind.DEFINITION}
     color_map = _taskdef_color_map(tn)
 
+    session_defs = _session_defs(tn)
+
+    def is_session_instance(t) -> bool:
+        return (t.kind != TaskKind.DEFINITION
+                and getattr(t, 'definition', None) in session_defs)
+
+    # Representative subtask id per session instance — used to anchor cluster
+    # edges (Graphviz edges attach to a node, then clip to the cluster via
+    # ltail/lhead + compound=true).
+    inst_rep: dict = {}
+    for t in tn.tasks:
+        if is_session_instance(t):
+            sdef = session_defs[t.definition]
+            if sdef.children:
+                inst_rep[t.id] = f"{t.id}{SESSION_SEP}{sdef.children[0].id}"
+
+    # --- Nodes: flat tasks/taskdefs as before; session instances become clusters ---
     for task in tn.tasks:
+        if is_session_instance(task):
+            continue  # rendered as a cluster of subtask nodes below
         nodes.append(_task_node(task, color_map))
 
+    for inst in tn.tasks:
+        if not is_session_instance(inst):
+            continue
+        sdef = session_defs[inst.definition]
+        sibling_ids = {c.id for c in sdef.children}
+        cluster = f"cluster_{inst.id}"
+
+        for child in sdef.children:
+            q_id = f"{inst.id}{SESSION_SEP}{child.id}"
+            fill = color_map.get(child.definition, "white") if child.definition else "white"
+            nodes.append(Node(id=q_id, label=child.id, shape="box",
+                              fillcolor=fill, style="filled,rounded", cluster=inst.id))
+
+            # subtask -> its own taskdef (of)
+            if child.definition and child.definition in task_ids:
+                edges.append(Edge(from_id=q_id, to_id=child.definition,
+                                  label="of", style="dotted", color="gray"))
+
+            # sibling after: qualify a bare sibling ref to {inst}__{sibling}
+            for dep in _iter_after(child):
+                if dep.task_id in sibling_ids:
+                    edges.append(Edge(from_id=q_id, to_id=f"{inst.id}{SESSION_SEP}{dep.task_id}",
+                                      label=_fmt_gap(dep.gap), style="solid", color="blue"))
+                elif dep.task_id in task_ids:
+                    edges.append(Edge(from_id=q_id, to_id=dep.task_id,
+                                      label=_fmt_gap(dep.gap), style="solid", color="blue"))
+            # sibling containedin
+            for dep in _iter_containedin(child):
+                if dep.task_id in sibling_ids:
+                    edges.append(Edge(from_id=q_id, to_id=f"{inst.id}{SESSION_SEP}{dep.task_id}",
+                                      label=_fmt_containedin(dep), style="dashed", color="purple"))
+                elif dep.task_id in task_ids:
+                    edges.append(Edge(from_id=q_id, to_id=dep.task_id,
+                                      label=_fmt_containedin(dep), style="dashed", color="purple"))
+
+        rep = inst_rep.get(inst.id)
+        # cluster -> session taskdef (of)
+        if rep and inst.definition in task_ids:
+            edges.append(Edge(from_id=rep, to_id=inst.definition,
+                              label="of", style="dotted", color="gray", ltail=cluster))
+        # session-level after/containedin -> cluster→cluster (or cluster→task) edges
+        for dep in _iter_after(inst):
+            if rep and dep.task_id in inst_rep:
+                edges.append(Edge(from_id=rep, to_id=inst_rep[dep.task_id],
+                                  label=_fmt_gap(dep.gap), style="solid", color="blue",
+                                  ltail=cluster, lhead=f"cluster_{dep.task_id}"))
+            elif rep and dep.task_id in task_ids:
+                edges.append(Edge(from_id=rep, to_id=dep.task_id,
+                                  label=_fmt_gap(dep.gap), style="solid", color="blue",
+                                  ltail=cluster))
+        for dep in _iter_containedin(inst):
+            if rep and dep.task_id in inst_rep:
+                edges.append(Edge(from_id=rep, to_id=inst_rep[dep.task_id],
+                                  label=_fmt_containedin(dep), style="dashed", color="purple",
+                                  ltail=cluster, lhead=f"cluster_{dep.task_id}"))
+            elif rep and dep.task_id in task_ids:
+                edges.append(Edge(from_id=rep, to_id=dep.task_id,
+                                  label=_fmt_containedin(dep), style="dashed", color="purple",
+                                  ltail=cluster))
+
+    # --- Non-session tasks: of / after / containedin edges (unchanged) ---
     for task in tn.tasks:
+        if is_session_instance(task):
+            continue
         # instance -> taskdef (defines/of)
         if task.definition and task.definition in task_ids:
             edges.append(Edge(from_id=task.id, to_id=task.definition,
@@ -320,32 +446,54 @@ def build_timeline_interaction_graph(tn: TaskNet) -> Tuple[List[Node], List[Edge
     timeline_ids = {tl.id for tl in tn.timelines}
     color_map = _taskdef_color_map(tn)
 
-    # Task nodes: same taskdef-family color as the schedule charts and Panel 1.
-    for task in tn.tasks:
-        nodes.append(Node(id=task.id, label=task.id, shape="box",
-                          fillcolor=color_map.get(task.id, "white"),
-                          style="filled,rounded"))
-    for tl in tn.timelines:
-        nodes.append(_timeline_node(tl))
+    session_defs = _session_defs(tn)
 
-    for task in tn.tasks:
-        # reads: pre / inv / post
-        for when, conlist in (("pre", task.pre), ("inv", task.inv), ("post", task.post)):
+    def is_session_instance(t) -> bool:
+        return (t.kind != TaskKind.DEFINITION
+                and getattr(t, 'definition', None) in session_defs)
+
+    def _reads_writes(node_id: str, src: Task):
+        """Emit read (pre/inv/post) and write (impact) edges for a task node.
+
+        `src` supplies the reads/writes; `node_id` is the graph node they attach
+        to (the qualified subtask id for session children).
+        """
+        for when, conlist in (("pre", src.pre), ("inv", src.inv), ("post", src.post)):
             if not conlist:
                 continue
             for tlcon in conlist:
                 if tlcon.id in timeline_ids:
-                    edges.append(Edge(from_id=task.id, to_id=tlcon.id,
+                    edges.append(Edge(from_id=node_id, to_id=tlcon.id,
                                       label=f"{when} (read)", style="dotted",
                                       color="gray40"))
-        # writes: impacts
-        if task.impacts:
-            for imp in task.impacts:
+        if src.impacts:
+            for imp in src.impacts:
                 if imp.id in timeline_ids:
-                    edges.append(Edge(from_id=task.id, to_id=imp.id,
+                    edges.append(Edge(from_id=node_id, to_id=imp.id,
                                       label=f"{imp.when}: {_impact_op(imp)}",
                                       style="solid",
                                       color=_WHEN_COLOR.get(imp.when, "black")))
+
+    # Task nodes: same taskdef-family color as the schedule charts and Panel 1.
+    # Session instances contribute one node per subtask (the subtask's reads/
+    # writes live on the child template, not the session instance).
+    for task in tn.tasks:
+        if is_session_instance(task):
+            sdef = session_defs[task.definition]
+            for child in sdef.children:
+                q_id = f"{task.id}{SESSION_SEP}{child.id}"
+                fill = color_map.get(child.definition, "white") if child.definition else "white"
+                nodes.append(Node(id=q_id, label=f"{task.id} / {child.id}", shape="box",
+                                  fillcolor=fill, style="filled,rounded"))
+                _reads_writes(q_id, child)
+        else:
+            nodes.append(Node(id=task.id, label=task.id, shape="box",
+                              fillcolor=color_map.get(task.id, "white"),
+                              style="filled,rounded"))
+            _reads_writes(task.id, task)
+
+    for tl in tn.timelines:
+        nodes.append(_timeline_node(tl))
 
     return nodes, edges
 
@@ -391,6 +539,10 @@ def _edge_line(e: Edge) -> str:
         attrs.append(f'style={e.style}')
     if e.dir != "forward":
         attrs.append(f'dir={e.dir}')
+    if e.ltail:
+        attrs.append(f'ltail="{e.ltail}"')
+    if e.lhead:
+        attrs.append(f'lhead="{e.lhead}"')
     return f'  "{e.from_id}" -> "{e.to_id}" [{", ".join(attrs)}];'
 
 
@@ -406,13 +558,30 @@ def generate_relations_dot(tn: TaskNet) -> str:
     lines.append('  rankdir=LR;')
     lines.append('  splines=true;')
     lines.append('  overlap=false;')
+    lines.append('  compound=true;')  # allow edges to clip at cluster borders (ltail/lhead)
     lines.append('  node [fontname="Helvetica", fontsize=10, margin="0.11,0.055"];')
     lines.append('  edge [fontname="Helvetica", fontsize=9];')
     lines.append('  nodesep=0.3;')
     lines.append('  ranksep=0.9;')
     lines.append('')
+
+    # Group session-child nodes into their instance clusters (nested boxes);
+    # emit all other nodes at top level.
+    clustered: dict = {}
     for n in nodes:
-        lines.append(_node_line(n))
+        if n.cluster:
+            clustered.setdefault(n.cluster, []).append(n)
+    for inst_id, members in clustered.items():
+        lines.append(f'  subgraph "cluster_{inst_id}" {{')
+        lines.append(f'    label="{_esc(inst_id)}";')
+        lines.append('    style="rounded,filled"; fillcolor="#f4f4f4"; color="#999999";')
+        lines.append('    fontname="Helvetica"; fontsize=11;')
+        for n in members:
+            lines.append('  ' + _node_line(n))
+        lines.append('  }')
+    for n in nodes:
+        if not n.cluster:
+            lines.append(_node_line(n))
     lines.append('')
     for e in edges:
         lines.append(_edge_line(e))
@@ -426,7 +595,9 @@ def generate_timeline_dot(tn: TaskNet) -> str:
     tn = _prepare(tn)
     nodes, edges = build_timeline_interaction_graph(tn)
     timeline_ids = {tl.id for tl in tn.timelines}
-    task_ids = [t.id for t in tn.tasks]
+    # Task-column ids are the actual task-type node ids (session instances
+    # contribute qualified subtask ids, not the bare instance id).
+    task_ids = [n.id for n in nodes if n.id not in timeline_ids]
 
     lines: List[str] = []
     lines.append("digraph tasknet_timelines {")

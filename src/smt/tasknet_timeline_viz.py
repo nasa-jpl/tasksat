@@ -14,6 +14,17 @@ import matplotlib.patches as patches
 from typing import Dict, Tuple, List, Optional
 from pathlib import Path
 
+# Session separator (kept in sync with tasknet_transforms.SEP). See tasknet_gantt.py.
+SESSION_SEP = "__"
+
+
+def split_session_id(task_id: str) -> Tuple[Optional[str], str]:
+    """'drive1__preheat' -> ('drive1', 'preheat'); 'collect' -> (None, 'collect')."""
+    if SESSION_SEP in task_id:
+        head, _, tail = task_id.partition(SESSION_SEP)
+        return head, tail
+    return None, task_id
+
 
 def create_timeline_evolution_plot(
     schedule: Dict[str, Tuple[int, int]],
@@ -80,38 +91,59 @@ def _draw_gantt_chart(
     ax, schedule, evolution, title, violation_zones, tasknet=None
 ):
     """Draw Gantt chart showing task execution."""
-    # Sort tasks by start time
-    tasks = sorted(schedule.items(), key=lambda x: (x[1][0], x[0]))
-    task_names = [t[0] for t in tasks]
+    # Group session siblings together, otherwise order by start time (matches
+    # tasknet_gantt.py: each session instance forms a contiguous band).
+    def _group_key(item):
+        name, (start, _end) = item
+        head, _tail = split_session_id(name)
+        return head if head is not None else name
+
+    group_min_start = {}
+    for name, (start, _end) in schedule.items():
+        g = _group_key((name, (start, _end)))
+        group_min_start[g] = min(group_min_start.get(g, start), start)
+
+    tasks = sorted(
+        schedule.items(),
+        key=lambda x: (group_min_start[_group_key(x)], _group_key(x), x[1][0], x[0])
+    )
+
+    def _clean_label(name):
+        head, tail = split_session_id(name)
+        return f"{head} / {tail}" if head is not None else name
+
+    task_names = [_clean_label(t[0]) for t in tasks]
 
     # Color palette
     colors = plt.cm.Set3.colors
 
-    # Build task -> taskdef mapping for coloring
-    task_to_taskdef = {}
-    taskdef_to_color = {}
+    # Build task -> color-key mapping: session subtasks color by session instance,
+    # others by taskdef (matches tasknet_gantt.py).
+    task_to_family = {}
+    family_to_color = {}
+    for task_name in schedule:
+        head, _tail = split_session_id(task_name)
+        if head is not None:
+            task_to_family[task_name] = f"session:{head}"
     if tasknet:
-        # Map each task to its taskdef (or use task name as fallback)
         for task in tasknet.tasks:
-            if task.definition:
-                task_to_taskdef[task.id] = task.definition
-            else:
-                # No taskdef - use task name itself
-                task_to_taskdef[task.id] = task.id
+            if task.id in task_to_family:
+                continue
+            task_to_family[task.id] = task.definition if task.definition else task.id
+    for task_name in schedule:
+        task_to_family.setdefault(task_name, task_name)
 
-        # Assign colors to each unique taskdef
-        unique_taskdefs = sorted(set(task_to_taskdef.values()))
-        for i, taskdef in enumerate(unique_taskdefs):
-            taskdef_to_color[taskdef] = colors[i % len(colors)]
+    unique_families = sorted(set(task_to_family.values()))
+    for i, fam in enumerate(unique_families):
+        family_to_color[fam] = colors[i % len(colors)]
 
     # Draw bars for each task
     for i, (task_name, (start, end)) in enumerate(tasks):
         duration = end - start
 
-        # Color by taskdef if available, otherwise by task index
-        if tasknet and task_name in task_to_taskdef:
-            taskdef = task_to_taskdef[task_name]
-            color = taskdef_to_color[taskdef]
+        # Color by family (session instance or taskdef); fall back to row index.
+        if task_name in task_to_family:
+            color = family_to_color[task_to_family[task_name]]
         else:
             color = colors[i % len(colors)]
 
@@ -125,8 +157,9 @@ def _draw_gantt_chart(
         # Add task name on the bar (abbreviated if too long)
         if duration > 0:
             # Estimate how much space we have: roughly 1 char per 0.7 time units at fontsize 9
+            # For session subtasks show the short child name (instance is in the y-label).
             available_width = duration * 0.7
-            display_name = task_name
+            _head, display_name = split_session_id(task_name)
 
             # Abbreviate if needed
             if len(display_name) > available_width:

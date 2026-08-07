@@ -64,6 +64,11 @@
                         </ul>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="#" role="button" data-bs-toggle="modal" data-bs-target="#helpModal">
+                            <i class="bi bi-question-circle"></i> Help
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="https://github.com/nasa-jpl/tasksat" target="_blank">
                             <i class="bi bi-github"></i> GitHub
                         </a>
@@ -77,6 +82,87 @@
     <main class="container-fluid mt-4">
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Help Modal (quick guide to the web UI; available on every page) -->
+    <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="helpModalLabel">
+                        <i class="bi bi-question-circle"></i> Using the TaskSAT Web UI
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted">
+                        The web UI is a front end for the SMT verifier
+                        (<code>src/smt/tasknet_verifier.py</code>). It runs on your machine and
+                        works directly with the <code>.tn</code> files on your disk.
+                    </p>
+
+                    <h6 class="mt-3"><i class="bi bi-house-door text-primary"></i> Home page</h6>
+                    <ul>
+                        <li><strong>Create New Tasknet</strong> — write a new <code>.tn</code> file in the
+                            built-in editor, choose a folder, and verify it.</li>
+                        <li><strong>Open File</strong> — browse your filesystem and pick an existing
+                            <code>.tn</code> file. Then either <em>Run Verification</em>, or
+                            <em>Add without running</em> to list it now and verify later.</li>
+                        <li><strong>View Report</strong> — open a tasknet's schedule, timelines, property
+                            results, and (for UNSAT) the conflict analysis.</li>
+                        <li><strong>Delete</strong> (per card) / <strong>Delete All Reports</strong> —
+                            remove verification results. Your original <code>.tn</code> source files are
+                            never deleted.</li>
+                    </ul>
+
+                    <h6 class="mt-3"><i class="bi bi-file-earmark-check text-success"></i> Report page</h6>
+                    <ul>
+                        <li><strong>Edit &amp; save</strong> — edits are written back to the original
+                            <code>.tn</code> file, in place. There are no copies.</li>
+                        <li><strong>Re-verify</strong> / <strong>Save &amp; Verify</strong> — re-run the
+                            verifier, optionally in a different mode or with extra checks.</li>
+                        <li><strong>Mode</strong> — <em>Optimize</em> finds the best schedule;
+                            <em>Satisfy</em> finds any valid schedule (faster).</li>
+                        <li><strong>Realizability</strong> — check that every allowed initial state admits
+                            some valid schedule.</li>
+                        <li><strong>Compositional</strong> — check that one session preserving an invariant
+                            <em>P</em> implies any-length sequence preserves it (needs an
+                            <code>invariant {…}</code> block).</li>
+                    </ul>
+
+                    <h6 class="mt-3"><i class="bi bi-x-circle text-danger"></i> Cancelling</h6>
+                    <p class="mb-2">
+                        While a verification is running, a banner appears at the top of the page with a
+                        <strong>Cancel</strong> button that stops the run.
+                    </p>
+
+                    <h6 class="mt-3"><i class="bi bi-book text-info"></i> Learn more</h6>
+                    <p class="mb-0">
+                        See the <a href="/docs/getting-started" target="_blank">Getting Started</a> guide,
+                        <a href="/docs/tutorial" target="_blank">Tutorial</a>,
+                        <a href="/docs/manual" target="_blank">Manual</a>, and
+                        <a href="/docs/grammar" target="_blank">Grammar Reference</a>
+                        (also in the <strong>Documentation</strong> menu above).
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Running-task banner (shown while a verification is in flight; offers Cancel) -->
+    <!-- NOTE: do NOT use Bootstrap's .toast-container here — it sets
+         pointer-events:none, which makes the Cancel button unclickable. -->
+    <div id="runningTaskBanner" class="position-fixed top-0 start-50 translate-middle-x p-3" style="z-index: 10000; display: none; pointer-events: auto;">
+        <div class="alert alert-info d-flex align-items-center shadow mb-0" role="status">
+            <span class="spinner-border spinner-border-sm me-2"></span>
+            <span id="runningTaskLabel" class="me-3">Verification running…</span>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="cancelRunningTask()">
+                <i class="bi bi-x-circle"></i> Cancel
+            </button>
+        </div>
+    </div>
 
     <!-- Toast Container -->
     <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 9999;">
@@ -145,6 +231,49 @@
         // Show toast
         const bsToast = new bootstrap.Toast(toast, { delay: 5000 });
         bsToast.show();
+    }
+
+    // ---- Cancellable verification-task tracking ----
+    // Each verify request carries a client-generated task_id; the server registers
+    // its subprocess under that id so /api/kill can terminate it. The banner shows
+    // a Cancel button while a task is in flight.
+    let currentTaskId = null;
+
+    function newTaskId() {
+        currentTaskId = 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        return currentTaskId;
+    }
+
+    function showRunningTask(label) {
+        const el = document.getElementById('runningTaskBanner');
+        if (!el) return;
+        document.getElementById('runningTaskLabel').textContent = label || 'Verification running…';
+        el.style.display = 'block';
+    }
+
+    function hideRunningTask() {
+        const el = document.getElementById('runningTaskBanner');
+        if (el) el.style.display = 'none';
+        currentTaskId = null;
+    }
+
+    function cancelRunningTask() {
+        if (!currentTaskId) { hideRunningTask(); return; }
+        fetch('/api/kill', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_id: currentTaskId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showToast('Cancelled', 'Verification cancelled', 'warning');
+            } else {
+                showToast('Cancel', data.message || 'Task was no longer running', 'info');
+            }
+        })
+        .catch(error => showToast('Error', 'Failed to cancel: ' + error, 'error'))
+        .finally(() => hideRunningTask());
     }
     </script>
 

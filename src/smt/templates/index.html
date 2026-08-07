@@ -48,7 +48,9 @@
                 <div class="card h-100 shadow-sm hover-shadow">
                     <div class="card-body">
                         <h5 class="card-title">
-                            {% if tn.status == 'syntax_error' %}
+                            {% if tn.status == 'not_verified' %}
+                                <i class="bi bi-file-earmark-text text-secondary"></i>
+                            {% elif tn.status == 'syntax_error' %}
                                 <i class="bi bi-code-slash text-danger"></i>
                             {% elif tn.status == 'wellformedness_error' %}
                                 <i class="bi bi-exclamation-triangle-fill text-warning"></i>
@@ -66,7 +68,11 @@
 
                         <!-- Status -->
                         <p class="small mb-2">
-                            {% if tn.status == 'syntax_error' %}
+                            {% if tn.status == 'not_verified' %}
+                                <span class="text-secondary">
+                                    <i class="bi bi-dash-circle"></i> Not verified yet
+                                </span>
+                            {% elif tn.status == 'syntax_error' %}
                                 <span class="text-danger">
                                     <i class="bi bi-code-slash"></i> Syntax Error
                                 </span>
@@ -252,6 +258,10 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-primary me-auto" onclick="addFileToList()"
+                        title="Add this file to the list without running the verifier. You can open and verify it later.">
+                    <i class="bi bi-plus-lg"></i> Add without running
+                </button>
                 <button type="button" class="btn btn-primary" onclick="runVerification()">
                     <i class="bi bi-play-circle"></i> Run Verification
                 </button>
@@ -494,6 +504,9 @@ function createAndVerify() {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
 
+    const taskId = newTaskId();
+    showRunningTask('Creating & verifying…');
+
     // Create and verify
     fetch('/api/create', {
         method: 'POST',
@@ -504,11 +517,19 @@ function createAndVerify() {
             source: source,
             mode: mode,
             realizability: document.getElementById('createRealizability').checked,
-            compositional: document.getElementById('createCompositional').checked
+            compositional: document.getElementById('createCompositional').checked,
+            task_id: taskId
         })
     })
     .then(response => response.json())
     .then(data => {
+        if (data.status === 'cancelled') {
+            showToast('Cancelled', data.message || 'Verification cancelled', 'warning');
+            const modal = bootstrap.Modal.getInstance(document.getElementById('createModal'));
+            if (modal) modal.hide();
+            setTimeout(() => window.location.reload(), 1500);
+            return;
+        }
         if (data.status === 'success') {
             // Check the actual verification status
             const vStatus = data.verification_status || 'success';
@@ -568,6 +589,9 @@ function createAndVerify() {
         // Re-enable button
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-check-circle"></i> Create & Verify';
+    })
+    .finally(() => {
+        hideRunningTask();
     });
 }
 
@@ -662,6 +686,35 @@ function selectFile(path, name) {
     verifyModal.show();
 }
 
+// Add the selected file to the home list WITHOUT running the verifier.
+// Records only the file's real path; opening the card reads/edits it in place.
+function addFileToList() {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('verifyModal'));
+    if (modal) modal.hide();
+
+    if (!selectedFilePath) return;
+    const path = selectedFilePath;
+    selectedFilePath = null;
+
+    fetch('/api/add-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_path: path })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast('Added', `${data.tasknet_name} added (not verified). Open it to view, edit, or verify.`, 'success');
+            setTimeout(() => window.location.reload(), 1200);
+        } else if (data.status === 'exists') {
+            showToast('Already listed', data.message, 'info');
+        } else {
+            showToast('Failed', data.message || 'Could not add file', 'error');
+        }
+    })
+    .catch(error => showToast('Error', `${error}`, 'error'));
+}
+
 function runVerification() {
     const mode = document.getElementById('verifyMode').value;
     const modal = bootstrap.Modal.getInstance(document.getElementById('verifyModal'));
@@ -669,8 +722,10 @@ function runVerification() {
 
     if (!selectedFilePath) return;
 
-    // Show loading toast
+    // Show loading toast + cancellable banner
     showToast('Verification Started', `Verifying file in ${mode} mode...`, 'info');
+    const taskId = newTaskId();
+    showRunningTask(`Verifying in ${mode} mode…`);
 
     // Verify file at its original location
     fetch('/api/verify-file', {
@@ -680,11 +735,16 @@ function runVerification() {
             file_path: selectedFilePath,
             mode: mode,
             realizability: document.getElementById('verifyRealizability').checked,
-            compositional: document.getElementById('verifyCompositional').checked
+            compositional: document.getElementById('verifyCompositional').checked,
+            task_id: taskId
         })
     })
     .then(response => response.json())
     .then(data => {
+        if (data.status === 'cancelled') {
+            showToast('Cancelled', 'Verification cancelled', 'warning');
+            return;
+        }
         if (data.status === 'success') {
             // Check the actual verification status
             const vStatus = data.verification_status || 'success';
@@ -719,6 +779,7 @@ function runVerification() {
     })
     .finally(() => {
         selectedFilePath = null;
+        hideRunningTask();
     });
 }
 
@@ -751,11 +812,6 @@ function deleteAllReports() {
     const count = {{ tasknets|length }};
 
     if (!confirm(`⚠️  DELETE ALL VERIFICATION REPORTS?\n\nThis will permanently delete ALL ${count} verification report(s) including:\n• Schedules and timelines\n• Gantt charts and visualizations\n• UNSAT core analysis\n• Property verification results\n• Console outputs\n\n⚠️  NOTE: Your original .tn source files will NOT be deleted.\nOnly the verification results will be removed.\n\nThis action CANNOT be undone!\n\nAre you absolutely sure?`)) {
-        return;
-    }
-
-    // Second confirmation for safety
-    if (!confirm(`Final confirmation: Delete all ${count} report(s)?\n\n(Source .tn files will be preserved)`)) {
         return;
     }
 

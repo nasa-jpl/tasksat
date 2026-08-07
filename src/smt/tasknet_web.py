@@ -11,6 +11,8 @@ from flask import Flask, render_template, send_from_directory, jsonify, request
 from pathlib import Path
 import json
 import os
+import subprocess
+import time
 import webbrowser
 import threading
 
@@ -22,6 +24,12 @@ SCHEDULES_DIR = TASKSAT_ROOT / '.tasksat' / 'schedules'
 ERRORS_DIR = TASKSAT_ROOT / '.tasksat' / 'errors'
 TESTS_DIR = TASKSAT_ROOT / 'tests' / 'tasknet_files'
 
+# Registry of in-flight verification subprocesses, keyed by a client-supplied
+# task id, so /api/kill can cancel a run while its (blocking) request is still
+# open. Guarded by a lock because Flask serves requests on multiple threads.
+RUNNING_TASKS = {}
+RUNNING_TASKS_LOCK = threading.Lock()
+
 
 def verifier_cmd(tn_path, mode, realizability=False, compositional=False):
     """Build the tasknet_verifier.py command line."""
@@ -32,6 +40,80 @@ def verifier_cmd(tn_path, mode, realizability=False, compositional=False):
     if compositional:
         cmd.append('--compositional')
     return cmd
+
+
+def run_verifier(cmd, task_id=None, timeout=300):
+    """Run the verifier as a tracked subprocess so it can be cancelled.
+
+    Registers the process under ``task_id`` (if given) for the duration of the
+    run, then returns a dict describing how it ended:
+
+        outcome    'completed' | 'timeout' | 'killed'
+        stdout     captured stdout (str)
+        stderr     captured stderr (str)
+        returncode process exit code (negative if terminated by signal)
+        duration   wall-clock seconds
+
+    'killed' is inferred from termination by signal (e.g. /api/kill calling
+    terminate()/kill()); 'timeout' takes precedence when we hit the deadline.
+    """
+    start = time.time()
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+    if task_id:
+        with RUNNING_TASKS_LOCK:
+            RUNNING_TASKS[task_id] = proc
+
+    outcome = 'completed'
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, stderr = proc.communicate()
+        outcome = 'timeout'
+    finally:
+        if task_id:
+            with RUNNING_TASKS_LOCK:
+                RUNNING_TASKS.pop(task_id, None)
+
+    # A negative returncode means the process was terminated by a signal, which
+    # (outside the timeout path) is how a /api/kill cancellation manifests.
+    if outcome == 'completed' and proc.returncode is not None and proc.returncode < 0:
+        outcome = 'killed'
+
+    return {
+        'outcome': outcome,
+        'stdout': stdout or '',
+        'stderr': stderr or '',
+        'returncode': proc.returncode,
+        'duration': time.time() - start,
+    }
+
+
+@app.route('/api/kill', methods=['POST'])
+def api_kill():
+    """Cancel an in-flight verification by its client-supplied task id."""
+    data = request.get_json(silent=True) or {}
+    task_id = data.get('task_id')
+    if not task_id:
+        return jsonify({'status': 'error', 'message': 'task_id is required'}), 400
+
+    with RUNNING_TASKS_LOCK:
+        proc = RUNNING_TASKS.get(task_id)
+
+    if proc is None:
+        return jsonify({'status': 'not_found',
+                        'message': 'No running task with that id'}), 404
+
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()  # escalate if it ignored SIGTERM
+        return jsonify({'status': 'success', 'message': 'Task cancelled'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/')
@@ -71,7 +153,7 @@ def index():
                     'has_schedule': (latest_dir / 'schedule.json').exists(),
                     'has_timeline': (latest_dir / 'timeline.json').exists(),
                     'has_violations': has_violations,
-                    'status': status,  # 'success', 'unsat', or 'error'
+                    'status': status,  # 'success', 'unsat', 'error', or 'not_verified'
                     'timestamp': timestamp
                 })
 
@@ -310,14 +392,12 @@ def verification_report(name, timestamp='latest'):
 @app.route('/api/verify/<name>', methods=['POST'])
 def api_verify(name):
     """API endpoint to run verification on a tasknet."""
-    import subprocess
-    import time
-
     # Get mode from request (default: optimize)
     data = request.get_json() if request.is_json else {}
     mode = data.get('mode', 'optimize')
     realizability = bool(data.get('realizability', False))
     compositional = bool(data.get('compositional', False))
+    task_id = data.get('task_id')
 
     if mode not in ['optimize', 'satisfy']:
         return jsonify({'status': 'error', 'message': 'Invalid mode. Use "optimize" or "satisfy"'}), 400
@@ -350,17 +430,27 @@ def api_verify(name):
         return jsonify({'status': 'error', 'message': 'TaskNet file not found'}), 404
 
     # Run verifier with mode
-    start_time = time.time()
     try:
-        result = subprocess.run(
+        result = run_verifier(
             verifier_cmd(tn_file, mode, realizability, compositional),
-            capture_output=True,
-            text=True,
-            timeout=300  # 5 minute timeout
+            task_id=task_id
         )
-        duration = time.time() - start_time
+        duration = result['duration']
 
-        if result.returncode == 0:
+        if result['outcome'] == 'killed':
+            return jsonify({
+                'status': 'cancelled',
+                'message': 'Verification cancelled',
+                'duration': round(duration, 2)
+            }), 499
+
+        if result['outcome'] == 'timeout':
+            return jsonify({
+                'status': 'timeout',
+                'message': 'Verification timed out after 5 minutes'
+            }), 408
+
+        if result['returncode'] == 0:
             # Check metadata to determine the actual verification result
             latest_dir = SCHEDULES_DIR / name / 'latest'
             metadata_file = latest_dir / 'metadata.json'
@@ -375,21 +465,16 @@ def api_verify(name):
                 'status': 'success',
                 'verification_status': verification_status,
                 'message': 'Verification completed',
-                'output': result.stdout,
+                'output': result['stdout'],
                 'duration': round(duration, 2)
             })
         else:
             return jsonify({
                 'status': 'error',
                 'message': 'Verification failed',
-                'output': result.stdout + '\n' + result.stderr,
+                'output': result['stdout'] + '\n' + result['stderr'],
                 'duration': round(duration, 2)
             })
-    except subprocess.TimeoutExpired:
-        return jsonify({
-            'status': 'timeout',
-            'message': 'Verification timed out after 5 minutes'
-        }), 408
     except Exception as e:
         return jsonify({
             'status': 'error',
@@ -400,9 +485,6 @@ def api_verify(name):
 @app.route('/api/create', methods=['POST'])
 def api_create():
     """API endpoint to create a new tasknet file and verify it."""
-    import subprocess
-    import time
-
     try:
         data = request.get_json()
         name = data.get('name', '')
@@ -411,6 +493,7 @@ def api_create():
         mode = data.get('mode', 'optimize')
         realizability = bool(data.get('realizability', False))
         compositional = bool(data.get('compositional', False))
+        task_id = data.get('task_id')
 
         if not name:
             return jsonify({'status': 'error', 'message': 'Filename is required'}), 400
@@ -441,16 +524,24 @@ def api_create():
             f.write(source)
 
         # Run verification
-        start_time = time.time()
-        result = subprocess.run(
+        result = run_verifier(
             verifier_cmd(file_path, mode, realizability, compositional),
-            capture_output=True,
-            text=True,
-            timeout=300
+            task_id=task_id
         )
-        duration = time.time() - start_time
+        duration = result['duration']
 
-        if result.returncode == 0:
+        if result['outcome'] == 'killed':
+            return jsonify({
+                'status': 'cancelled',
+                'message': f'Created {name}.tn; verification cancelled',
+                'tasknet_name': name,
+                'duration': round(duration, 2)
+            }), 499
+
+        if result['outcome'] == 'timeout':
+            return jsonify({'status': 'timeout', 'message': 'Verification timed out'}), 408
+
+        if result['returncode'] == 0:
             # Check metadata to determine the actual verification result
             latest_dir = SCHEDULES_DIR / name / 'latest'
             metadata_file = latest_dir / 'metadata.json'
@@ -473,87 +564,8 @@ def api_create():
             return jsonify({
                 'status': 'error',
                 'message': 'File created but verification failed',
-                'output': result.stdout + '\n' + result.stderr
+                'output': result['stdout'] + '\n' + result['stderr']
             })
-    except subprocess.TimeoutExpired:
-        return jsonify({'status': 'timeout', 'message': 'Verification timed out'}), 408
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-
-@app.route('/api/upload', methods=['POST'])
-def api_upload():
-    """API endpoint to upload and verify a tasknet file."""
-    import subprocess
-    import time
-    import tempfile
-    import os
-
-    # Check if file was uploaded
-    if 'file' not in request.files:
-        return jsonify({'status': 'error', 'message': 'No file uploaded'}), 400
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'status': 'error', 'message': 'No file selected'}), 400
-
-    if not file.filename.endswith('.tn'):
-        return jsonify({'status': 'error', 'message': 'File must be a .tn file'}), 400
-
-    # Get mode from form data (default: optimize)
-    mode = request.form.get('mode', 'optimize')
-    realizability = request.form.get('realizability', 'false').lower() == 'true'
-    compositional = request.form.get('compositional', 'false').lower() == 'true'
-    if mode not in ['optimize', 'satisfy']:
-        return jsonify({'status': 'error', 'message': 'Invalid mode'}), 400
-
-    # Save uploaded file to .tasksat/uploads/
-    uploads_dir = TASKSAT_ROOT / '.tasksat' / 'uploads'
-    uploads_dir.mkdir(parents=True, exist_ok=True)
-
-    upload_path = uploads_dir / file.filename
-    file.save(str(upload_path))
-
-    try:
-        # Run verifier
-        start_time = time.time()
-        result = subprocess.run(
-            verifier_cmd(upload_path, mode, realizability, compositional),
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
-        duration = time.time() - start_time
-
-        if result.returncode == 0:
-            # Extract tasknet name from output (or use filename)
-            tasknet_name = Path(file.filename).stem
-
-            # Check metadata to determine the actual verification result
-            latest_dir = SCHEDULES_DIR / tasknet_name / 'latest'
-            metadata_file = latest_dir / 'metadata.json'
-
-            verification_status = 'success'
-            if metadata_file.exists():
-                with open(metadata_file, 'r') as f:
-                    metadata = json.load(f)
-                verification_status = metadata.get('status', 'success')
-
-            return jsonify({
-                'status': 'success',
-                'verification_status': verification_status,
-                'message': f'Verification completed for {tasknet_name}',
-                'tasknet_name': tasknet_name,
-                'duration': round(duration, 2)
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': 'Verification failed',
-                'output': result.stdout + '\n' + result.stderr
-            })
-    except subprocess.TimeoutExpired:
-        return jsonify({'status': 'timeout', 'message': 'Verification timed out'}), 408
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
@@ -625,15 +637,13 @@ def api_save_source(name):
 @app.route('/api/save-and-verify/<name>', methods=['POST'])
 def api_save_and_verify(name):
     """API endpoint to save edited source and re-verify."""
-    import subprocess
-    import time
-
     try:
         data = request.get_json()
         source = data.get('source', '')
         mode = data.get('mode', 'optimize')
         realizability = bool(data.get('realizability', False))
         compositional = bool(data.get('compositional', False))
+        task_id = data.get('task_id')
 
         # Find original source file
         latest_dir = SCHEDULES_DIR / name / 'latest'
@@ -652,16 +662,23 @@ def api_save_and_verify(name):
             f.write(source)
 
         # Run verification
-        start_time = time.time()
-        result = subprocess.run(
+        result = run_verifier(
             verifier_cmd(source_path, mode, realizability, compositional),
-            capture_output=True,
-            text=True,
-            timeout=300
+            task_id=task_id
         )
-        duration = time.time() - start_time
+        duration = result['duration']
 
-        if result.returncode == 0:
+        if result['outcome'] == 'killed':
+            return jsonify({
+                'status': 'cancelled',
+                'message': 'Source saved; verification cancelled',
+                'duration': round(duration, 2)
+            }), 499
+
+        if result['outcome'] == 'timeout':
+            return jsonify({'status': 'timeout', 'message': 'Verification timed out'}), 408
+
+        if result['returncode'] == 0:
             return jsonify({
                 'status': 'success',
                 'message': 'Source saved and verification completed',
@@ -671,10 +688,8 @@ def api_save_and_verify(name):
             return jsonify({
                 'status': 'error',
                 'message': 'Verification failed',
-                'output': result.stdout + '\n' + result.stderr
+                'output': result['stdout'] + '\n' + result['stderr']
             })
-    except subprocess.TimeoutExpired:
-        return jsonify({'status': 'timeout', 'message': 'Verification timed out'}), 408
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
@@ -865,18 +880,71 @@ def api_browse_directory():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/api/add-file', methods=['POST'])
+def api_add_file():
+    """Add a .tn file to the home list WITHOUT running verification.
+
+    Writes only a placeholder metadata entry pointing at the file's real path;
+    no bytes are copied. Opening the resulting card reads/edits that same file
+    in place, exactly like a verified tasknet.
+    """
+    from datetime import datetime
+    try:
+        data = request.get_json()
+        file_path = data.get('file_path', '')
+
+        if not file_path:
+            return jsonify({'status': 'error', 'message': 'File path is required'}), 400
+
+        file_path = Path(file_path).resolve()
+
+        if not file_path.exists():
+            return jsonify({'status': 'error', 'message': 'File not found'}), 404
+
+        if file_path.suffix != '.tn':
+            return jsonify({'status': 'error', 'message': 'File must be a .tn file'}), 400
+
+        tasknet_name = file_path.stem
+        latest_dir = SCHEDULES_DIR / tasknet_name / 'latest'
+
+        # Don't clobber a real verification if one already exists.
+        existing = latest_dir / 'metadata.json'
+        if existing.exists():
+            with open(existing, 'r') as f:
+                if json.load(f).get('status') != 'not_verified':
+                    return jsonify({
+                        'status': 'exists',
+                        'message': f'{tasknet_name} is already on the list',
+                        'tasknet_name': tasknet_name
+                    })
+
+        latest_dir.mkdir(parents=True, exist_ok=True)
+        with open(latest_dir / 'metadata.json', 'w') as f:
+            json.dump({
+                'source_path': str(file_path),
+                'status': 'not_verified',
+                'timestamp': datetime.now().isoformat(),
+            }, f, indent=2)
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Added {tasknet_name} (not verified)',
+            'tasknet_name': tasknet_name
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/api/verify-file', methods=['POST'])
 def api_verify_file():
     """API endpoint to verify a tasknet file by path."""
-    import subprocess
-    import time
-
     try:
         data = request.get_json()
         file_path = data.get('file_path', '')
         mode = data.get('mode', 'optimize')
         realizability = bool(data.get('realizability', False))
         compositional = bool(data.get('compositional', False))
+        task_id = data.get('task_id')
 
         if not file_path:
             return jsonify({'status': 'error', 'message': 'File path is required'}), 400
@@ -893,16 +961,23 @@ def api_verify_file():
             return jsonify({'status': 'error', 'message': 'Invalid mode'}), 400
 
         # Run verifier on the real file (no copying)
-        start_time = time.time()
-        result = subprocess.run(
+        result = run_verifier(
             verifier_cmd(file_path, mode, realizability, compositional),
-            capture_output=True,
-            text=True,
-            timeout=300
+            task_id=task_id
         )
-        duration = time.time() - start_time
+        duration = result['duration']
 
-        if result.returncode == 0:
+        if result['outcome'] == 'killed':
+            return jsonify({
+                'status': 'cancelled',
+                'message': 'Verification cancelled',
+                'duration': round(duration, 2)
+            }), 499
+
+        if result['outcome'] == 'timeout':
+            return jsonify({'status': 'timeout', 'message': 'Verification timed out'}), 408
+
+        if result['returncode'] == 0:
             tasknet_name = file_path.stem
 
             # Check metadata to determine the actual verification result
@@ -926,10 +1001,8 @@ def api_verify_file():
             return jsonify({
                 'status': 'error',
                 'message': 'Verification failed',
-                'output': result.stdout + '\n' + result.stderr
+                'output': result['stdout'] + '\n' + result['stderr']
             })
-    except subprocess.TimeoutExpired:
-        return jsonify({'status': 'timeout', 'message': 'Verification timed out'}), 408
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 

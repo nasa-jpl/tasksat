@@ -117,7 +117,9 @@ code[class*="language-"] {
     <div class="row align-items-center mb-4">
         <div class="col">
             <h1 class="display-5">
-                {% if metadata.status == 'syntax_error' %}
+                {% if metadata.status == 'not_verified' %}
+                    <i class="bi bi-file-earmark-text text-secondary" title="Not verified yet"></i>
+                {% elif metadata.status == 'syntax_error' %}
                     <i class="bi bi-code-slash text-danger" title="Syntax Error"></i>
                 {% elif metadata.status == 'wellformedness_error' %}
                     <i class="bi bi-exclamation-triangle-fill text-warning" title="Wellformedness Error"></i>
@@ -148,11 +150,6 @@ code[class*="language-"] {
                 <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copyPath()">
                     <i class="bi bi-clipboard"></i> Copy
                 </button>
-                {% if '.tasksat/uploads/' in metadata.source_path %}
-                <span class="badge bg-warning text-dark ms-2" title="This is an uploaded copy, not the original file">
-                    <i class="bi bi-exclamation-triangle"></i> Uploaded Copy
-                </span>
-                {% endif %}
             </p>
             <p class="text-muted mb-1">
                 <i class="bi bi-terminal"></i>
@@ -163,6 +160,13 @@ code[class*="language-"] {
                     <i class="bi bi-clipboard"></i> Copy
                 </button>
             </p>
+            {% if metadata.status == 'not_verified' %}
+            <p class="text-muted" id="verifiedTime">
+                <i class="bi bi-dash-circle"></i>
+                Not verified yet — added <small>({{ metadata.timestamp }})</small>.
+                Edit the source and use <strong>Save &amp; Verify</strong>, or <strong>Re-verify</strong>, to run it.
+            </p>
+            {% else %}
             <p class="text-muted" id="verifiedTime">
                 <i class="bi bi-clock-history"></i>
                 Last verified <span id="timeAgo"></span>
@@ -178,6 +182,7 @@ code[class*="language-"] {
                     Validity check: <strong>{{ metadata.validity_check_sec }}s</strong> (UNSAT)
                 {% endif %}
             </p>
+            {% endif %}
         </div>
         <div class="col-auto">
             <select id="selVerifyMode" class="form-select form-select-sm d-inline-block w-auto me-2 align-middle"
@@ -345,24 +350,6 @@ code[class*="language-"] {
             </div>
         </div>
     </div>
-
-    <!-- Uploaded File Warning -->
-    {% if '.tasksat/uploads/' in metadata.source_path %}
-    <div class="alert alert-info" role="alert">
-        <h5 class="alert-heading"><i class="bi bi-info-circle"></i> Working on Uploaded Copy</h5>
-        <p>This tasknet was uploaded through the web interface and is stored at:</p>
-        <code>{{ metadata.source_path }}</code>
-        <hr>
-        <p class="mb-0">
-            <strong>Note:</strong> Any edits you make here will modify the uploaded copy, not the original file.
-            If you want to work on the original file:
-            <ol>
-                <li>Run verification from the command line: <code>python src/smt/tasknet_verifier.py &lt;original-path&gt;</code></li>
-                <li>Or copy the uploaded version back to your desired location</li>
-            </ol>
-        </p>
-    </div>
-    {% endif %}
 
     <!-- Syntax Error Alert Section -->
     {% if metadata.status == 'syntax_error' %}
@@ -934,6 +921,8 @@ function runVerification() {
     btn.innerHTML = '<span class="invisible">Running...</span>';
 
     showToast('Verification Started', 'Re-running verification...', 'info');
+    const taskId = newTaskId();
+    showRunningTask('Re-running verification…');
 
     fetch('/api/verify/{{ name }}', {
         method: 'POST',
@@ -943,11 +932,20 @@ function runVerification() {
         body: JSON.stringify({
             mode: document.getElementById('selVerifyMode').value,
             realizability: document.getElementById('chkRealizability').checked,
-            compositional: document.getElementById('chkCompositional').checked
+            compositional: document.getElementById('chkCompositional').checked,
+            task_id: taskId
         })
     })
     .then(response => response.json())
     .then(data => {
+        if (data.status === 'cancelled') {
+            showToast('Cancelled', 'Verification cancelled', 'warning');
+            btn.disabled = false;
+            btn.classList.remove('loading');
+            btn.innerHTML = originalHtml;
+            hideRunningTask();
+            return;
+        }
         if (data.status === 'success') {
             // Show appropriate toast based on verification result
             const vStatus = data.verification_status || 'success';
@@ -985,6 +983,9 @@ function runVerification() {
         btn.disabled = false;
         btn.classList.remove('loading');
         btn.innerHTML = originalHtml;
+    })
+    .finally(() => {
+        hideRunningTask();
     });
 }
 
@@ -1177,6 +1178,9 @@ function saveCode() {
 
     const newCode = monacoEditor.getValue();
 
+    const taskId = newTaskId();
+    showRunningTask('Saving & re-verifying…');
+
     // Save to file and re-verify
     fetch('/api/save-and-verify/{{ name }}', {
         method: 'POST',
@@ -1187,11 +1191,16 @@ function saveCode() {
             source: newCode,
             mode: document.getElementById('selVerifyMode').value,
             realizability: document.getElementById('chkRealizability').checked,
-            compositional: document.getElementById('chkCompositional').checked
+            compositional: document.getElementById('chkCompositional').checked,
+            task_id: taskId
         })
     })
     .then(response => response.json())
     .then(data => {
+        if (data.status === 'cancelled') {
+            showToast('Cancelled', 'Verification cancelled (changes were saved)', 'warning');
+            return;
+        }
         if (data.status === 'success') {
             showToast('Verification Started', 'Saving changes and re-verifying...', 'info');
             // Reload after a delay to show new verification
@@ -1202,6 +1211,9 @@ function saveCode() {
     })
     .catch(error => {
         showToast('Error', 'Failed to save and verify: ' + error, 'error');
+    })
+    .finally(() => {
+        hideRunningTask();
     });
 }
 

@@ -126,7 +126,8 @@ The web UI provides:
   3. Raw Z3 SMT formulas (S-expressions)
 - **Console output** - Full verifier text output
 - Property verification results with error traces
-- Create and verify tasknets directly in the browser
+- Open, create, and verify tasknets directly in the browser (edits are saved back to the original file)
+- Add a `.tn` file to the list without running it, and cancel a running verification
 - **Bulk deletion** of verification reports (source files preserved)
 ## Running Examples in this Document
 

@@ -178,7 +178,8 @@ The web UI provides:
 - View Gantt charts and timeline visualizations
 - Property verification results with error traces
 - Side-by-side comparison of valid schedules vs counterexamples
-- Upload or create new tasknets and verify them directly in the browser
+- Open an existing `.tn` file, or create a new tasknet, and verify it directly in the browser
+- Add a `.tn` file to the list without running it (verify later), and cancel a running verification
 - **UNSAT Core Analysis** with three levels of detail:
   - Human-readable conflict explanations and suggestions
   - TaskSAT constraint labels showing which constraints conflict
@@ -188,7 +189,8 @@ The web UI provides:
 
 **How it works:**
 - Tasknets verified in the shell automatically appear in the web UI
-- You can also upload existing `.tn` files or create new tasknets directly on the website
+- You can also open existing `.tn` files (via **Open File**) or create new tasknets directly on the website
+- Edits made in the browser are written back to the original file in place
 - Re-verify any tasknet from the web interface with different settings
 
 **Tip:** Run the verifier on a few tasknets first to see them in the web UI:

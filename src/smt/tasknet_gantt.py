@@ -20,6 +20,19 @@ import matplotlib.patches as patches
 from typing import Dict, Tuple, List, Optional, Union
 from pathlib import Path
 
+# Session separator (kept in sync with tasknet_transforms.SEP). flatten_sessions()
+# names each session subtask `{instance}__{child}`; splitting on it recovers the
+# session grouping for the schedule charts.
+SESSION_SEP = "__"
+
+
+def split_session_id(task_id: str) -> Tuple[Optional[str], str]:
+    """'drive1__preheat' -> ('drive1', 'preheat'); 'collect' -> (None, 'collect')."""
+    if SESSION_SEP in task_id:
+        head, _, tail = task_id.partition(SESSION_SEP)
+        return head, tail
+    return None, task_id
+
 
 def parse_schedule_json(json_data: Union[str, dict]) -> Dict[str, Tuple[int, int]]:
     """
@@ -94,9 +107,30 @@ def create_gantt_from_schedule(
         print("Warning: Empty schedule, no chart generated")
         return
 
-    # Sort tasks by start time, then by name
-    tasks = sorted(schedule.items(), key=lambda x: (x[1][0], x[0]))
-    task_names = [t[0] for t in tasks]
+    # Group session siblings together, otherwise order by start time. Each
+    # session instance (drive1, drive2, ...) forms a contiguous band ordered by
+    # its earliest task; standalone tasks are their own singleton group.
+    def _group_key(item):
+        name, (start, _end) = item
+        head, _tail = split_session_id(name)
+        return head if head is not None else name
+
+    group_min_start = {}
+    for name, (start, _end) in schedule.items():
+        g = _group_key((name, (start, _end)))
+        group_min_start[g] = min(group_min_start.get(g, start), start)
+
+    tasks = sorted(
+        schedule.items(),
+        key=lambda x: (group_min_start[_group_key(x)], _group_key(x), x[1][0], x[0])
+    )
+
+    # Clean, grouped y-labels: 'drive1__preheat' -> 'drive1 / preheat'.
+    def _clean_label(name):
+        head, tail = split_session_id(name)
+        return f"{head} / {tail}" if head is not None else name
+
+    task_names = [_clean_label(t[0]) for t in tasks]
 
     # Create figure
     fig, ax = plt.subplots(figsize=figsize)
@@ -104,31 +138,36 @@ def create_gantt_from_schedule(
     # Color palette
     colors = plt.cm.Set3.colors
 
-    # Build task -> taskdef mapping for coloring so that all instances of the
-    # same taskdef share a color (matches the Timeline Evolution chart).
-    task_to_taskdef = {}
-    taskdef_to_color = {}
+    # Build task -> color-key mapping. Session subtasks color by their SESSION
+    # INSTANCE (so drive1__preheat and drive1__drive share a color, distinct
+    # from drive2__*); other tasks color by taskdef, matching the Timeline
+    # Evolution chart.
+    task_to_family = {}
+    family_to_color = {}
+    for task_name in schedule:
+        head, _tail = split_session_id(task_name)
+        if head is not None:
+            task_to_family[task_name] = f"session:{head}"
     if tasknet:
-        # Map each task to its taskdef (or use task name as fallback)
         for task in tasknet.tasks:
-            if task.definition:
-                task_to_taskdef[task.id] = task.definition
-            else:
-                # No taskdef - use task name itself
-                task_to_taskdef[task.id] = task.id
+            if task.id in task_to_family:
+                continue
+            task_to_family[task.id] = task.definition if task.definition else task.id
+    # Any task not yet mapped (no tasknet, non-session) falls back to its own name.
+    for task_name in schedule:
+        task_to_family.setdefault(task_name, task_name)
 
-        # Assign colors to each unique taskdef
-        unique_taskdefs = sorted(set(task_to_taskdef.values()))
-        for i, taskdef in enumerate(unique_taskdefs):
-            taskdef_to_color[taskdef] = colors[i % len(colors)]
+    unique_families = sorted(set(task_to_family.values()))
+    for i, fam in enumerate(unique_families):
+        family_to_color[fam] = colors[i % len(colors)]
 
     # Draw bars for each task
     for i, (task_name, (start, end)) in enumerate(tasks):
         duration = end - start
 
-        # Color by taskdef if available, otherwise by task index
-        if tasknet and task_name in task_to_taskdef:
-            color = taskdef_to_color[task_to_taskdef[task_name]]
+        # Color by family (session instance or taskdef); fall back to row index.
+        if task_name in task_to_family:
+            color = family_to_color[task_to_family[task_name]]
         else:
             color = colors[i % len(colors)]
 
@@ -139,10 +178,12 @@ def create_gantt_from_schedule(
         )
         ax.add_patch(rect)
 
-        # Add task name on the bar (abbreviated if too long)
+        # Add task name on the bar (abbreviated if too long). For session
+        # subtasks use the short child name (the session instance is already
+        # shown in the y-axis label and by color).
         # Estimate how much space we have: roughly 1 char per 0.7 time units at fontsize 9
         available_width = duration * 0.7
-        display_name = task_name
+        _head, display_name = split_session_id(task_name)
 
         # Abbreviate if needed
         if len(display_name) > available_width:
