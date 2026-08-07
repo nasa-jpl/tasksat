@@ -120,3 +120,8 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 - Klaus Havelund <klaus.havelund@jpl.nasa.gov>
 - Alessandro Pinto <alessandro.pinto@jpl.nasa.gov>
+
+TaskSAT has been developed with substantial assistance from large language
+models (a practice colloquially known as "vibe coding"): the authors directed
+the design, review, and validation, while much of the implementation was carried
+out through AI-assisted, agentic coding workflows.
