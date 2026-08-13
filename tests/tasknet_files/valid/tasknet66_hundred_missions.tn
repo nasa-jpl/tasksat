@@ -1,0 +1,137 @@
+# Test: 100 nested-session instances to demonstrate compositional N-independence.
+#
+# 100 mission instances, each containing 2 phases (nested sessions), each
+# containing 2 atomic tasks = 400 tasks total. Without compositional reasoning,
+# this would be intractable. With --compositional, the check projects to ONE
+# mission (4 tasks) and verifies in seconds, discharging all 100.
+
+tasknet HundredMissions {
+  end = 10000;
+
+  timelines {
+    mode : state(idle, busy) = idle;
+  }
+
+  taskdef Prep {
+    duration_range [10, 10];
+    impacts { post { mode = busy; } }
+  }
+
+  taskdef Work {
+    duration_range [20, 20];
+    impacts { post { mode = idle; } }
+  }
+
+  taskdef Phase {
+    task prep : Prep;
+    task work : Work { after prep; }
+  }
+
+  taskdef Mission {
+    task phase1 : Phase;
+    task phase2 : Phase { after phase1; }
+  }
+
+  invariant compositional { mode = idle; }
+
+  task m1 : Mission;
+  task m2 : Mission { after m1; }
+  task m3 : Mission { after m2; }
+  task m4 : Mission { after m3; }
+  task m5 : Mission { after m4; }
+  task m6 : Mission { after m5; }
+  task m7 : Mission { after m6; }
+  task m8 : Mission { after m7; }
+  task m9 : Mission { after m8; }
+  task m10 : Mission { after m9; }
+  task m11 : Mission { after m10; }
+  task m12 : Mission { after m11; }
+  task m13 : Mission { after m12; }
+  task m14 : Mission { after m13; }
+  task m15 : Mission { after m14; }
+  task m16 : Mission { after m15; }
+  task m17 : Mission { after m16; }
+  task m18 : Mission { after m17; }
+  task m19 : Mission { after m18; }
+  task m20 : Mission { after m19; }
+  task m21 : Mission { after m20; }
+  task m22 : Mission { after m21; }
+  task m23 : Mission { after m22; }
+  task m24 : Mission { after m23; }
+  task m25 : Mission { after m24; }
+  task m26 : Mission { after m25; }
+  task m27 : Mission { after m26; }
+  task m28 : Mission { after m27; }
+  task m29 : Mission { after m28; }
+  task m30 : Mission { after m29; }
+  task m31 : Mission { after m30; }
+  task m32 : Mission { after m31; }
+  task m33 : Mission { after m32; }
+  task m34 : Mission { after m33; }
+  task m35 : Mission { after m34; }
+  task m36 : Mission { after m35; }
+  task m37 : Mission { after m36; }
+  task m38 : Mission { after m37; }
+  task m39 : Mission { after m38; }
+  task m40 : Mission { after m39; }
+  task m41 : Mission { after m40; }
+  task m42 : Mission { after m41; }
+  task m43 : Mission { after m42; }
+  task m44 : Mission { after m43; }
+  task m45 : Mission { after m44; }
+  task m46 : Mission { after m45; }
+  task m47 : Mission { after m46; }
+  task m48 : Mission { after m47; }
+  task m49 : Mission { after m48; }
+  task m50 : Mission { after m49; }
+  task m51 : Mission { after m50; }
+  task m52 : Mission { after m51; }
+  task m53 : Mission { after m52; }
+  task m54 : Mission { after m53; }
+  task m55 : Mission { after m54; }
+  task m56 : Mission { after m55; }
+  task m57 : Mission { after m56; }
+  task m58 : Mission { after m57; }
+  task m59 : Mission { after m58; }
+  task m60 : Mission { after m59; }
+  task m61 : Mission { after m60; }
+  task m62 : Mission { after m61; }
+  task m63 : Mission { after m62; }
+  task m64 : Mission { after m63; }
+  task m65 : Mission { after m64; }
+  task m66 : Mission { after m65; }
+  task m67 : Mission { after m66; }
+  task m68 : Mission { after m67; }
+  task m69 : Mission { after m68; }
+  task m70 : Mission { after m69; }
+  task m71 : Mission { after m70; }
+  task m72 : Mission { after m71; }
+  task m73 : Mission { after m72; }
+  task m74 : Mission { after m73; }
+  task m75 : Mission { after m74; }
+  task m76 : Mission { after m75; }
+  task m77 : Mission { after m76; }
+  task m78 : Mission { after m77; }
+  task m79 : Mission { after m78; }
+  task m80 : Mission { after m79; }
+  task m81 : Mission { after m80; }
+  task m82 : Mission { after m81; }
+  task m83 : Mission { after m82; }
+  task m84 : Mission { after m83; }
+  task m85 : Mission { after m84; }
+  task m86 : Mission { after m85; }
+  task m87 : Mission { after m86; }
+  task m88 : Mission { after m87; }
+  task m89 : Mission { after m88; }
+  task m90 : Mission { after m89; }
+  task m91 : Mission { after m90; }
+  task m92 : Mission { after m91; }
+  task m93 : Mission { after m92; }
+  task m94 : Mission { after m93; }
+  task m95 : Mission { after m94; }
+  task m96 : Mission { after m95; }
+  task m97 : Mission { after m96; }
+  task m98 : Mission { after m97; }
+  task m99 : Mission { after m98; }
+  task m100 : Mission { after m99; }
+}

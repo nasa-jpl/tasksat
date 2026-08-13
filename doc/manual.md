@@ -1202,6 +1202,27 @@ constraints {
   prop time_window: always (time > 1000 -> battery >= 40.0);
 ```
 
+### Three Verification Checks
+
+TaskSAT performs up to three verification checks:
+
+1. **EE (∃∃) - Validity**: Does there exist a valid schedule?
+   - `∃ initial state i, ∃ schedule s: valid(i, s)`
+   - The solver finds a schedule satisfying all constraints, or reports UNSAT
+   - Always performed (Phase 1)
+
+2. **AA (∀∀) - Properties**: Do all valid schedules satisfy the properties?
+   - `∀ initial i, ∀ schedule s: valid(i,s) → properties hold`
+   - Checks temporal formulas on the schedule, generates error traces for violations
+   - Always performed if properties are declared (Phase 2)
+
+3. **AE (∀∃) - Realizability**: Is every initial state schedulable?
+   - `∀ initial state i: ∃ schedule s where valid(i,s)`
+   - CEGIS finds initial states with no valid schedule
+   - Opt-in with `--realizability` flag (Phase 3)
+
+In **standard mode**, these checks run on the full N-instance network. In **compositional mode**, they run on a projected single session instance, and an additional compositional proof shows that the single-session results discharge all N instances.
+
 ### Property Verification Output
 
 When you run the TaskSAT verifier, it checks all properties and generates detailed reports:
@@ -1337,7 +1358,13 @@ invariant compositional { mode = idle; }   // or plain `invariant {}` + --compos
 
 **Semantics:** `{P} S {P}  =>  forall N . {P} Sⁿ {P}`  (assuming γ = 0, below).
 
-**Two checks, both required.** `{P} S {P}` holds only if BOTH hold over the same `P`:
+**Three checks performed (all on projected single session):**
+
+1. **EE (∃∃) - Validity**: Does the single session have a valid schedule from some P-state?
+2. **AA (∀∀) - Properties**: Do properties hold on the single session from all P-states?
+   - Sub-check: AA safety — every run of the session ends in P
+   - User properties checked per-session (tagged `per_session: true`)
+3. **Compositional proof**: Two sub-checks, both required for `{P}S{P}`:
 
 - **AA safety** — `∀i.∀s. valid(i,s) → P(final)`: every valid schedule ends in `P`.
   This is exactly the [`final within initial`](#the-final-block) property check

@@ -281,11 +281,12 @@ def _session_defs(tn: TaskNet) -> dict:
 def build_task_relation_graph(tn: TaskNet) -> Tuple[List[Node], List[Edge]]:
     """Panel 1: task/taskdef nodes and after/containedin/defines/mutex/sequence edges.
 
-    Session instances (a task instantiated from a session taskdef, i.e. a taskdef
-    with nested children) are rendered as a nested box (Graphviz cluster) holding
-    one node per subtask, with the subtasks' sibling after/containedin edges drawn
-    inside. A session-level `after` between two instances becomes a cluster→cluster
-    edge. This mirrors flatten_sessions(): each subtask node is `{inst}__{child}`.
+    Session taskdefs (DEFINITION with nested children) are rendered as nested boxes
+    (Graphviz clusters) showing their compositional structure. Each child is a node
+    inside the cluster, with sibling after/containedin edges. Session instances are
+    simple boxes that point to their definition — the nesting is shown once in the
+    definition, not repeated per instance. This matches how users think about
+    compositional design: the hierarchy is in the template, instances are copies.
     """
     nodes: List[Node] = []
     edges: List[Edge] = []
@@ -295,102 +296,63 @@ def build_task_relation_graph(tn: TaskNet) -> Tuple[List[Node], List[Edge]]:
 
     session_defs = _session_defs(tn)
 
-    def is_session_instance(t) -> bool:
-        return (t.kind != TaskKind.DEFINITION
-                and getattr(t, 'definition', None) in session_defs)
-
-    # Representative subtask id per session instance — used to anchor cluster
-    # edges (Graphviz edges attach to a node, then clip to the cluster via
-    # ltail/lhead + compound=true).
-    inst_rep: dict = {}
-    for t in tn.tasks:
-        if is_session_instance(t):
-            sdef = session_defs[t.definition]
-            if sdef.children:
-                inst_rep[t.id] = f"{t.id}{SESSION_SEP}{sdef.children[0].id}"
-
-    # --- Nodes: flat tasks/taskdefs as before; session instances become clusters ---
-    for task in tn.tasks:
-        if is_session_instance(task):
-            continue  # rendered as a cluster of subtask nodes below
-        nodes.append(_task_node(task, color_map))
-
-    for inst in tn.tasks:
-        if not is_session_instance(inst):
-            continue
-        sdef = session_defs[inst.definition]
+    # --- Session taskdefs: render as nested clusters showing their structure ---
+    def expand_session_def(def_id: str, parent_cluster: Optional[str] = None):
+        """Recursively render a session taskdef as a cluster containing its child nodes."""
+        sdef = session_defs.get(def_id)
+        if not sdef or not sdef.children:
+            return
         sibling_ids = {c.id for c in sdef.children}
-        cluster = f"cluster_{inst.id}"
+        cluster = f"cluster_{def_id}"
 
         for child in sdef.children:
-            q_id = f"{inst.id}{SESSION_SEP}{child.id}"
-            fill = color_map.get(child.definition, "white") if child.definition else "white"
-            nodes.append(Node(id=q_id, label=child.id, shape="box",
-                              fillcolor=fill, style="filled,rounded", cluster=inst.id))
+            child_id = f"{def_id}{SESSION_SEP}{child.id}"
+            child_def = getattr(child, 'definition', None)
 
-            # subtask -> its own taskdef (of)
-            if child.definition and child.definition in task_ids:
-                edges.append(Edge(from_id=q_id, to_id=child.definition,
+            # Child node: always a simple box (even if its definition is a session,
+            # that session's structure is shown in its own cluster, not nested here).
+            fill = color_map.get(child_def, "white") if child_def else "white"
+            nodes.append(Node(id=child_id, label=child.id, shape="box",
+                              fillcolor=fill, style="filled,rounded", cluster=def_id))
+
+            # child -> its own taskdef (of), if it has one
+            if child_def and child_def in task_ids:
+                edges.append(Edge(from_id=child_id, to_id=child_def,
                                   label="of", style="dotted", color="gray"))
 
-            # sibling after: qualify a bare sibling ref to {inst}__{sibling}
+            # sibling after/containedin (bare refs → qualified siblings)
             for dep in _iter_after(child):
-                if dep.task_id in sibling_ids:
-                    edges.append(Edge(from_id=q_id, to_id=f"{inst.id}{SESSION_SEP}{dep.task_id}",
+                target = f"{def_id}{SESSION_SEP}{dep.task_id}" if dep.task_id in sibling_ids else dep.task_id
+                if target in task_ids or SESSION_SEP in target:
+                    edges.append(Edge(from_id=child_id, to_id=target,
                                       label=_fmt_gap(dep.gap), style="solid", color="blue"))
-                elif dep.task_id in task_ids:
-                    edges.append(Edge(from_id=q_id, to_id=dep.task_id,
-                                      label=_fmt_gap(dep.gap), style="solid", color="blue"))
-            # sibling containedin
             for dep in _iter_containedin(child):
-                if dep.task_id in sibling_ids:
-                    edges.append(Edge(from_id=q_id, to_id=f"{inst.id}{SESSION_SEP}{dep.task_id}",
-                                      label=_fmt_containedin(dep), style="dashed", color="purple"))
-                elif dep.task_id in task_ids:
-                    edges.append(Edge(from_id=q_id, to_id=dep.task_id,
+                target = f"{def_id}{SESSION_SEP}{dep.task_id}" if dep.task_id in sibling_ids else dep.task_id
+                if target in task_ids or SESSION_SEP in target:
+                    edges.append(Edge(from_id=child_id, to_id=target,
                                       label=_fmt_containedin(dep), style="dashed", color="purple"))
 
-        rep = inst_rep.get(inst.id)
-        # cluster -> session taskdef (of)
-        if rep and inst.definition in task_ids:
-            edges.append(Edge(from_id=rep, to_id=inst.definition,
-                              label="of", style="dotted", color="gray", ltail=cluster))
-        # session-level after/containedin -> cluster→cluster (or cluster→task) edges
-        for dep in _iter_after(inst):
-            if rep and dep.task_id in inst_rep:
-                edges.append(Edge(from_id=rep, to_id=inst_rep[dep.task_id],
-                                  label=_fmt_gap(dep.gap), style="solid", color="blue",
-                                  ltail=cluster, lhead=f"cluster_{dep.task_id}"))
-            elif rep and dep.task_id in task_ids:
-                edges.append(Edge(from_id=rep, to_id=dep.task_id,
-                                  label=_fmt_gap(dep.gap), style="solid", color="blue",
-                                  ltail=cluster))
-        for dep in _iter_containedin(inst):
-            if rep and dep.task_id in inst_rep:
-                edges.append(Edge(from_id=rep, to_id=inst_rep[dep.task_id],
-                                  label=_fmt_containedin(dep), style="dashed", color="purple",
-                                  ltail=cluster, lhead=f"cluster_{dep.task_id}"))
-            elif rep and dep.task_id in task_ids:
-                edges.append(Edge(from_id=rep, to_id=dep.task_id,
-                                  label=_fmt_containedin(dep), style="dashed", color="purple",
-                                  ltail=cluster))
+    # Expand all session taskdefs
+    for def_id in session_defs:
+        expand_session_def(def_id)
 
-    # --- Non-session tasks: of / after / containedin edges (unchanged) ---
+    # --- All task nodes (instances and non-session taskdefs) ---
     for task in tn.tasks:
-        if is_session_instance(task):
-            continue
-        # instance -> taskdef (defines/of)
+        nodes.append(_task_node(task, color_map))
+    # --- Task instance edges: of / after / containedin (all tasks, no special session handling) ---
+    for task in tn.tasks:
+        if task.kind == TaskKind.DEFINITION:
+            continue  # taskdefs have no instance-level dependencies
+        # instance -> taskdef (of)
         if task.definition and task.definition in task_ids:
             edges.append(Edge(from_id=task.id, to_id=task.definition,
                               label="of", style="dotted", color="gray"))
-
-        # after (dependent -> prerequisite)
+        # after
         for dep in _iter_after(task):
             if dep.task_id in task_ids:
                 edges.append(Edge(from_id=task.id, to_id=dep.task_id,
                                   label=_fmt_gap(dep.gap), style="solid", color="blue"))
-
-        # containedin (child -> parent)
+        # containedin
         for dep in _iter_containedin(task):
             if dep.task_id in task_ids:
                 edges.append(Edge(from_id=task.id, to_id=dep.task_id,

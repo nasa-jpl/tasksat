@@ -1,0 +1,46 @@
+# Test: nested sessions (sessions containing sessions).
+#
+# Three-level hierarchy:
+#   Mission (top session) contains Phase1, Phase2
+#     Phase1/Phase2 (mid sessions) each contain Prep, Work
+#       Prep/Work are atomic taskdefs
+#
+# Expected flattening:
+#   mission1__phase1__prep, mission1__phase1__work,
+#   mission1__phase2__prep, mission1__phase2__work
+# (6-level qualified names if Mission had been a session too, etc.)
+
+tasknet NestedSessions {
+  end = 1000;
+
+  timelines {
+    mode : state(idle, busy) = idle;
+  }
+
+  # Atomic taskdefs (leaf level)
+  taskdef Prep {
+    duration_range [10, 10];
+    impacts { post { mode = busy; } }
+  }
+
+  taskdef Work {
+    duration_range [20, 20];
+    impacts { post { mode = idle; } }
+  }
+
+  # Mid-level session: contains atomic tasks
+  taskdef Phase {
+    task prep : Prep;
+    task work : Work { after prep; }
+  }
+
+  # Top-level session: contains session instances
+  taskdef Mission {
+    task phase1 : Phase;
+    task phase2 : Phase { after phase1; }
+  }
+
+  invariant compositional { mode = idle; }
+
+  task mission1 : Mission;
+}

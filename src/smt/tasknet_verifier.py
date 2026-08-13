@@ -262,6 +262,34 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         return
 
     # Phase 1: Validity checking
+    # Phase 2: Property verification
+    # When compositional mode is active, project to a single session instance first
+    compositional_active = (compositional
+                            or getattr(tn_pre_transform, 'compositional', False))
+
+    if compositional_active:
+        from tasknet_compositional import project_single_session
+        print(info("\n⚙️  Compositional mode: projecting to single session instance..."))
+        tn_single, session_id = project_single_session(tn_pre_transform)
+        if tn_single is None:
+            print(error("❌ No session found for compositional projection"))
+            return
+        print(info(f"    Verifying single instance '{session_id}' (compositional check will discharge all N)\n"))
+        # Use the projected single-session network for Phases 1 and 2
+        tn = tn_single
+        # Re-encode with the projected network
+        if hasattr(tn, 'properties') and tn.properties:
+            enc = TaskNetTL(tn, error_trace=False, use_optimization=(mode == 'optimize'))
+        else:
+            enc = TaskNetSMT(tn, use_optimization=(mode == 'optimize'))
+
+    # Phase 1: Validity check (EE - ∃∃)
+    # On full network if standard mode, or single session if compositional
+    if compositional_active:
+        print(header("\n=== Phase 1: Validity Check (EE - ∃∃) on Single Session ==="))
+    else:
+        print(header("\n=== Phase 1: Validity Check (EE - ∃∃) ==="))
+
     validity_start = time.time()
     try:
         m, unsat_core_data = enc.solve()
@@ -275,93 +303,86 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     validity_end = time.time()
 
     if m is None:
-        print(warning("\n⚠️  UNSAT: No valid schedule found!"))
-        print(f"\n{bold('=== Timing ===')}")
-        print(f"Validity checking: {validity_end - validity_start:.2f} seconds")
-        print(f"Total time: {validity_end - start_time:.2f} seconds")
+            print(warning("\n⚠️  UNSAT: No valid schedule found!"))
+            print(f"\n{bold('=== Timing ===')}")
+            print(f"Validity checking: {validity_end - validity_start:.2f} seconds")
+            print(f"Total time: {validity_end - start_time:.2f} seconds")
 
-        # Save UNSAT result for web UI
-        from pathlib import Path
-        from datetime import datetime
-        import json
+            # Save UNSAT result for web UI
+            from pathlib import Path
+            from datetime import datetime
+            import json
 
-        input_path = Path(path)
-        tasknet_name = input_path.stem
+            input_path = Path(path)
+            tasknet_name = input_path.stem
 
-        # Create timestamped folder structure
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        run_dir = Path('.tasksat/schedules') / tasknet_name / timestamp
-        run_dir.mkdir(parents=True, exist_ok=True)
+            # Create timestamped folder structure
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            run_dir = Path('.tasksat/schedules') / tasknet_name / timestamp
+            run_dir.mkdir(parents=True, exist_ok=True)
 
-        # Also create latest symlink/folder
-        latest_dir = Path('.tasksat/schedules') / tasknet_name / 'latest'
-        latest_dir.mkdir(parents=True, exist_ok=True)
+            # Also create latest symlink/folder
+            latest_dir = Path('.tasksat/schedules') / tasknet_name / 'latest'
+            latest_dir.mkdir(parents=True, exist_ok=True)
 
-        # Reconstruct command
-        import sys
-        command_parts = ['python', 'src/smt/tasknet_verifier.py', path]
-        if mode != 'optimize':
-            command_parts.extend(['--mode', mode])
-        command = ' '.join(command_parts)
+            # Reconstruct command
+            import sys
+            command_parts = ['python', 'src/smt/tasknet_verifier.py', path]
+            if mode != 'optimize':
+                command_parts.extend(['--mode', mode])
+            command = ' '.join(command_parts)
 
-        # Save metadata
-        metadata = {
-            "source_path": str(input_path.absolute()),
-            "timestamp": datetime.now().isoformat(),
-            "status": "unsat",
-            "duration_sec": round(validity_end - start_time, 3),
-            "validity_check_sec": round(validity_end - validity_start, 3),
-            "command": command,
-            "mode": mode
-        }
+            # Save metadata
+            metadata = {
+                "source_path": str(input_path.absolute()),
+                "timestamp": datetime.now().isoformat(),
+                "status": "unsat",
+                "duration_sec": round(validity_end - start_time, 3),
+                "validity_check_sec": round(validity_end - validity_start, 3),
+                "command": command,
+                "mode": mode
+            }
 
-        with open(run_dir / "metadata.json", 'w') as f:
-            json.dump(metadata, f, indent=2)
-        with open(latest_dir / "metadata.json", 'w') as f:
-            json.dump(metadata, f, indent=2)
+            with open(run_dir / "metadata.json", 'w') as f:
+                json.dump(metadata, f, indent=2)
+            with open(latest_dir / "metadata.json", 'w') as f:
+                json.dump(metadata, f, indent=2)
 
-        # Save UNSAT core analysis if available
-        if unsat_core_data:
-            with open(run_dir / "unsat_core.json", 'w') as f:
-                json.dump(unsat_core_data, f, indent=2)
-            with open(latest_dir / "unsat_core.json", 'w') as f:
-                json.dump(unsat_core_data, f, indent=2)
-            print(dim(f"📄 UNSAT core analysis saved to: {run_dir}/unsat_core.json"))
+            # Save UNSAT core analysis if available
+            if unsat_core_data:
+                with open(run_dir / "unsat_core.json", 'w') as f:
+                    json.dump(unsat_core_data, f, indent=2)
+                with open(latest_dir / "unsat_core.json", 'w') as f:
+                    json.dump(unsat_core_data, f, indent=2)
+                print(dim(f"📄 UNSAT core analysis saved to: {run_dir}/unsat_core.json"))
 
-        # Save console output
-        save_console_output(run_dir, latest_dir)
+            # Save console output
+            save_console_output(run_dir, latest_dir)
 
-        print(dim(f"\n📄 UNSAT result saved to: {run_dir}"))
-        print(dim(f"📄 Latest at: {latest_dir}"))
-        return
+            print(dim(f"\n📄 UNSAT result saved to: {run_dir}"))
+            print(dim(f"📄 Latest at: {latest_dir}"))
+            return
 
     enc.pretty_print(m)
 
-    # Phase 2: Property verification
-    # When the compositional check will run, its AA sub-check already verifies
-    # the invariant P at the final state (on the projected single-session net),
-    # so skip the redundant full-network `final` check here — on large sequences
-    # it only times out to an unhelpful UNKNOWN. (`invariant compositional {P}`
-    # desugars to `initial {P}` + `final within initial`.)
-    #
-    # The user `properties {...}` are ALSO skipped here when compositional: they
-    # are instead checked once on the projected single session (Phase 3.5) and
-    # reported "per session", which scales N-independently. Checking them on the
-    # full N-instance network would silently reintroduce the O(N) cost that the
-    # compositional check exists to avoid.
-    compositional_active = (compositional
-                            or getattr(tn_pre_transform, 'compositional', False))
+    # Phase 2: Property verification (AA - ∀∀)
+    if compositional_active:
+        print(header("\n=== Phase 2: Property Verification (AA - ∀∀) on Single Session ==="))
+    else:
+        print(header("\n=== Phase 2: Property Verification (AA - ∀∀) ==="))
+
     property_start = time.time()
-    property_results, violations = enc.check_temporal_properties(
-        skip_final=compositional_active,
-        skip_properties=compositional_active)
+    if hasattr(enc, 'check_temporal_properties'):
+        property_results, violations = enc.check_temporal_properties()
+    else:
+        property_results, violations = [], []
     property_end = time.time()
 
-    # Phase 3 (opt-in): Realizability check (forall initial state exists schedule)
+    # Phase 3 (opt-in): Realizability check (AE - ∀∃)
     realizability_result = None
     if realizability:
         from tasknet_realizability import check_realizability
-        print(header("\nChecking realizability (forall initial state exists schedule):"))
+        print(header("\n=== Phase 3: Realizability Check (AE - ∀∃) ==="))
         realizability_result = check_realizability(
             tn, max_iters=realizability_max_iters, budget_sec=realizability_budget)
 
@@ -380,14 +401,14 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         property_results.append({
             k: v for k, v in realizability_result.items() if k != 'unsat_core'})
 
-    # Phase 3.5 (opt-in): Compositional inductive-invariant sequencing check.
+    # Phase 3.5 (opt-in): Compositional proof {P}S{P}
     # Fires when --compositional is passed OR the spec declares
     # `invariant compositional { ... }`. Uses the PRE-transform AST (session
     # children + invariant block intact).
     compositional_result = None
     if compositional_active:
         from tasknet_compositional import check_compositional
-        print(header("\nChecking compositional invariant {P}S{P} => forall N {P}S^N{P}:"))
+        print(header("\n=== Compositional Proof: {P}S{P} => forall N {P}S^N{P} ==="))
         compositional_result = check_compositional(
             tn_pre_transform, apply_transforms,
             max_iters=compositional_max_iters, budget_sec=compositional_budget)
@@ -420,14 +441,18 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     end_time = time.time()
 
     print(f"\n{bold('=== Timing ===')}")
-    print(f"Validity checking: {validity_end - validity_start:.2f} seconds")
-    print(f"Property verification: {property_end - property_start:.2f} seconds")
 
-    # Add average time per property if properties exist
+    # Define num_properties for use in success message
     num_properties = len(tn.properties) if hasattr(tn, 'properties') and tn.properties else 0
-    if num_properties > 0:
-        avg_time_per_property = (property_end - property_start) / num_properties
-        print(f"Average per property: {avg_time_per_property:.2f} seconds ({num_properties} properties)")
+
+    if not compositional_active:
+        print(f"Validity checking: {validity_end - validity_start:.2f} seconds")
+        print(f"Property verification: {property_end - property_start:.2f} seconds")
+
+        # Add average time per property if properties exist
+        if num_properties > 0:
+            avg_time_per_property = (property_end - property_start) / num_properties
+            print(f"Average per property: {avg_time_per_property:.2f} seconds ({num_properties} properties)")
 
     print(f"Total time: {end_time - start_time:.2f} seconds")
 
@@ -439,156 +464,149 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
             and not compositional_violated:
         print(success("\n✓ All constraints and properties satisfied!") if num_properties > 0 else success("\n✓ Valid schedule found!"))
 
-    # Export schedule as JSON and generate visualizations
+    # Save results (metadata and properties) even when compositional skips full-network solve
     from pathlib import Path
     from datetime import datetime
     import json
-    import os
 
     input_path = Path(path)
     tasknet_name = input_path.stem
-
-    # Create timestamped folder structure
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_dir = Path('.tasksat/schedules') / tasknet_name / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
-
-    # Also create latest symlink/folder
     latest_dir = Path('.tasksat/schedules') / tasknet_name / 'latest'
     latest_dir.mkdir(parents=True, exist_ok=True)
 
-    schedule = enc.extract_schedule(m)
-    evolution = enc.extract_timeline_evolution(m)
-
-    # Save metadata
+    # Save metadata (always, regardless of compositional mode)
     import sys
-    # Reconstruct the command that was run
     command_parts = ['python', 'src/smt/tasknet_verifier.py', path]
     if mode != 'optimize':
         command_parts.extend(['--mode', mode])
+    if realizability:
+        command_parts.append('--realizability')
+    if compositional:
+        command_parts.append('--compositional')
     command = ' '.join(command_parts)
 
-    # Determine status based on violations (a violated realizability check
-    # counts, even though it produces no error trace)
     realizability_violated = (realizability_result is not None
                               and realizability_result['status'] == 'violated')
-    status = "violated" if (violations or realizability_violated
-                            or compositional_violated) else "success"
+    status = "violated" if (violations or realizability_violated or compositional_violated) else "success"
 
     metadata = {
         "source_path": str(input_path.absolute()),
         "timestamp": datetime.now().isoformat(),
         "status": status,
         "duration_sec": round(end_time - start_time, 3),
-        "validity_check_sec": round(validity_end - validity_start, 3),
-        "property_verification_sec": round(property_end - property_start, 3),
         "command": command,
         "mode": mode,
         "num_violations": len(violations) if violations else 0
     }
+    if not compositional_active:
+        metadata["validity_check_sec"] = round(validity_end - validity_start, 3)
+        metadata["property_check_sec"] = round(property_end - property_start, 3)
     if realizability_result is not None:
         metadata["realizability"] = realizability_result['status']
         metadata["realizability_check_sec"] = realizability_result['duration_sec']
     if compositional_result is not None:
         metadata["compositional"] = compositional_result['status']
         metadata["compositional_check_sec"] = compositional_result['duration_sec']
-    metadata_path = run_dir / "metadata.json"
-    with open(metadata_path, 'w') as f:
-        json.dump(metadata, f, indent=2)
 
-    # Copy metadata to latest/
-    with open(latest_dir / "metadata.json", 'w') as f:
-        json.dump(metadata, f, indent=2)
+    for d in (run_dir, latest_dir):
+        with open(d / "metadata.json", 'w') as f:
+            json.dump(metadata, f, indent=2)
 
-    # Save property verification results
+    # Save property verification results (always, even in compositional mode)
     if property_results:
-        properties_path = run_dir / "properties.json"
-        with open(properties_path, 'w') as f:
-            json.dump(property_results, f, indent=2)
-        with open(latest_dir / "properties.json", 'w') as f:
-            json.dump(property_results, f, indent=2)
-        print(f"📋 Property verification results saved to: {properties_path}")
+        for d in (run_dir, latest_dir):
+            with open(d / "properties.json", 'w') as f:
+                json.dump(property_results, f, indent=2)
+        print(f"📋 Property verification results saved to: {run_dir}/properties.json")
 
-    # Save the realizability counterexample's unsat core (why nothing is
-    # schedulable from that initial state)
+    # Save realizability unsat core (if exists)
     if realizability_result is not None and realizability_result.get('unsat_core'):
         for d in (run_dir, latest_dir):
             with open(d / "realizability_unsat_core.json", 'w') as f:
                 json.dump(realizability_result['unsat_core'], f, indent=2)
         print(dim(f"📄 Realizability unsat core saved to: {run_dir}/realizability_unsat_core.json"))
 
-    # Save the compositional AE counterexample's unsat core (why a P-state admits
-    # no P-preserving schedule)
+    # Save compositional unsat core (if exists)
     if compositional_result is not None and compositional_result.get('unsat_core'):
         for d in (run_dir, latest_dir):
             with open(d / "compositional_unsat_core.json", 'w') as f:
                 json.dump(compositional_result['unsat_core'], f, indent=2)
         print(dim(f"📄 Compositional unsat core saved to: {run_dir}/compositional_unsat_core.json"))
 
+    # Save console output (always)
+    save_console_output(run_dir, latest_dir)
+
+    # Phase 4: Export schedule as JSON and generate visualizations
+    schedule = enc.extract_schedule(m)
+    evolution = enc.extract_timeline_evolution(m)
+
     # Save schedule as JSON
     json_path = run_dir / "schedule.json"
     with open(json_path, 'w') as f:
-        json.dump(schedule, f, indent=2)
+            json.dump(schedule, f, indent=2)
     with open(latest_dir / "schedule.json", 'w') as f:
-        json.dump(schedule, f, indent=2)
+            json.dump(schedule, f, indent=2)
 
     # Save timeline evolution as JSON
     evolution_json_path = run_dir / "timeline.json"
     with open(evolution_json_path, 'w') as f:
-        json.dump(evolution, f, indent=2)
+            json.dump(evolution, f, indent=2)
     with open(latest_dir / "timeline.json", 'w') as f:
-        json.dump(evolution, f, indent=2)
+            json.dump(evolution, f, indent=2)
 
     # Generate Gantt chart
     try:
-        from tasknet_gantt import create_gantt_from_schedule
-        gantt_path = run_dir / "gantt.png"
-        create_gantt_from_schedule(schedule, str(gantt_path), f"Schedule: {tn.id}", tasknet=tn)
-        # Copy to latest/
-        import shutil
-        shutil.copy(str(gantt_path), str(latest_dir / "gantt.png"))
-        print(f"\n📊 Gantt chart saved to: {gantt_path}")
+            from tasknet_gantt import create_gantt_from_schedule
+            gantt_path = run_dir / "gantt.png"
+            create_gantt_from_schedule(schedule, str(gantt_path), f"Schedule: {tn.id}", tasknet=tn)
+            # Copy to latest/
+            import shutil
+            shutil.copy(str(gantt_path), str(latest_dir / "gantt.png"))
+            print(f"\n📊 Gantt chart saved to: {gantt_path}")
     except ImportError:
-        print("⚠️  Gantt chart generation skipped (matplotlib not installed)")
+            print("⚠️  Gantt chart generation skipped (matplotlib not installed)")
 
     # Generate timeline evolution visualization
     try:
-        from tasknet_timeline_viz import create_timeline_evolution_plot
-        timeline_path = run_dir / "timeline.png"
-        create_timeline_evolution_plot(schedule, evolution, str(timeline_path), f"Schedule: {tn.id}", tasknet=tn)
-        # Copy to latest/
-        import shutil
-        shutil.copy(str(timeline_path), str(latest_dir / "timeline.png"))
-        print(f"📈 Timeline evolution saved to: {timeline_path}")
+            from tasknet_timeline_viz import create_timeline_evolution_plot
+            timeline_path = run_dir / "timeline.png"
+            create_timeline_evolution_plot(schedule, evolution, str(timeline_path), f"Schedule: {tn.id}", tasknet=tn)
+            # Copy to latest/
+            import shutil
+            shutil.copy(str(timeline_path), str(latest_dir / "timeline.png"))
+            print(f"📈 Timeline evolution saved to: {timeline_path}")
     except ImportError:
-        print("⚠️  Timeline evolution chart skipped (matplotlib not installed)")
+            print("⚠️  Timeline evolution chart skipped (matplotlib not installed)")
 
     # Generate static tasknet structure visualization (uses the pre-transform AST
     # so mutex/sequence edges are visible; rendered via Graphviz, not matplotlib).
     # Produces two images: <base>_relations.png and <base>_timelines.png.
     try:
-        from tasknet_structure_viz import create_structure_visualization
-        structure_base = run_dir / "structure.png"
-        created = create_structure_visualization(tn_pre_transform, str(structure_base))
-        if created:
-            import shutil
-            for src_png in created:
-                shutil.copy(src_png, str(latest_dir / Path(src_png).name))
-            print(f"🗺️  Structure diagrams saved to: {run_dir}")
+            from tasknet_structure_viz import create_structure_visualization
+            structure_base = run_dir / "structure.png"
+            created = create_structure_visualization(tn_pre_transform, str(structure_base))
+            if created:
+                import shutil
+                for src_png in created:
+                    shutil.copy(src_png, str(latest_dir / Path(src_png).name))
+                print(f"🗺️  Structure diagrams saved to: {run_dir}")
     except ImportError:
-        print("⚠️  Structure diagram skipped (tasknet_structure_viz unavailable)")
+            print("⚠️  Structure diagram skipped (tasknet_structure_viz unavailable)")
 
     # Generate temporal range visualization (shows time constraints horizontally)
     try:
-        from tasknet_temporal_viz import create_temporal_range_visualization
-        temporal_path = run_dir / "temporal.png"
-        temporal_created = create_temporal_range_visualization(tn_pre_encoding, str(temporal_path))
-        if temporal_created:
-            import shutil
-            shutil.copy(str(temporal_path), str(latest_dir / "temporal.png"))
-            print(f"📊 Temporal range visualization saved to: {run_dir}")
+            from tasknet_temporal_viz import create_temporal_range_visualization
+            temporal_path = run_dir / "temporal.png"
+            temporal_created = create_temporal_range_visualization(tn_pre_encoding, str(temporal_path))
+            if temporal_created:
+                import shutil
+                shutil.copy(str(temporal_path), str(latest_dir / "temporal.png"))
+                print(f"📊 Temporal range visualization saved to: {run_dir}")
     except ImportError:
-        print("⚠️  Temporal range visualization skipped (matplotlib not installed)")
+            print("⚠️  Temporal range visualization skipped (matplotlib not installed)")
 
     # Save console output
     save_console_output(run_dir, latest_dir)
@@ -598,78 +616,78 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
 
     # Generate error trace visualizations for violated properties
     if violations:
-        print(f"\n🔴 Generating {len(violations)} error trace visualization(s)...")
-        # Store errors under this verification run's directory
-        errors_dir = run_dir / 'errors'
-        errors_dir.mkdir(parents=True, exist_ok=True)
+            print(f"\n🔴 Generating {len(violations)} error trace visualization(s)...")
+            # Store errors under this verification run's directory
+            errors_dir = run_dir / 'errors'
+            errors_dir.mkdir(parents=True, exist_ok=True)
 
-        # Also create errors dir in latest/
-        latest_errors_dir = latest_dir / 'errors'
-        latest_errors_dir.mkdir(parents=True, exist_ok=True)
+            # Also create errors dir in latest/
+            latest_errors_dir = latest_dir / 'errors'
+            latest_errors_dir.mkdir(parents=True, exist_ok=True)
 
-        for violation in violations:
-            prop_name = violation['property_name']
-            model = violation['model']
-            error_enc = violation['encoder']
-            violation_zones = violation.get('violation_zones', [])
+            for violation in violations:
+                prop_name = violation['property_name']
+                model = violation['model']
+                error_enc = violation['encoder']
+                violation_zones = violation.get('violation_zones', [])
 
-            # Find the property to get its formula (using proper pretty printer)
-            prop_formula_str = None
-            if hasattr(tn, 'properties') and tn.properties:
-                for prop in tn.properties:
-                    if prop.name == prop_name:
-                        from tasknet_printer import TaskNetPrinter
-                        printer = TaskNetPrinter()
-                        prop_formula_str = printer.print_tl_formula(prop.formula)
-                        break
+                # Find the property to get its formula (using proper pretty printer)
+                prop_formula_str = None
+                if hasattr(tn, 'properties') and tn.properties:
+                    for prop in tn.properties:
+                        if prop.name == prop_name:
+                            from tasknet_printer import TaskNetPrinter
+                            printer = TaskNetPrinter()
+                            prop_formula_str = printer.print_tl_formula(prop.formula)
+                            break
 
-            # Extract error trace data
-            error_schedule = error_enc.extract_schedule(model)
-            error_evolution = error_enc.extract_timeline_evolution(model)
+                # Extract error trace data
+                error_schedule = error_enc.extract_schedule(model)
+                error_evolution = error_enc.extract_timeline_evolution(model)
 
-            # Save error schedule and timeline data (no tasknet name prefix needed)
-            error_schedule_path = errors_dir / f"{prop_name}_schedule.json"
-            error_timeline_path = errors_dir / f"{prop_name}_timeline.json"
+                # Save error schedule and timeline data (no tasknet name prefix needed)
+                error_schedule_path = errors_dir / f"{prop_name}_schedule.json"
+                error_timeline_path = errors_dir / f"{prop_name}_timeline.json"
 
-            with open(error_schedule_path, 'w') as f:
-                json.dump(error_schedule, f, indent=2)
-            with open(error_timeline_path, 'w') as f:
-                json.dump(error_evolution, f, indent=2)
+                with open(error_schedule_path, 'w') as f:
+                    json.dump(error_schedule, f, indent=2)
+                with open(error_timeline_path, 'w') as f:
+                    json.dump(error_evolution, f, indent=2)
 
-            # Copy to latest/
-            with open(latest_errors_dir / f"{prop_name}_schedule.json", 'w') as f:
-                json.dump(error_schedule, f, indent=2)
-            with open(latest_errors_dir / f"{prop_name}_timeline.json", 'w') as f:
-                json.dump(error_evolution, f, indent=2)
-
-            # Generate error trace visualization
-            try:
-                from tasknet_timeline_viz import create_timeline_evolution_plot
-                error_viz_path = errors_dir / f"{prop_name}_timeline.png"
-
-                # Create title with property name and formula
-                if prop_formula_str:
-                    title = f"Error Trace: {prop_name}\n{prop_formula_str}"
-                else:
-                    title = f"Error Trace: {prop_name}"
-
-                create_timeline_evolution_plot(
-                    error_schedule,
-                    error_evolution,
-                    str(error_viz_path),
-                    title=title,
-                    violation_zones=violation_zones,
-                    tasknet=tn
-                )
                 # Copy to latest/
-                import shutil
-                shutil.copy(str(error_viz_path), str(latest_errors_dir / f"{prop_name}_timeline.png"))
+                with open(latest_errors_dir / f"{prop_name}_schedule.json", 'w') as f:
+                    json.dump(error_schedule, f, indent=2)
+                with open(latest_errors_dir / f"{prop_name}_timeline.json", 'w') as f:
+                    json.dump(error_evolution, f, indent=2)
 
-                print(f"  📉 Error trace for '{prop_name}' saved to: {error_viz_path}")
-                if violation_zones:
-                    print(f"      Violation detected at zones: {violation_zones}")
-            except ImportError:
-                print(f"  ⚠️  Error trace visualization skipped (matplotlib not installed)")
+                # Generate error trace visualization
+                try:
+                    from tasknet_timeline_viz import create_timeline_evolution_plot
+                    error_viz_path = errors_dir / f"{prop_name}_timeline.png"
+
+                    # Create title with property name and formula
+                    if prop_formula_str:
+                        title = f"Error Trace: {prop_name}\n{prop_formula_str}"
+                    else:
+                        title = f"Error Trace: {prop_name}"
+
+                    create_timeline_evolution_plot(
+                        error_schedule,
+                        error_evolution,
+                        str(error_viz_path),
+                        title=title,
+                        violation_zones=violation_zones,
+                        tasknet=tn
+                    )
+                    # Copy to latest/
+                    import shutil
+                    shutil.copy(str(error_viz_path), str(latest_errors_dir / f"{prop_name}_timeline.png"))
+
+                    print(f"  📉 Error trace for '{prop_name}' saved to: {error_viz_path}")
+                    if violation_zones:
+                        print(f"      Violation detected at zones: {violation_zones}")
+                except ImportError:
+                    print(f"  ⚠️  Error trace visualization skipped (matplotlib not installed)")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='TaskNet Scheduler and Verifier')

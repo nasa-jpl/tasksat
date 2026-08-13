@@ -137,7 +137,7 @@ class TestCompositionalCLI:
         AE VIOLATED -> compositional VIOLATED, with the counterexample state."""
         verify_out('tasknet63_compositional_ae_violated.tn',
                    extra_args=['--compositional'])(
-            "Checking compositional invariant",
+            "=== Compositional Proof:",
             "→ VIOLATED! (safety (every run keeps P)=holds, "
             "realizability (some run keeps P)=violated)",
             "Realizability VIOLATED",
@@ -149,13 +149,13 @@ class TestCompositionalCLI:
         """`invariant compositional {...}` in the spec triggers the check with no
         CLI flag (tasknet63 declares it)."""
         output = verify('tasknet63_compositional_ae_violated.tn')
-        assert "Checking compositional invariant" in output
+        assert "=== Compositional Proof:" in output
 
     def test_flag_off_no_check(self):
         """A net without an `invariant compositional` block and no --compositional
         flag must not run the check."""
         output = verify('tasknet52_realizability_holds.tn')
-        assert "Checking compositional invariant" not in output
+        assert "=== Compositional Proof:" not in output
 
 
 class TestCompositionalPropertiesJson:
