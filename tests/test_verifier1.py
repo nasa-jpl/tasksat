@@ -377,7 +377,7 @@ class TestVerifier:
         with the concrete counterexample initial state."""
         verify_out('tasknet63_compositional_ae_violated.tn',
                    extra_args=['--compositional'])(
-            "Checking compositional invariant",
+            "Compositional Proof",
             "→ VIOLATED! (safety (every run keeps P)=holds, "
             "realizability (some run keeps P)=violated)",
             "Realizability VIOLATED",

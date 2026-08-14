@@ -213,9 +213,24 @@ session network to a 1-instance network (reading session structure from the
 pre-transform AST), so both checks run in Θ(1) task time regardless of N; the result
 discharges all N.
 
-**Assumption (this cut):** γ = 0 — no inter-session gap drift. Cross-session
-dependencies are dropped by the projection; the γ-closure check
-(`∀v⊨P. P(v+γ)`) is a deferred follow-up.
+**Preconditions (enforced/assumed):**
+- **Uniformity (enforced).** The verify-once-hold-for-all-N argument is sound only
+  for a uniform chain `S^N`. `project_single_session()` rejects (hard error, no
+  verdict) any network whose session instances are not all interchangeable — same
+  taskdef, params, and body, modulo identity and cross-session deps. Without this a
+  P-preserving session followed by a P-breaking one would yield a false HOLDS.
+  Guard: `_assert_uniform()` in [tasknet_compositional.py](src/smt/tasknet_compositional.py);
+  fixture `tasknet68` (heterogeneous → refused).
+- **γ = 0 (assumed).** No inter-session gap drift. Cross-session dependencies are
+  dropped by the projection; the γ-closure check (`∀v⊨P. P(v+γ)`) is a deferred
+  follow-up.
+
+**No full-network solve.** When compositional is active the verifier projects to the
+single session BEFORE encoding, so it never builds/solves the O(N) network. It shows
+the FIRST session instance's schedule (labeled representative), not a materialized
+N-instance schedule. AA/user-properties are checked ONCE (Phase 2) and reused by the
+proof (Phase 3.5) via `check_compositional(..., aa_result=...)` — no duplicate solve
+or double-listed properties.
 
 **Usage:**
 ```bash

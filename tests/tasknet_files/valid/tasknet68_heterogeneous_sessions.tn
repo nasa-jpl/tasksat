@@ -1,0 +1,48 @@
+# Test: NON-uniform session chain under --compositional must be REJECTED.
+#
+# The compositional argument (verify one session S, conclude for all N) is only
+# sound for a uniform chain S^N. This network chains two DIFFERENT sessions:
+#   a_good : GoodSession  -> prep then work -> ends mode=idle  (preserves P)
+#   z_bad  : BadSession   -> prep only      -> ends mode=busy  (BREAKS P)
+#
+# The real 2-session chain ends in mode=busy, violating `invariant { mode = idle }`.
+# Without the uniformity guard, project_single_session would keep only the
+# lexicographically-first instance (a_good), verify it in isolation, and report a
+# FALSE HOLDS. The guard must instead refuse to run and error out.
+#
+# Expected: "Compositional check cannot run: ... UNIFORM session chain ..." (no HOLDS).
+
+tasknet Heterogeneous {
+  end = 1000;
+
+  timelines {
+    mode : state(idle, busy) = idle;
+  }
+
+  taskdef Prep {
+    duration_range [10, 10];
+    impacts { post { mode = busy; } }
+  }
+
+  taskdef Work {
+    duration_range [20, 20];
+    impacts { post { mode = idle; } }
+  }
+
+  # Good session: prep then work -> ends idle (preserves P)
+  taskdef GoodSession {
+    task prep : Prep;
+    task work : Work { after prep; }
+  }
+
+  # Bad session: only prep -> ends busy (BREAKS P)
+  taskdef BadSession {
+    task prep : Prep;
+  }
+
+  invariant compositional { mode = idle; }
+
+  # a_good sorts before z_bad, so a naive projection would keep a_good and DROP z_bad.
+  task a_good : GoodSession;
+  task z_bad  : BadSession { after a_good; }
+}

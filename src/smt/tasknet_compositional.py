@@ -51,6 +51,44 @@ def _session_defs(tn: TaskNet) -> dict:
             if t.kind == TaskKind.DEFINITION and t.children}
 
 
+def _instance_signature(t: Task) -> str:
+    """Structural signature of a session instance, IGNORING its identity (id/ident)
+    and its cross-session dependencies (after/containedin — dropped under gamma=0).
+
+    Two instances with the same signature denote the SAME session S: same taskdef,
+    same params, same body. The compositional argument (verify once, hold for all N)
+    is only sound for a UNIFORM chain S^N, so we use this to reject networks whose
+    session instances are not all interchangeable."""
+    c = copy.deepcopy(t)
+    c.id = None
+    c.ident = None
+    c.after_instances = None
+    c.containedin_instances = None
+    c.after_definitions = None
+    c.containedin_definitions = None
+    return repr(c)
+
+
+def _assert_uniform(instances: List[Task]) -> None:
+    """Raise ValueError unless every session instance is interchangeable with the
+    first (same session S modulo identity and cross-session deps).
+
+    Without this guard the projection would silently keep instances[0] and drop the
+    rest, yielding a false HOLDS when a dropped instance is a DIFFERENT session that
+    breaks P (verified: a P-preserving session followed by a P-breaking one)."""
+    sig0 = _instance_signature(instances[0])
+    divergent = sorted(t.id for t in instances[1:]
+                       if _instance_signature(t) != sig0)
+    if divergent:
+        raise ValueError(
+            "compositional check requires a UNIFORM session chain (every session "
+            "instance must be the same session S — same taskdef, params, and body); "
+            f"instance(s) {divergent} differ from '{instances[0].id}'. Cross-session "
+            "dependencies are ignored (gamma=0), but other differences are not "
+            "permitted for the verify-once-hold-for-all-N argument. Verify without "
+            "--compositional to check the full heterogeneous network instead.")
+
+
 def project_single_session(tn_pre_transform: TaskNet) -> Tuple[TaskNet, str]:
     """Reduce an N-instance session network to a 1-instance network.
 
@@ -80,6 +118,10 @@ def project_single_session(tn_pre_transform: TaskNet) -> Tuple[TaskNet, str]:
         raise ValueError(
             "compositional check requires at least one session instance "
             f"(instances of {sorted(sdefs)}); none found")
+
+    # Soundness precondition: the verify-once-hold-for-all-N argument only holds
+    # for a uniform chain S^N. Reject networks mixing distinct sessions.
+    _assert_uniform(instances)
 
     chosen = instances[0]
 
@@ -112,7 +154,7 @@ def project_single_session(tn_pre_transform: TaskNet) -> Tuple[TaskNet, str]:
 
 def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_cls=TaskNetTL,
                         max_iters: int = 50, budget_sec: float = 60.0,
-                        verbose: bool = True) -> dict:
+                        verbose: bool = True, aa_result=None) -> dict:
     """Run the inductive-invariant sequencing check.
 
     Projects one session, runs AA (safety) + AE (realizability-under-P), combines.
@@ -124,6 +166,11 @@ def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_c
         invariant block not yet desugared).
       apply_transforms: the transform pipeline (injected to avoid an import cycle).
       TaskNetTL_cls: the encoder class (injectable for testing).
+      aa_result: optional (aa_status, per_session_props) precomputed by the caller's
+        AA/property phase on the SAME projected session. When provided, the AA
+        property check is NOT recomputed here (the verifier runs it once in Phase 2
+        and reuses it, avoiding duplicate work and double-listed property results).
+        When None (standalone use), AA is computed internally as before.
 
     Returns a property-result-shaped dict: name/status/duration_sec/formula plus
       session, aa, ae, note, counterexample_initial_state, unsat_core.
@@ -169,18 +216,25 @@ def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_c
     #
     # The projected net carries `initial {P}` (from the invariant desugar), so a
     # property that holds here holds "from any P-state, within one session" — the
-    # per-session guarantee. Because every session is interchangeable, that
-    # discharges the property for all N sessions in the chain (Phase 2 skipped
-    # them precisely so we can check them once here instead of O(N) on the full
-    # network). We check the user properties AND the `final` block (= AA safety)
-    # in one pass; only the user properties get the per_session tag.
-    enc = TaskNetTL_cls(projected, error_trace=False, use_optimization=False)
-    prop_results, _violations = enc.check_temporal_properties(per_session=True)
-    final_entry = next((r for r in prop_results if r.get('name') == 'final'), None)
-    aa_status = final_entry['status'] if final_entry else 'unknown'
-    # Per-session user-property results (everything except the `final` AA artifact)
-    # are surfaced to the caller so they appear in properties.json / the report.
-    per_session_props = [r for r in prop_results if r.get('name') != 'final']
+    # per-session guarantee. Because every session is interchangeable (enforced by
+    # the uniformity guard in project_single_session), that discharges the property
+    # for all N sessions in the chain. We check the user properties AND the `final`
+    # block (= AA safety) in one pass; only the user properties get the per_session
+    # tag.
+    #
+    # If the caller already ran this exact check on the same projected session
+    # (aa_result), reuse it instead of recomputing — avoids duplicate solver work
+    # and double-listed properties in the report.
+    if aa_result is not None:
+        aa_status, per_session_props = aa_result
+    else:
+        enc = TaskNetTL_cls(projected, error_trace=False, use_optimization=False)
+        prop_results, _violations = enc.check_temporal_properties(per_session=True)
+        final_entry = next((r for r in prop_results if r.get('name') == 'final'), None)
+        aa_status = final_entry['status'] if final_entry else 'unknown'
+        # Per-session user-property results (everything except the `final` AA
+        # artifact) are surfaced to the caller for properties.json / the report.
+        per_session_props = [r for r in prop_results if r.get('name') != 'final']
 
     # 4) AE realizability-under-P: schedule must land back in P.
     ae = check_realizability(

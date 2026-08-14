@@ -175,11 +175,15 @@ code[class*="language-"] {
             <p class="text-muted mb-1">
                 <i class="bi bi-clock text-primary"></i>
                 <strong>Performance:</strong>
-                {% if metadata.status != 'unsat' %}
-                    Total <strong>{{ metadata.duration_sec }}s</strong>
-                    (validity: {{ metadata.validity_check_sec }}s{% if metadata.property_verification_sec %}, properties: {{ metadata.property_verification_sec }}s{% endif %})
-                {% else %}
+                {% if metadata.status == 'unsat' %}
                     Validity check: <strong>{{ metadata.validity_check_sec }}s</strong> (UNSAT)
+                {% else %}
+                    {% set breakdown = [] %}
+                    {% if metadata.get('validity_check_sec') is not none %}{% set _ = breakdown.append('validity: %ss'|format(metadata.validity_check_sec)) %}{% endif %}
+                    {% if metadata.get('property_check_sec') is not none %}{% set _ = breakdown.append('properties: %ss'|format(metadata.property_check_sec)) %}{% endif %}
+                    {% if metadata.get('realizability_check_sec') is not none %}{% set _ = breakdown.append('realizability: %ss'|format(metadata.realizability_check_sec)) %}{% endif %}
+                    {% if metadata.get('compositional_check_sec') is not none %}{% set _ = breakdown.append('compositional: %ss'|format(metadata.compositional_check_sec)) %}{% endif %}
+                    Total <strong>{{ metadata.duration_sec }}s</strong>{% if breakdown %} ({{ breakdown|join(', ') }}){% endif %}
                 {% endif %}
             </p>
             {% endif %}
@@ -528,97 +532,217 @@ code[class*="language-"] {
     </div>
     {% endif %}
 
-    <!-- Property Verification Section -->
-    {% if properties %}
+    <!-- Verification Checks Section -->
+    {% if metadata.status in ['success', 'violated', 'unsat'] %}
+    {% macro status_icon(s) -%}
+        {% if s == 'holds' %}<i class="bi bi-check-circle-fill text-success" title="Holds"></i>
+        {% elif s == 'violated' %}<i class="bi bi-x-circle-fill text-danger" title="Violated"></i>
+        {% else %}<i class="bi bi-question-circle-fill text-secondary" title="Unknown"></i>{% endif %}
+    {%- endmacro %}
+
+    {% set props = properties or [] %}
+    {% set aa_props = props | rejectattr('name', 'equalto', 'realizability') | rejectattr('name', 'equalto', 'compositional') | list %}
+    {% set real_prop = props | selectattr('name', 'equalto', 'realizability') | list | first %}
+    {% set comp_prop = props | selectattr('name', 'equalto', 'compositional') | list | first %}
+    {% set is_comp = metadata.get('compositional') is not none %}
+    {% set validity_ok = metadata.status != 'unsat' %}
+
+    {# Tally pass/fail/unknown over the checks that actually ran (validity + AA
+       properties + any opt-in check). "not run" / "no properties" placeholders are
+       NOT counted so the header verdict stays truthful. #}
+    {% set ns = namespace(passed=0, failed=0, unknown=0) %}
+    {% if validity_ok %}{% set ns.passed = ns.passed + 1 %}{% else %}{% set ns.failed = ns.failed + 1 %}{% endif %}
+    {% for p in aa_props %}
+        {% if p.status == 'holds' %}{% set ns.passed = ns.passed + 1 %}
+        {% elif p.status == 'violated' %}{% set ns.failed = ns.failed + 1 %}
+        {% else %}{% set ns.unknown = ns.unknown + 1 %}{% endif %}
+    {% endfor %}
+    {% if real_prop %}
+        {% if real_prop.status == 'holds' %}{% set ns.passed = ns.passed + 1 %}
+        {% elif real_prop.status == 'violated' %}{% set ns.failed = ns.failed + 1 %}
+        {% else %}{% set ns.unknown = ns.unknown + 1 %}{% endif %}
+    {% endif %}
+    {% if comp_prop %}
+        {% if comp_prop.status == 'holds' %}{% set ns.passed = ns.passed + 1 %}
+        {% elif comp_prop.status == 'violated' %}{% set ns.failed = ns.failed + 1 %}
+        {% else %}{% set ns.unknown = ns.unknown + 1 %}{% endif %}
+    {% endif %}
+    {% set total = ns.passed + ns.failed + ns.unknown %}
+
     <div class="card mb-4">
-        <div class="card-header {% if properties|selectattr('status', 'equalto', 'violated')|list|length > 0 %}bg-danger{% else %}bg-success{% endif %} text-white">
-            <i class="bi {% if properties|selectattr('status', 'equalto', 'violated')|list|length > 0 %}bi-exclamation-triangle{% else %}bi-check-circle{% endif %}"></i> Property Verification Results
+        <div class="card-header {% if ns.failed > 0 %}bg-danger{% elif ns.unknown > 0 %}bg-warning text-dark{% else %}bg-success{% endif %} {% if ns.failed == 0 and ns.unknown == 0 %}text-white{% endif %}">
+            <i class="bi {% if ns.failed > 0 %}bi-exclamation-triangle{% else %}bi-check-circle{% endif %}"></i> Verification Checks
+            {% if properties %}
             <button class="btn btn-sm btn-outline-light ms-2" onclick="viewJson('properties', '/static/report/{{ name }}/{{ timestamp }}/properties.json')" style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
                 <i class="bi bi-eye"></i> json
             </button>
             <a href="/static/report/{{ name }}/{{ timestamp }}/properties.json" class="btn btn-sm btn-outline-light ms-1" download style="font-size: 0.75rem; padding: 0.15rem 0.4rem;">
                 <i class="bi bi-download"></i> json
             </a>
-            {% set total = properties|length %}
-            {% set passed = properties|selectattr('status', 'equalto', 'holds')|list|length %}
-            {% set failed = properties|selectattr('status', 'equalto', 'violated')|list|length %}
-            {% set unknown = properties|selectattr('status', 'equalto', 'unknown')|list|length %}
+            {% endif %}
             <span class="float-end">
-                <span class="badge bg-light text-dark">{{ passed }}/{{ total }} passed</span>
-                {% if failed > 0 %}<span class="badge bg-light text-danger ms-1">{{ failed }} failed</span>{% endif %}
-                {% if unknown > 0 %}<span class="badge bg-secondary ms-1">{{ unknown }} unknown</span>{% endif %}
+                <span class="badge bg-light text-dark">{{ ns.passed }}/{{ total }} passed</span>
+                {% if ns.failed > 0 %}<span class="badge bg-light text-danger ms-1">{{ ns.failed }} failed</span>{% endif %}
+                {% if ns.unknown > 0 %}<span class="badge bg-light text-warning ms-1">{{ ns.unknown }} unknown</span>{% endif %}
             </span>
         </div>
         <div class="card-body">
+            <p class="text-muted small mb-2">
+                <i class="bi bi-info-circle"></i>
+                All checks that apply to this mode ({% if is_comp %}compositional{% else %}non-compositional{% endif %}) are listed.
+                The <strong>Form</strong> column shows the logical shape (∃ = exists, ∀ = for all; over initial state, then schedule).
+                Rows marked <span class="text-muted">not&nbsp;run</span> or <span class="text-muted">no properties</span> had nothing to verify and do not count as failures.
+            </p>
             <div class="table-responsive">
-                <table class="table table-hover">
+                <table class="table table-hover align-middle">
                     <thead class="table-light">
                         <tr>
                             <th width="5%">Status</th>
-                            <th width="20%">Property Name</th>
-                            <th width="50%">Formula</th>
-                            <th width="15%">Time</th>
+                            <th width="22%">Check</th>
+                            <th width="8%" title="Logical form: quantifiers over (initial state, schedule)">Form</th>
+                            <th width="45%">Formula / Detail</th>
+                            <th width="10%">Time</th>
                             <th width="10%">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for prop in properties %}
+                        {# 1. Validity (EE — exists initial, exists schedule) — always runs. #}
                         <tr>
-                            <td class="text-center">
-                                {% if prop.status == 'holds' %}
-                                <i class="bi bi-check-circle-fill text-success" title="Property holds"></i>
-                                {% elif prop.status == 'violated' %}
-                                <i class="bi bi-x-circle-fill text-danger" title="Property violated"></i>
-                                {% else %}
-                                <i class="bi bi-question-circle-fill text-secondary" title="Unknown"></i>
-                                {% endif %}
+                            <td class="text-center">{{ status_icon('holds' if validity_ok else 'violated') }}</td>
+                            <td><strong>Validity</strong></td>
+                            <td><small class="text-muted" title="exists initial state . exists schedule">∃∃</small></td>
+                            <td>
+                                <small><code>exists initial state i . exists schedule s . valid(i, s)</code></small>
+                                <br><small class="{% if validity_ok %}text-muted{% else %}text-danger{% endif %}">{% if validity_ok %}A valid schedule exists{% if is_comp %} for the projected single session{% endif %}.{% else %}UNSAT — no valid schedule exists.{% endif %}</small>
                             </td>
-                            <td><code>{{ prop.name }}</code>{% if prop.per_session %} <span class="badge bg-info text-dark" title="Checked once on a single session; holds within every session of the chain (verify once, holds for all N). This is a per-session guarantee, not a whole-run one.">per session</span>{% endif %}</td>
+                            <td><small>{% if metadata.get('validity_check_sec') is not none %}{{ metadata.validity_check_sec }}s{% endif %}</small></td>
+                            <td></td>
+                        </tr>
+
+                        {# 2. Temporal property verification (AA — for all initial, for all
+                             schedules). Rendered as a parent "Properties" row with an
+                             aggregate status; each property is an indented sub-item. #}
+                        {% set aa_ns = namespace(v=0, u=0) %}
+                        {% for p in aa_props %}{% if p.status == 'violated' %}{% set aa_ns.v = aa_ns.v + 1 %}{% elif p.status != 'holds' %}{% set aa_ns.u = aa_ns.u + 1 %}{% endif %}{% endfor %}
+                        {% set aa_agg = 'violated' if aa_ns.v > 0 else ('unknown' if aa_ns.u > 0 else 'holds') %}
+                        <tr class="table-light">
+                            <td class="text-center">{% if aa_props %}{{ status_icon(aa_agg) }}{% else %}<i class="bi bi-dash-circle text-muted" title="Nothing to check"></i>{% endif %}</td>
+                            <td><strong>Properties</strong></td>
+                            <td><small class="text-muted" title="for all initial states . for all schedules">∀∀</small></td>
+                            <td>
+                                <small><code>forall initial state i . forall schedule s . valid(i, s) -> property</code></small>
+                                <br><small class="text-muted">{% if aa_props %}{{ aa_props|length }} temporal propert{{ 'y' if aa_props|length == 1 else 'ies' }} checked (each holds for every valid schedule).{% else %}No temporal properties — nothing to check.{% endif %}</small>
+                            </td>
+                            <td><small>{% if metadata.get('property_check_sec') is not none %}{{ metadata.property_check_sec }}s{% endif %}</small></td>
+                            <td></td>
+                        </tr>
+                        {% for prop in aa_props %}
+                        <tr>
+                            <td class="text-center">{{ status_icon(prop.status) }}</td>
+                            <td style="padding-left: 2.25rem;"><span class="text-muted">└</span> <code>{{ prop.name }}</code>{% if prop.per_session %} <span class="badge bg-info text-dark" title="Checked once on a single session; holds within every session of the chain (verify once, holds for all N). This is a per-session guarantee, not a whole-run one.">per session</span>{% endif %}</td>
+                            <td></td>
                             <td>
                                 <small><code>{{ prop.formula }}</code></small>
                                 {% if prop.per_session and prop.note %}
                                     <br><small class="text-muted">{{ prop.note }}</small>
                                 {% endif %}
-                                {% if prop.name == 'realizability' %}
-                                    {% if prop.note %}
-                                    <br><small class="text-muted">{{ prop.note }}</small>
-                                    {% endif %}
-                                    {% if prop.counterexample_initial_state %}
-                                    <br><small class="text-danger">counterexample initial state:
-                                        {% for tl, val in prop.counterexample_initial_state.items() %}{{ tl }} = {{ val }}{% if not loop.last %}, {% endif %}{% endfor %}
-                                    </small>
-                                    {% endif %}
-                                {% elif prop.name == 'compositional' %}
-                                    <br><small class="text-muted">safety (every run keeps P) = <strong>{{ prop.aa }}</strong>, realizability (some run keeps P) = <strong>{{ prop.ae }}</strong>{% if prop.session %} (session <code>{{ prop.session }}</code>){% endif %}</small>
-                                    {% if prop.note %}
-                                    <br><small class="text-muted">{{ prop.note }}</small>
-                                    {% endif %}
-                                    {% if prop.counterexample_initial_state %}
-                                    <br><small class="text-danger">P-state with no P-preserving schedule:
-                                        {% for tl, val in prop.counterexample_initial_state.items() %}{{ tl }} = {{ val }}{% if not loop.last %}, {% endif %}{% endfor %}
-                                    </small>
-                                    {% endif %}
-                                {% endif %}
                             </td>
                             <td><small>{{ prop.duration_sec }}s</small></td>
                             <td>
-                                {% if prop.status == 'violated' and prop.name not in ['realizability', 'compositional'] %}
+                                {% if prop.status == 'violated' %}
                                 <button class="btn btn-sm btn-outline-danger" onclick="viewErrorTrace('{{ prop.name }}')">
                                     <i class="bi bi-graph-down"></i> Error Trace
                                 </button>
-                                {% elif prop.name == 'realizability' and prop.status == 'violated' %}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+
+                        {# 3. Realizability (AE — for all initial, exists schedule). Standalone
+                             only in non-compositional mode; in compositional mode AE is folded
+                             into the compositional proof below. #}
+                        {% if not is_comp %}
+                        {% if real_prop %}
+                        <tr>
+                            <td class="text-center">{{ status_icon(real_prop.status) }}</td>
+                            <td><strong>Realizability</strong></td>
+                            <td><small class="text-muted" title="for all initial states . exists schedule">∀∃</small></td>
+                            <td>
+                                <small><code>{{ real_prop.formula }}</code></small>
+                                {% if real_prop.note %}<br><small class="text-muted">{{ real_prop.note }}</small>{% endif %}
+                                {% if real_prop.counterexample_initial_state %}
+                                <br><small class="text-danger">counterexample initial state:
+                                    {% for tl, val in real_prop.counterexample_initial_state.items() %}{{ tl }} = {{ val }}{% if not loop.last %}, {% endif %}{% endfor %}
+                                </small>
+                                {% endif %}
+                            </td>
+                            <td><small>{{ real_prop.duration_sec }}s</small></td>
+                            <td>
+                                {% if real_prop.status == 'violated' %}
                                 <button class="btn btn-sm btn-outline-danger" onclick="viewJson('realizability_unsat_core', '/static/report/{{ name }}/{{ timestamp }}/realizability_unsat_core.json')">
                                     <i class="bi bi-braces"></i> Unsat Core
                                 </button>
-                                {% elif prop.name == 'compositional' and prop.status == 'violated' %}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr class="text-muted">
+                            <td class="text-center"><i class="bi bi-dash-circle" title="Not run"></i></td>
+                            <td>Realizability</td>
+                            <td><small title="for all initial states . exists schedule">∀∃</small></td>
+                            <td><small>Not run — enable with <code>--realizability</code>.</small></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                        {% endif %}
+                        {% endif %}
+
+                        {# 4. Compositional proof {P}S{P} => forall N {P}S^N{P}. #}
+                        {% if comp_prop %}
+                        <tr>
+                            <td class="text-center">{{ status_icon(comp_prop.status) }}</td>
+                            <td><strong>Compositional Proof</strong></td>
+                            <td><small class="text-muted" title="AA safety AND AE realizability, both over the invariant P">∀∀·∀∃</small></td>
+                            <td>
+                                <small><code>{{ comp_prop.formula }}</code></small>
+                                <br><small class="text-muted">safety (every run keeps P) = <strong>{{ comp_prop.aa }}</strong>, realizability (some run keeps P) = <strong>{{ comp_prop.ae }}</strong>{% if comp_prop.session %} (session <code>{{ comp_prop.session }}</code>){% endif %}</small>
+                                {% if comp_prop.note %}<br><small class="text-muted">{{ comp_prop.note }}</small>{% endif %}
+                                {% if comp_prop.counterexample_initial_state %}
+                                <br><small class="text-danger">P-state with no P-preserving schedule:
+                                    {% for tl, val in comp_prop.counterexample_initial_state.items() %}{{ tl }} = {{ val }}{% if not loop.last %}, {% endif %}{% endfor %}
+                                </small>
+                                {% endif %}
+                            </td>
+                            <td><small>{{ comp_prop.duration_sec }}s</small></td>
+                            <td>
+                                {% if comp_prop.status == 'violated' %}
                                 <button class="btn btn-sm btn-outline-danger" onclick="viewJson('compositional_unsat_core', '/static/report/{{ name }}/{{ timestamp }}/compositional_unsat_core.json')">
                                     <i class="bi bi-braces"></i> Unsat Core
                                 </button>
                                 {% endif %}
                             </td>
                         </tr>
-                        {% endfor %}
+                        {% elif not is_comp %}
+                        <tr class="text-muted">
+                            <td class="text-center"><i class="bi bi-dash-circle" title="Not run"></i></td>
+                            <td>Compositional Proof</td>
+                            <td><small title="AA safety AND AE realizability over the invariant P">∀∀·∀∃</small></td>
+                            <td><small>Not run — enable with <code>--compositional</code> (or an <code>invariant compositional {...}</code> block).</small></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                        {% endif %}
                     </tbody>
+                    {% if metadata.get('duration_sec') is not none %}
+                    <tfoot>
+                        <tr class="table-light">
+                            <td></td>
+                            <td colspan="3" class="text-end"><strong>Total verification time</strong></td>
+                            <td><strong>{{ metadata.duration_sec }}s</strong></td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                    {% endif %}
                 </table>
             </div>
         </div>
@@ -642,11 +766,22 @@ code[class*="language-"] {
                 <!-- Gantt Chart -->
                 {% if has_gantt %}
                 <div class="col-lg-6 mb-3">
-                    <h6>Gantt Chart</h6>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <h6 class="mb-0">Gantt Chart</h6>
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-zoom-in text-muted small"></i>
+                            <input type="range" class="form-range" style="width: 120px;"
+                                   min="25" max="200" value="100" step="5"
+                                   title="Resize the chart"
+                                   oninput="setImgZoom('ganttImg', this.value, 'ganttZoomVal')">
+                            <span id="ganttZoomVal" class="small text-muted" style="width: 3.5em;">100%</span>
+                        </div>
+                    </div>
                     <div class="border" style="overflow: auto; max-height: 600px; resize: vertical;">
-                        <img src="/static/report/{{ name }}/{{ timestamp }}/gantt.png"
+                        <img id="ganttImg"
+                             src="/static/report/{{ name }}/{{ timestamp }}/gantt.png"
                              alt="Gantt Chart"
-                             style="cursor: pointer; max-width: none;"
+                             style="cursor: pointer; width: 100%; height: auto; max-width: none;"
                              onclick="openImageModal(this.src)">
                     </div>
                 </div>
@@ -700,11 +835,22 @@ code[class*="language-"] {
             </a>
         </div>
         <div class="card-body">
-            <h6>Timeline Evolution with Rate Slopes</h6>
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <h6 class="mb-0">Timeline Evolution with Rate Slopes</h6>
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-zoom-in text-muted small"></i>
+                    <input type="range" class="form-range" style="width: 120px;"
+                           min="25" max="200" value="100" step="5"
+                           title="Resize the chart"
+                           oninput="setImgZoom('timelineImg', this.value, 'timelineZoomVal')">
+                    <span id="timelineZoomVal" class="small text-muted" style="width: 3.5em;">100%</span>
+                </div>
+            </div>
             <div class="border" style="overflow: auto; max-height: 600px; resize: vertical;">
-                <img src="/static/report/{{ name }}/{{ timestamp }}/timeline.png?v={{ timestamp }}"
+                <img id="timelineImg"
+                     src="/static/report/{{ name }}/{{ timestamp }}/timeline.png?v={{ timestamp }}"
                      alt="Timeline Evolution"
-                     style="cursor: pointer; max-width: none;"
+                     style="cursor: pointer; width: 100%; height: auto; max-width: none;"
                      onclick="openImageModal(this.src)">
             </div>
             <p class="text-muted small mt-2">
@@ -869,6 +1015,15 @@ function openImageModal(src) {
     document.getElementById('modalImage').src = src;
     const modal = new bootstrap.Modal(document.getElementById('imageModal'));
     modal.show();
+}
+
+// Scale a chart image to a percentage of its container width.
+// 100% = fit-to-width; >100% overflows and scrolls; <100% shrinks.
+function setImgZoom(imgId, pct, labelId) {
+    const img = document.getElementById(imgId);
+    if (img) { img.style.width = pct + '%'; }
+    const label = document.getElementById(labelId);
+    if (label) { label.textContent = pct + '%'; }
 }
 
 function viewErrorTrace(propertyName) {

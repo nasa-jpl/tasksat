@@ -126,6 +126,34 @@ class TestPerSessionProperties:
         assert elapsed < 10.0, f"per-session check took {elapsed:.1f}s (expected << full-net)"
 
 
+class TestUniformityGuard:
+    """The verify-once-hold-for-all-N argument is sound only for a UNIFORM chain
+    S^N. A network mixing distinct sessions must be REFUSED, not silently reduced
+    to its first instance (which would yield a false HOLDS)."""
+
+    HETERO_FIXTURE = ('tests/tasknet_files/valid/'
+                      'tasknet68_heterogeneous_sessions.tn')
+
+    def test_projection_rejects_heterogeneous_chain(self):
+        """project_single_session raises rather than dropping the divergent
+        instance. tasknet68 chains GoodSession (preserves P) then BadSession
+        (breaks P); keeping only GoodSession would be unsound."""
+        tn = parse_tasknet_file(self.HETERO_FIXTURE)
+        with pytest.raises(ValueError, match="UNIFORM session chain"):
+            project_single_session(tn)
+
+    def test_cli_errors_not_holds(self):
+        """End-to-end: the CLI reports the precondition failure and never prints a
+        HOLDS verdict for a heterogeneous chain (regression for the false-HOLDS
+        soundness bug)."""
+        output = verify('tasknet68_heterogeneous_sessions.tn',
+                        extra_args=['--compositional'])
+        assert "Compositional check cannot run" in output
+        assert "UNIFORM session chain" in output
+        # The critical guarantee: no (unsound) compositional HOLDS is emitted.
+        assert "Compositional check passed" not in output
+
+
 class TestCompositionalCLI:
     """End-to-end tests via the verifier CLI. Uses the single-instance AE-violated
     fixture (tasknet63), which is fast through the full pipeline."""
@@ -167,6 +195,21 @@ class TestCompositionalPropertiesJson:
                 / 'properties.json')
         with open(path) as f:
             return json.load(f)
+
+    def test_no_duplicate_user_properties(self):
+        """Regression: user properties are checked ONCE (Phase 2) and reused by the
+        compositional proof, so each appears exactly once in properties.json —
+        previously Phase 2 and the proof's AA both listed them (conflicting
+        per_session tags)."""
+        verify('tasknet64_compositional_per_session_props.tn',
+               extra_args=['--compositional'])
+        props = self._latest_properties('tasknet64_compositional_per_session_props')
+        names = [r.get('name') for r in props]
+        assert len(names) == len(set(names)), f"duplicate property entries: {names}"
+        # User properties are tagged per-session (verified once, hold for all N).
+        for r in props:
+            if r['name'] in ('mode_well_defined', 'reaches_idle'):
+                assert r.get('per_session') is True
 
     def test_violated_entry(self):
         verify('tasknet63_compositional_ae_violated.tn',

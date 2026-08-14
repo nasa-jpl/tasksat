@@ -18,7 +18,7 @@ class TestRealizability:
         verify_out('tasknet52_realizability_holds.tn',
                    extra_args=['--realizability'])(
             "*** NEW SCHEDULE***",
-            "Checking realizability",
+            "Realizability Check",
             "→ HOLDS",
             "schedule skeleton",
         )
@@ -30,7 +30,7 @@ class TestRealizability:
         verify_out('tasknet53_realizability_violated.tn',
                    extra_args=['--realizability'])(
             "*** NEW SCHEDULE***",
-            "Checking realizability",
+            "Realizability Check",
             "→ VIOLATED",
             "Initial state with no valid schedule",
             "battery",
@@ -44,7 +44,7 @@ class TestRealizability:
         Exercises the generalization + blocking interplay across iterations."""
         verify_out('tasknet55_realizability_multiskeleton.tn',
                    extra_args=['--realizability'])(
-            "Checking realizability",
+            "Realizability Check",
             "[iter 1]",
             "[iter 2]",
             "→ HOLDS",
@@ -63,7 +63,7 @@ class TestRealizability:
     def test_flag_off_no_check(self):
         """Without --realizability the check must not run."""
         output = verify('tasknet53_realizability_violated.tn')
-        assert "Checking realizability" not in output
+        assert "Realizability Check" not in output
 
 
 class TestInitRegionRecording:

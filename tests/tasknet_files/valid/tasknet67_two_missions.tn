@@ -1,0 +1,45 @@
+# Test: two nested-session instances with invariant but NOT compositional keyword.
+#
+# Same structure as tasknet65 (nested sessions: Mission → Phase → Prep/Work)
+# but with two mission instances and `invariant { mode = idle; }` (not `invariant compositional`).
+#
+# Expected: standard mode verification on the full 2-mission network (8 tasks total).
+# The invariant desugars to initial + final constraints (no compositional proof).
+
+tasknet TwoMissions {
+  end = 1000;
+
+  timelines {
+    mode : state(idle, busy) = idle;
+  }
+
+  # Atomic taskdefs (leaf level)
+  taskdef Prep {
+    duration_range [10, 10];
+    impacts { post { mode = busy; } }
+  }
+
+  taskdef Work {
+    duration_range [20, 20];
+    impacts { post { mode = idle; } }
+  }
+
+  # Mid-level session: contains atomic tasks
+  taskdef Phase {
+    task prep : Prep;
+    task work : Work { after prep; }
+  }
+
+  # Top-level session: contains session instances
+  taskdef Mission {
+    task phase1 : Phase;
+    task phase2 : Phase { after phase1; }
+  }
+
+  # Invariant without 'compositional' keyword - just initial + final constraints
+  invariant { mode = idle; }
+
+  # Two mission instances (standard mode - no compositional proof)
+  task mission1 : Mission;
+  task mission2 : Mission { after mission1; }
+}

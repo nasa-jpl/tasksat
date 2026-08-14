@@ -242,14 +242,41 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         print(error("\n❌ WELLFORMEDNESS CHECK FAILED"))
         return  # Errors already printed by checker
 
-    # Snapshot the transformed tasknet before encoding. SMT encoding mutates
-    # task ranges (fills unconstrained start/end with MAX_INT and drops taskdefs),
-    # so the temporal range visualization must use this pre-encoding copy to show
-    # the real specification bounds.
+    use_optimization = (mode == 'optimize')
+
+    # When compositional mode is active, project to a single session instance
+    # BEFORE encoding. Compositional verification checks ONE session (Θ(1)) and
+    # discharges all N via the {P}S{P} proof — so we must never build the full
+    # O(N) network encoding (that solve is discarded and can take minutes on
+    # large N). Project, flatten (.children → subtask instances), then encode.
+    compositional_active = (compositional
+                            or getattr(tn_pre_transform, 'compositional', False))
+
+    if compositional_active:
+        from tasknet_compositional import project_single_session
+        print(info("\n⚙️  Compositional mode: projecting to single session instance..."))
+        # project_single_session enforces the compositional preconditions (a session
+        # exists AND the chain is uniform S^N); a violation is a hard error here, so
+        # we never emit a (potentially unsound) HOLDS for an out-of-domain network.
+        try:
+            tn_single, session_id = project_single_session(tn_pre_transform)
+        except ValueError as e:
+            print(error(f"❌ Compositional check cannot run: {e}"))
+            save_failed_verification(path, mode, start_time,
+                                     f"Compositional precondition failed: {e}",
+                                     error_type="error")
+            return
+        print(info(f"    Verifying single instance '{session_id}' (compositional check will discharge all N)\n"))
+        # Flatten the projected session: expand session .children into subtask
+        # instances, or the encoder would treat the session as one atomic task.
+        tn, _ = apply_transforms(tn_single)
+
+    # Snapshot the (possibly projected) transformed tasknet before encoding. SMT
+    # encoding mutates task ranges (fills unconstrained start/end with MAX_INT and
+    # drops taskdefs), so the temporal range visualization must use this
+    # pre-encoding copy to show the real specification bounds.
     import copy
     tn_pre_encoding = copy.deepcopy(tn)
-
-    use_optimization = (mode == 'optimize')
 
     try:
         enc = TaskNetTL(tn, error_trace=True, use_optimization=use_optimization)
@@ -260,28 +287,6 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         print(traceback.format_exc())  # Print to stdout (captured by TeeOutput)
         save_failed_verification(path, mode, start_time, error_details, error_type="error")
         return
-
-    # Phase 1: Validity checking
-    # Phase 2: Property verification
-    # When compositional mode is active, project to a single session instance first
-    compositional_active = (compositional
-                            or getattr(tn_pre_transform, 'compositional', False))
-
-    if compositional_active:
-        from tasknet_compositional import project_single_session
-        print(info("\n⚙️  Compositional mode: projecting to single session instance..."))
-        tn_single, session_id = project_single_session(tn_pre_transform)
-        if tn_single is None:
-            print(error("❌ No session found for compositional projection"))
-            return
-        print(info(f"    Verifying single instance '{session_id}' (compositional check will discharge all N)\n"))
-        # Use the projected single-session network for Phases 1 and 2
-        tn = tn_single
-        # Re-encode with the projected network
-        if hasattr(tn, 'properties') and tn.properties:
-            enc = TaskNetTL(tn, error_trace=False, use_optimization=(mode == 'optimize'))
-        else:
-            enc = TaskNetSMT(tn, use_optimization=(mode == 'optimize'))
 
     # Phase 1: Validity check (EE - ∃∃)
     # On full network if standard mode, or single session if compositional
@@ -363,6 +368,13 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
             print(dim(f"📄 Latest at: {latest_dir}"))
             return
 
+    # Show the schedule. In compositional mode this is the FIRST session instance
+    # only (the projected session we actually solved) — representative of the
+    # repeating session, NOT a full N-instance schedule (we never solve that).
+    if compositional_active:
+        print(info(f"Schedule for the first session instance '{session_id}' "
+                   "(representative — the same session repeats for all N; "
+                   "the full N-instance schedule is not materialized):"))
     enc.pretty_print(m)
 
     # Phase 2: Property verification (AA - ∀∀)
@@ -373,7 +385,11 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
 
     property_start = time.time()
     if hasattr(enc, 'check_temporal_properties'):
-        property_results, violations = enc.check_temporal_properties()
+        # In compositional mode the properties hold on ONE session and thereby for
+        # all N — tag them per_session. This is the single AA computation; the
+        # compositional proof (Phase 3.5) reuses it rather than recomputing.
+        property_results, violations = enc.check_temporal_properties(
+            per_session=compositional_active)
     else:
         property_results, violations = [], []
     property_end = time.time()
@@ -409,9 +425,16 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     if compositional_active:
         from tasknet_compositional import check_compositional
         print(header("\n=== Compositional Proof: {P}S{P} => forall N {P}S^N{P} ==="))
+        # Reuse the AA / property results already computed in Phase 2 on the SAME
+        # projected session (aa_result) so the compositional proof only adds the AE
+        # (realizability-under-P) check — no duplicate property solving or output.
+        aa_entry = next((r for r in property_results if r.get('name') == 'final'), None)
+        aa_status = aa_entry['status'] if aa_entry else 'unknown'
+        per_session_props = [r for r in property_results if r.get('name') != 'final']
         compositional_result = check_compositional(
             tn_pre_transform, apply_transforms,
-            max_iters=compositional_max_iters, budget_sec=compositional_budget)
+            max_iters=compositional_max_iters, budget_sec=compositional_budget,
+            aa_result=(aa_status, per_session_props))
 
         cr = compositional_result
         detail = (f"safety (every run keeps P)={cr.get('aa')}, "
@@ -429,11 +452,11 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         else:
             print(warning(f"  → UNKNOWN ⚠ ({cr['note']})"))
 
-        # Merge the per-session user-property results (checked once on the
-        # projected session) into the overall property list, then append the
-        # compositional entry itself (dropping the bulky unsat_core and the
-        # now-merged per_session_properties list).
-        property_results.extend(compositional_result.get('per_session_properties', []))
+        # The per-session user-property results are ALREADY in property_results
+        # (Phase 2 computed them on the projected session); do NOT re-append them
+        # or they would appear twice in properties.json. Append only the
+        # compositional entry (dropping the bulky unsat_core and the
+        # per_session_properties list, which the caller already owns).
         property_results.append({
             k: v for k, v in compositional_result.items()
             if k not in ('unsat_core', 'per_session_properties')})
@@ -462,7 +485,13 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     if not violations and not (realizability_result is not None
                                and realizability_result['status'] == 'violated') \
             and not compositional_violated:
-        print(success("\n✓ All constraints and properties satisfied!") if num_properties > 0 else success("\n✓ Valid schedule found!"))
+        if compositional_active:
+            # No schedule is exhibited in compositional mode — report the verdict.
+            print(success("\n✓ Compositional check passed: {P}S{P} holds ⇒ property preserved for all N."))
+        elif num_properties > 0:
+            print(success("\n✓ All constraints and properties satisfied!"))
+        else:
+            print(success("\n✓ Valid schedule found!"))
 
     # Save results (metadata and properties) even when compositional skips full-network solve
     from pathlib import Path
@@ -539,7 +568,9 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     # Save console output (always)
     save_console_output(run_dir, latest_dir)
 
-    # Phase 4: Export schedule as JSON and generate visualizations
+    # Phase 4: Export schedule as JSON and generate visualizations. In
+    # compositional mode these describe the FIRST session instance only (the
+    # projected session solved above) — never a full N-instance schedule.
     schedule = enc.extract_schedule(m)
     evolution = enc.extract_timeline_evolution(m)
 
@@ -587,7 +618,10 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     try:
             from tasknet_structure_viz import create_structure_visualization
             structure_base = run_dir / "structure.png"
-            created = create_structure_visualization(tn_pre_transform, str(structure_base))
+            # In compositional mode diagram the projected single session, not the
+            # full O(N) network (tn_single is the single-session pre-flatten AST).
+            structure_ast = tn_single if compositional_active else tn_pre_transform
+            created = create_structure_visualization(structure_ast, str(structure_base))
             if created:
                 import shutil
                 for src_png in created:
