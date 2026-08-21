@@ -102,7 +102,7 @@ TaskSAT was created in order to explore an alternative method for analysing and 
 
 ## Next Steps
 
-- **[Getting Started](getting-started/getting-started.md)** — Quick installation and your first TaskNet in minutes
+- **[Getting Started](getting-started/installation.md)** — Quick installation and your first TaskNet in minutes
 - **[Tutorial](getting-started/tutorial.md)** — In-depth walkthrough of concepts using an example
 - **[Manual](reference/manual.md)** — Complete language reference
 - **[Grammar](reference/grammar.md)** — Formal grammar and syntax reference
