@@ -1,3 +1,8 @@
+---
+sidebar_position: 2
+sidebar_label: "Tutorial"
+---
+
 # TaskSAT Tutorial
 
 This tutorial provides an in-depth walkthrough of TaskSAT concepts, patterns, and best practices.
@@ -8,7 +13,7 @@ This tutorial provides an in-depth walkthrough of TaskSAT concepts, patterns, an
 
 ### The Complete Tasknet Model
 
-Let's start with a complete TaskSAT specification and then understand each part. This example models a Mars rover conducting a science mission. The complete file is available at [tests/tasknet_files/examples/rover2.tn](../tests/tasknet_files/examples/rover2.tn).
+Let's start with a complete TaskSAT specification and then understand each part. This example models a Mars rover conducting a science mission. The complete file is available at [tests/tasknet_files/examples/rover2.tn](https://github.com/nasa-jpl/tasksat/blob/main/tests/tasknet_files/examples/rover2.tn).
 
 ```
 tasknet Rover2 {

@@ -1,3 +1,8 @@
+---
+sidebar_position: 6
+sidebar_label: "Benchmarks"
+---
+
 # TaskNet Benchmark Suite
 
 ## Overview

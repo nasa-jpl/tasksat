@@ -1,3 +1,8 @@
+---
+sidebar_position: 7
+sidebar_label: "Performance"
+---
+
 # TaskSAT Performance & Scaling
 
 This document describes performance characteristics, stress test results, and guidelines for understanding problem complexity.
@@ -20,7 +25,7 @@ Comprehensive stress tests are located in `tests/tasknet_files/stress/`.
 
 ### Stress Test 1: Mars Rover (Multi-Resource)
 
-**File:** [stress1_mars_rover.tn](../tests/tasknet_files/stress/stress1_mars_rover.tn)
+**File:** [stress1_mars_rover.tn](https://github.com/nasa-jpl/tasksat/blob/main/tests/tasknet_files/stress/stress1_mars_rover.tn)
 
 **Configuration:**
 - 20 tasks (all required)
@@ -35,9 +40,9 @@ Comprehensive stress tests are located in `tests/tasknet_files/stress/`.
 ### Stress Tests 2-4: Satellite Constellation (Over-Constrained)
 
 **Files:**
-- [stress2_satellite_constellation.tn](../tests/tasknet_files/stress/stress2_satellite_constellation.tn) - 30 tasks
-- [stress3_satellite_relaxed.tn](../tests/tasknet_files/stress/stress3_satellite_relaxed.tn) - 12 tasks
-- [stress4_simple_constellation.tn](../tests/tasknet_files/stress/stress4_simple_constellation.tn) - 15 tasks
+- [stress2_satellite_constellation.tn](https://github.com/nasa-jpl/tasksat/blob/main/tests/tasknet_files/stress/stress2_satellite_constellation.tn) - 30 tasks
+- [stress3_satellite_relaxed.tn](https://github.com/nasa-jpl/tasksat/blob/main/tests/tasknet_files/stress/stress3_satellite_relaxed.tn) - 12 tasks
+- [stress4_simple_constellation.tn](https://github.com/nasa-jpl/tasksat/blob/main/tests/tasknet_files/stress/stress4_simple_constellation.tn) - 15 tasks
 
 **Results:**
 - stress2: **UNSAT in 1.48 seconds**
@@ -49,9 +54,9 @@ Comprehensive stress tests are located in `tests/tasknet_files/stress/`.
 ### Stress Tests 5-7: Sequential Chain (Challenging)
 
 **Files:**
-- [stress5_sequential_chain.tn](../tests/tasknet_files/stress/stress5_sequential_chain.tn) - 30 tasks
-- [stress6_sequential_20.tn](../tests/tasknet_files/stress/stress6_sequential_20.tn) - 20 tasks
-- [stress7_sequential_15.tn](../tests/tasknet_files/stress/stress7_sequential_15.tn) - 15 tasks
+- [stress5_sequential_chain.tn](https://github.com/nasa-jpl/tasksat/blob/main/tests/tasknet_files/stress/stress5_sequential_chain.tn) - 30 tasks
+- [stress6_sequential_20.tn](https://github.com/nasa-jpl/tasksat/blob/main/tests/tasknet_files/stress/stress6_sequential_20.tn) - 20 tasks
+- [stress7_sequential_15.tn](https://github.com/nasa-jpl/tasksat/blob/main/tests/tasknet_files/stress/stress7_sequential_15.tn) - 15 tasks
 
 **Results:**
 

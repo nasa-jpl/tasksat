@@ -1,8 +1,13 @@
+---
+sidebar_position: 3
+sidebar_label: "Manual"
+---
+
 # TaskSAT Language Manual
 
 This document provides complete syntax reference for the TaskSAT DSL.
 
-For the formal grammar specification, see [grammar.txt](../src/smt/grammar.txt).
+For the formal grammar specification, see [Grammar](grammar.md).
 
 ## Overview
 
@@ -466,7 +471,7 @@ The meaning of these updates depend on which impact kind it conerns:
 Their impacts are shown in the following figure (from MEXEC User’s Guide
 Version 1.5.0, May 1, 2024):
 
-![Impacts](impacts.png)
+![Impacts](/img/impacts.png)
 
 This table shows which impact operations are allowed on each timeline type:
 

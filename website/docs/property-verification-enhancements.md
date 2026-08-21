@@ -1,3 +1,8 @@
+---
+sidebar_position: 9
+sidebar_label: "Property Verification"
+---
+
 # Property Verification Enhancements
 
 This document describes the enhancements made to TaskSAT's property verification and error trace reporting system.
@@ -275,7 +280,7 @@ Potential improvements for future work:
 
 ## References
 
-- **Temporal Logic Encoding**: [doc/smt-encoding.md](doc/smt-encoding.md)
-- **TaskNet Language**: [doc/manual.md](doc/manual.md)
-- **Web UI Architecture**: [src/smt/tasknet_web.py](src/smt/tasknet_web.py)
-- **Visualization**: [src/smt/tasknet_timeline_viz.py](src/smt/tasknet_timeline_viz.py)
+- **Temporal Logic Encoding**: [SMT Encoding](smt-encoding.md)
+- **TaskNet Language**: [Manual](manual.md)
+- **Web UI Architecture**: [tasknet_web.py](https://github.com/nasa-jpl/tasksat/blob/main/src/smt/tasknet_web.py)
+- **Visualization**: [tasknet_timeline_viz.py](https://github.com/nasa-jpl/tasksat/blob/main/src/smt/tasknet_timeline_viz.py)

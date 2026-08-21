@@ -1,3 +1,8 @@
+---
+sidebar_position: 4
+sidebar_label: "Grammar"
+---
+
 # TaskSAT Grammar Reference
 
 ## Top-Level Structure

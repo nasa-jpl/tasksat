@@ -1,3 +1,8 @@
+---
+sidebar_position: 8
+sidebar_label: "CEGIS / Realizability"
+---
+
 # CEGIS for Realizability — Formal Summary
 
 ## Problem
@@ -113,5 +118,5 @@ point x★.
 The loop is an instance of counterexample-guided synthesis (CEGIS,
 Solar-Lezama et al. 2006) in its exists-forall SMT form (CEGQI, Reynolds et
 al. 2015); the partial instantiation after Call 2 is model-based projection.
-Implementation: [tasknet_realizability.py](../src/smt/tasknet_realizability.py);
+Implementation: [tasknet_realizability.py](https://github.com/nasa-jpl/tasksat/blob/main/src/smt/tasknet_realizability.py);
 encoding details: [smt-encoding.md](smt-encoding.md) §7.4.

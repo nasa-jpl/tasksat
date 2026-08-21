@@ -1,3 +1,8 @@
+---
+sidebar_position: 10
+sidebar_label: "Time Boundaries"
+---
+
 # Time Variable and Task Boundaries Feature
 
 ## Overview
@@ -197,7 +202,7 @@ prop early: task.start < 1000;
 
 ## Examples in Practice
 
-See [tests/test_time_boundaries.py](../tests/test_time_boundaries.py) for comprehensive examples and test cases.
+See [tests/test_time_boundaries.py](https://github.com/nasa-jpl/tasksat/blob/main/tests/test_time_boundaries.py) for comprehensive examples and test cases.
 
 ## Limitations
 

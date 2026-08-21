@@ -1,3 +1,8 @@
+---
+sidebar_position: 1
+sidebar_label: "Getting Started"
+---
+
 # Getting Started with TaskSAT
 
 This guide will get you up and running with TaskSAT in a few minutes.
@@ -31,7 +36,7 @@ pip install -r requirements.txt
 ## Verify installation:
 
 We shall now verify the installation. The file 
-[tests/tasknet_files/examples/rover1.tn](../tests/tasknet_files/examples/rover1.tn)
+[tests/tasknet_files/examples/rover1.tn](https://github.com/nasa-jpl/tasksat/blob/main/tests/tasknet_files/examples/rover1.tn)
 contains the following tasknet:
 
 ```tasknet
@@ -209,7 +214,7 @@ standard verification) and `tasknet67_two_missions` (a compositional one).
 
 #### 1. The home page — browse verified tasknets
 
-![Home page listing verified tasknets](website/top.png)
+![Home page listing verified tasknets](/img/top.png)
 
 The landing page lists every tasknet the tool knows about, one card each. A card
 shows the tasknet name, a status badge (here **All Properties Verified**, green), a
@@ -220,7 +225,7 @@ Click **View Report** on `rover2` to open its report.
 
 #### 2. The report header and source
 
-![rover2 report header and source code](website/rover2-top.png)
+![rover2 report header and source code](/img/rover2-top.png)
 
 The report opens with a status icon and the tasknet name, the source path, and the
 exact command used to verify it (both click-to-copy). The **Performance** line breaks
@@ -235,7 +240,7 @@ static structure/temporal diagrams, and **Console Output** expands the raw verif
 
 #### 3. Verification checks
 
-![Verification checks table for rover2](website/rover2-results.png)
+![Verification checks table for rover2](/img/rover2-results.png)
 
 The **Verification Checks** card lists *every* check that applies to the chosen mode,
 with its result — even checks that had nothing to verify. The **Form** column shows
@@ -253,7 +258,7 @@ Each row carries its own timing, and the footer shows the total verification tim
 
 #### 4. The schedule and timeline evolution
 
-![Timeline evolution charts for rover2](website/rover2-schedule.png)
+![Timeline evolution charts for rover2](/img/rover2-schedule.png)
 
 When a schedule is found, the report renders a **Gantt chart** and the **Timeline
 Evolution** view — the task bars on top, then one panel per timeline showing how each
@@ -264,7 +269,7 @@ bottom edge can be dragged to resize. Click any chart to open it full-size.
 
 #### 5. A compositional verification
 
-![Compositional verification of tasknet67_two_missions](website/two-missions.png)
+![Compositional verification of tasknet67_two_missions](/img/two-missions.png)
 
 `tasknet67_two_missions` chains repeated **Mission** sessions and declares an
 `invariant { mode = idle; }`. Verified with **Compositional** enabled, the checks card

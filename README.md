@@ -95,11 +95,15 @@ TaskSAT was created in order to explore an alternative method for analysing and 
 
 ## Documentation
 
-- **[Getting Started](doc/getting-started.md)** - Quick installation and your first TaskNet in minutes
-- **[Tutorial](doc/tutorial.md)** - In-depth walkthrough of concepts using an example
-- **[Manual](doc/manual.md)** - Complete language reference
-- **[Grammar](doc/grammar.txt)** - Formal grammar and syntax reference
-- **[Theory](doc/smt-encoding.md)** - Theory behind SMT encoding
+Full documentation is published at **[nasa-jpl.github.io/tasksat](https://nasa-jpl.github.io/tasksat/)**.
+
+- **[Getting Started](https://nasa-jpl.github.io/tasksat/docs/getting-started)** - Quick installation and your first TaskNet in minutes
+- **[Tutorial](https://nasa-jpl.github.io/tasksat/docs/tutorial)** - In-depth walkthrough of concepts using an example
+- **[Manual](https://nasa-jpl.github.io/tasksat/docs/manual)** - Complete language reference
+- **[Grammar](https://nasa-jpl.github.io/tasksat/docs/grammar)** - Formal grammar and syntax reference
+- **[Theory](https://nasa-jpl.github.io/tasksat/docs/smt-encoding)** - Theory behind SMT encoding
+
+The docs source lives in [`website/docs/`](website/docs/) and is built with [Docusaurus](https://docusaurus.io/).
 
 
 ## License, Copyright, Permissions, Disclaimer
