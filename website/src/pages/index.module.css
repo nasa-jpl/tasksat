@@ -21,20 +21,3 @@
   align-items: center;
   justify-content: center;
 }
-
-.architecture {
-  padding: 3rem 0;
-  text-align: center;
-}
-
-.architectureImage {
-  max-width: 420px;
-  width: 100%;
-  height: auto;
-}
-
-.architectureCaption {
-  margin-top: 1rem;
-  font-size: 0.9rem;
-  color: var(--ifm-color-emphasis-600);
-}
