@@ -1,6 +1,7 @@
 ---
 sidebar_position: 2
 sidebar_label: "Tutorial"
+slug: /tutorial
 ---
 
 # TaskSAT Tutorial
@@ -1287,7 +1288,7 @@ python src/smt/tasknet_verifier.py some_tasknet.tn --realizability
 The check alternates quantifiers (∀∃), which a single solver call cannot decide
 here, so TaskSAT uses a counterexample-guided loop (CEGIS — a standard technique
 from program synthesis, Solar-Lezama et al. 2006; see the references in
-[smt-encoding.md](smt-encoding.md)): it repeatedly picks a
+[smt-encoding.md](../theory/smt-encoding.md)): it repeatedly picks a
 not-yet-covered initial state, plans from it (failure = counterexample), and
 otherwise generalizes the found schedule to cover a whole region of initial
 states at once. The result is HOLDS, VIOLATED (with counterexample), or UNKNOWN
@@ -1331,7 +1332,7 @@ reliably — this is exactly why the loop succeeds where a single monolithic ∀
 query returns *unknown*.
 
 For a crisp, fully formal one-page treatment of the algorithm (definitions,
-soundness and progress lemmas), see [cegis.md](cegis.md).
+soundness and progress lemmas), see [cegis.md](../theory/cegis.md).
 
 ## Understanding UNSAT Diagnostics
 

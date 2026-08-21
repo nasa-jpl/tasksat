@@ -102,8 +102,8 @@ TaskSAT was created in order to explore an alternative method for analysing and 
 
 ## Next Steps
 
-- **[Getting Started](getting-started.md)** — Quick installation and your first TaskNet in minutes
-- **[Tutorial](tutorial.md)** — In-depth walkthrough of concepts using an example
-- **[Manual](manual.md)** — Complete language reference
-- **[Grammar](grammar.md)** — Formal grammar and syntax reference
-- **[SMT Encoding](smt-encoding.md)** — Theory behind the SMT encoding
+- **[Getting Started](getting-started/getting-started.md)** — Quick installation and your first TaskNet in minutes
+- **[Tutorial](getting-started/tutorial.md)** — In-depth walkthrough of concepts using an example
+- **[Manual](reference/manual.md)** — Complete language reference
+- **[Grammar](reference/grammar.md)** — Formal grammar and syntax reference
+- **[SMT Encoding](theory/smt-encoding.md)** — Theory behind the SMT encoding

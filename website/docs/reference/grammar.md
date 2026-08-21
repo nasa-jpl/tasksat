@@ -1,6 +1,7 @@
 ---
-sidebar_position: 4
+sidebar_position: 2
 sidebar_label: "Grammar"
+slug: /grammar
 ---
 
 # TaskSAT Grammar Reference

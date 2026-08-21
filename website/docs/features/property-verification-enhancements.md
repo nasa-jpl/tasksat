@@ -1,6 +1,7 @@
 ---
-sidebar_position: 9
+sidebar_position: 1
 sidebar_label: "Property Verification"
+slug: /property-verification-enhancements
 ---
 
 # Property Verification Enhancements
@@ -280,7 +281,7 @@ Potential improvements for future work:
 
 ## References
 
-- **Temporal Logic Encoding**: [SMT Encoding](smt-encoding.md)
-- **TaskNet Language**: [Manual](manual.md)
+- **Temporal Logic Encoding**: [SMT Encoding](../theory/smt-encoding.md)
+- **TaskNet Language**: [Manual](../reference/manual.md)
 - **Web UI Architecture**: [tasknet_web.py](https://github.com/nasa-jpl/tasksat/blob/main/src/smt/tasknet_web.py)
 - **Visualization**: [tasknet_timeline_viz.py](https://github.com/nasa-jpl/tasksat/blob/main/src/smt/tasknet_timeline_viz.py)

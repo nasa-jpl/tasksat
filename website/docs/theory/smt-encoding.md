@@ -1,6 +1,7 @@
 ---
-sidebar_position: 5
+sidebar_position: 1
 sidebar_label: "SMT Encoding"
+slug: /smt-encoding
 ---
 
 # SMT Encoding of TaskNet Scheduling Problems

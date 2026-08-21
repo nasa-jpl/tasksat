@@ -1,6 +1,7 @@
 ---
-sidebar_position: 6
+sidebar_position: 1
 sidebar_label: "Benchmarks"
+slug: /benchmarks
 ---
 
 # TaskNet Benchmark Suite

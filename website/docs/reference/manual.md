@@ -1,6 +1,7 @@
 ---
-sidebar_position: 3
+sidebar_position: 1
 sidebar_label: "Manual"
+slug: /manual
 ---
 
 # TaskSAT Language Manual

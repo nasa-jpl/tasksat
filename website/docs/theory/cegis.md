@@ -1,6 +1,7 @@
 ---
-sidebar_position: 8
+sidebar_position: 2
 sidebar_label: "CEGIS / Realizability"
+slug: /cegis
 ---
 
 # CEGIS for Realizability — Formal Summary
