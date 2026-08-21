@@ -76,6 +76,10 @@ const config = {
       colorMode: {
         respectPrefersColorScheme: true,
       },
+      tableOfContents: {
+        minHeadingLevel: 2,
+        maxHeadingLevel: 4,
+      },
       navbar: {
         title: 'TaskSAT',
         logo: {
