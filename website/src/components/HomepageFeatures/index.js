@@ -4,32 +4,32 @@ import styles from './styles.module.css';
 
 const FeatureList = [
   {
-    title: 'Declarative Scheduling DSL',
+    title: 'Rich State Modeling',
     description: (
       <>
-        Model tasks, timelines, and rich temporal and resource constraints in a
-        concise domain-specific language designed to mirror MEXEC tasknet
-        concepts.
+        Model discrete states, Boolean flags, and continuous resources with
+        rate-based evolution. Tasks specify preconditions, invariants,
+        postconditions, and resource impacts at boundaries or during execution.
       </>
     ),
   },
   {
-    title: 'SMT-Based Verification',
+    title: 'Property Verification',
+    description: (
+      <>
+        Express LTL-style temporal properties (always, eventually, until, since)
+        that are verified alongside scheduling — with comprehensive error traces
+        and violation zone identification for violated properties.
+      </>
+    ),
+  },
+  {
+    title: 'SMT-Based Reasoning & Optimization',
     description: (
       <>
         Specifications are encoded into quantifier-free SMT using zone-based time
-        discretization and solved with Z3 — supporting satisfiability checking
-        and optimization.
-      </>
-    ),
-  },
-  {
-    title: 'Temporal Properties',
-    description: (
-      <>
-        Express LTL-style properties (always, eventually, until, since) and
-        final-state constraints, verified alongside scheduling with clear
-        counterexample traces.
+        discretization and solved with Z3, supporting both satisfiability
+        checking and optimization of scheduling objectives.
       </>
     ),
   },
