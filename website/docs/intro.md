@@ -27,11 +27,7 @@ TaskSAT can be applied to scheduling problems in autonomous systems, such as spa
 
 TaskSAT's verification pipeline: a `.tn` spec is parsed into an AST, auto-instantiated and validated, then encoded as a Z3 SMT formula and solved for a schedule (or a proof of infeasibility).
 
-<img
-  src="/img/architecture.png"
-  alt="TaskSAT verification pipeline: TaskNet spec → Parser → AST → Transform + Wellformedness → Validated AST → SMT Encoder → Z3 Formula → Z3 Solver → Schedule/UNSAT"
-  style="max-width: 100%; width: 900px; display: block; margin: 0 auto;"
-/>
+![TaskSAT verification pipeline: TaskNet spec → Parser → AST → Transform + Wellformedness → Validated AST → SMT Encoder → Z3 Formula → Z3 Solver → Schedule/UNSAT](/img/architecture.png)
 
 <p style="text-align: center; font-size: 0.85em; opacity: 0.75;">
   Diagram source: <a href="https://github.com/nasa-jpl/tasksat/blob/main/doc/architecture.dot"><code>doc/architecture.dot</code></a>.
