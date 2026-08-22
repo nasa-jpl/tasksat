@@ -28,3 +28,10 @@
   --ifm-color-primary-lightest: #4fddbf;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
+
+/* Keep the architecture overview compact and centered in the introduction. */
+article img[alt^='TaskSAT verification pipeline'] {
+  display: block;
+  width: min(100%, 720px);
+  margin: 1.5rem auto;
+}
