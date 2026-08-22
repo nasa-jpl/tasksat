@@ -1,9 +1,3 @@
----
-sidebar_position: 2
-sidebar_label: "Performance"
-slug: /performance
----
-
 # TaskSAT Performance & Scaling
 
 This document describes performance characteristics, stress test results, and guidelines for understanding problem complexity.
@@ -18,7 +12,7 @@ TaskSAT's performance depends heavily on:
 
 **Key finding**: Constraint structure matters more than raw task count. Sequential dependency chains are significantly harder than multi-resource problems.
 
-**Note on solver modes**: The `--mode` flag controls only the main schedule generation (Phase 1). Property verification (Phase 2) always uses Solver mode regardless of the flag, as counterexamples don't need to be optimal. See [Tutorial](../getting-started/tutorial.md) for details.
+**Note on solver modes**: The `--mode` flag controls only the main schedule generation (Phase 1). Property verification (Phase 2) always uses Solver mode regardless of the flag, as counterexamples don't need to be optimal. See the [Tutorial](https://nasa-jpl.github.io/tasksat/tutorial) for details.
 
 ## Stress Test Results
 
