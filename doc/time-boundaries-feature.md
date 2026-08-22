@@ -1,9 +1,3 @@
----
-sidebar_position: 2
-sidebar_label: "Time Boundaries"
-slug: /time-boundaries-feature
----
-
 # Time Variable and Task Boundaries Feature
 
 ## Overview
