@@ -1,6 +1,6 @@
 ---
 sidebar_position: 1
-sidebar_label: "Installation"
+sidebar_label: "Getting Started with TaskSAT"
 slug: /getting-started
 ---
 
