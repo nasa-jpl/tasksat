@@ -29,11 +29,6 @@ TaskSAT's verification pipeline: a `.tn` spec is parsed into an AST, auto-instan
 
 ![TaskSAT verification pipeline: TaskNet spec → Parser → AST → Transform + Wellformedness → Validated AST → SMT Encoder → Z3 Formula → Z3 Solver → Schedule/UNSAT](/img/architecture.png)
 
-<p style="text-align: center; font-size: 0.85em; opacity: 0.75;">
-  Diagram source: <a href="https://github.com/nasa-jpl/tasksat/blob/main/doc/architecture.dot"><code>doc/architecture.dot</code></a>.
-  Regenerate with <code>dot -Tpng -Gdpi=150 doc/architecture.dot -o doc/architecture.png</code>.
-</p>
-
 ## Generated Files
 
 TaskSAT organizes all generated files under `.tasksat/` directories:
