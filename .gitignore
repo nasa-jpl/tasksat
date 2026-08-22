@@ -178,6 +178,7 @@ cython_debug/
 
 # Visualization output
 *.dot
+!doc/architecture.dot
 visualizations/
 
 # Directories

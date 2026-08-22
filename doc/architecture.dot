@@ -1,0 +1,35 @@
+// TaskSAT system architecture pipeline.
+// Render: dot -Tpng -Gdpi=150 doc/architecture.dot -o doc/architecture.png
+//
+// Data artifacts (.tn, AST, formula, schedule) are rounded boxes;
+// processing stages (parser, transforms, encoder, solver) are bold blue boxes.
+// Horizontal (left-to-right) layout keeps the diagram short and wide, which
+// fits better inline with prose than a tall top-to-bottom chain.
+digraph TaskSATArchitecture {
+    rankdir=LR;
+    bgcolor="white";
+    fontname="Helvetica";
+    nodesep=0.35;
+    ranksep=0.55;
+
+    node [fontname="Helvetica", fontsize=12, margin="0.2,0.12", height=0.55];
+    edge [color="#5b6570", arrowsize=0.7, penwidth=1.2];
+
+    // Data artifacts: rounded, light fill.
+    node [shape=box, style="rounded,filled", fillcolor="#eef2f7", color="#9fb0c3"];
+    tn      [label=<<b>TaskNet (.tn)</b>>];
+    ast     [label=<<b>AST</b>>];
+    vast    [label=<<b>Validated AST</b>>];
+    formula [label=<<b>Z3 Formula</b>>];
+    result  [label=<<b>Schedule / UNSAT</b>>, fillcolor="#e6f4ea", color="#8bc7a0"];
+
+    // Processing stages: bold, blue fill.
+    node [shape=box, style="filled", fillcolor="#3b7dd8", color="#2b5ea8",
+          fontcolor="white", penwidth=1.4];
+    parser    [label=<<b>Parser</b>>];
+    transform [label=<<b>Transform +<br/>Wellformedness</b>>];
+    encoder   [label=<<b>SMT Encoder</b>>];
+    solver    [label=<<b>Z3 Solver</b>>];
+
+    tn -> parser -> ast -> transform -> vast -> encoder -> formula -> solver -> result;
+}
