@@ -32,6 +32,6 @@
 /* Keep the architecture overview compact and centered in the introduction. */
 article img[alt^='TaskSAT verification pipeline'] {
   display: block;
-  width: min(100%, 720px);
+  width: min(100%, 520px);
   margin: 1.5rem auto;
 }
