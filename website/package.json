@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "docusaurus": "docusaurus",
+    "gen:grammar": "python3 ../src/smt/gen_grammar_doc.py",
+    "prestart": "npm run gen:grammar",
     "start": "docusaurus start",
+    "prebuild": "npm run gen:grammar",
     "build": "docusaurus build",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",

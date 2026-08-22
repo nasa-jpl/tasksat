@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'website/**'
+      - 'src/smt/tasknet_parser.py'
+      - 'src/smt/extract_grammar.py'
+      - 'src/smt/gen_grammar_doc.py'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
@@ -33,9 +36,14 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: website/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Install dependencies
         run: npm ci
       - name: Build website
+        # `prebuild` (package.json) runs gen_grammar_doc.py to regenerate the
+        # Formal Grammar page + grammar.txt from the parser before building.
         run: npm run build
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

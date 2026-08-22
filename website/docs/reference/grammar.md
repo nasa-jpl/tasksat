@@ -6,6 +6,9 @@ slug: /grammar
 
 # TaskSAT Grammar Reference
 
+This page is a readable, example-driven overview of the syntax. For the **exact**
+grammar generated directly from the parser, see [Formal Grammar](grammar-formal.md).
+
 ## Top-Level Structure
 
 ```
