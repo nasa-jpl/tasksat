@@ -66,7 +66,15 @@ def main():
     # Sort non-terminals by first appearance in parse.py
     sorted_nts = sorted(grouped.items(), key=lambda kv: kv[1][0])
 
+    header = (
+        "# TaskNet Grammar\n"
+        "# Auto-generated from tasknet_parser.py by extract_grammar.py -- do not edit by hand.\n"
+        "# Note: IMPLIES is the '->' token, IMPLIES_KW is the 'implies' keyword (both are equivalent)\n"
+        "\n"
+    )
+
     with out_path.open("w", encoding="utf-8") as f:
+        f.write(header)
         for nt, (_lineno, rhs_list) in sorted_nts:
             if not rhs_list:
                 continue

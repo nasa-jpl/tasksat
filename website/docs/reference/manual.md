@@ -1204,7 +1204,9 @@ constraints {
   # Using time and task boundaries
   prop task_ordering: drive.start >= preheat.end;
   prop early_completion: collect_data.end < 500;
-  prop minimum_gap: transmit.start >= collect_data.end + 100;
+  # Boundary comparisons do NOT support arithmetic (no `+`/`-`).
+  # Express a minimum gap with `after` instead, e.g. `after collect_data [100, 200];`.
+  prop transmit_after_collect: transmit.start >= collect_data.end;
   prop time_window: always (time > 1000 -> battery >= 40.0);
 ```
 

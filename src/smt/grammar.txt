@@ -1,4 +1,5 @@
 # TaskNet Grammar
+# Auto-generated from tasknet_parser.py by extract_grammar.py -- do not edit by hand.
 # Note: IMPLIES is the '->' token, IMPLIES_KW is the 'implies' keyword (both are equivalent)
 
 start :
@@ -15,9 +16,12 @@ tasknet_body_item :
    end_decl
  | timelines_block
  | initial_block
+ | final_block
+ | invariant_block
  | task_def
  | constraints_tl_block
  | properties_block
+ | PARAM NAME EQ param_value SEMI
 
 end_decl :
    END EQ NUMBER SEMI
@@ -35,14 +39,17 @@ timeline_decl :
 
 timeline_kind :
    STATE LPAREN state_list RPAREN EQ NAME
- | ATOMIC init_bool_opt
+ | STATE LPAREN state_list RPAREN EQ NUMBER
+ | ATOMIC init_int_opt
  | claim_kw range_opt init_opt
  | cumul_kw range_opt bounds_opt init_opt
- | RATE range_opt bounds_opt init_opt
+ | RATE range_opt bounds_opt init_opt initial_rate_opt
 
 state_list :
    NAME
+ | NUMBER
  | state_list COMMA NAME
+ | state_list COMMA NUMBER
 
 claim_kw :
    CLAIM
@@ -67,22 +74,39 @@ init_opt :
    empty
  | EQ NUMBER
 
-init_bool_opt :
+initial_rate_opt :
    empty
- | EQ TRUE
- | EQ FALSE
+ | INITIAL_RATE EQ NUMBER
+
+init_int_opt :
+   empty
+ | EQ NUMBER
 
 initial_block :
    INITIAL LBRACE tlcon_list RBRACE
 
+final_block :
+   FINAL LBRACE tlcon_list RBRACE
+ | FINAL WITHIN INITIAL LBRACE tlcon_list RBRACE
+ | FINAL WITHIN INITIAL SEMI
+
+invariant_block :
+   INVARIANT LBRACE tlcon_list RBRACE
+ | INVARIANT COMPOSITIONAL LBRACE tlcon_list RBRACE
+
 task_def :
    TASKDEF NAME LBRACE task_body_items RBRACE
- | optional_opt TASK NAME extends_opt LBRACE task_body_items RBRACE
- | optional_opt TASK NAME extends_opt SEMI
+ | task_modifier_opt TASK NAME extends_opt LBRACE task_body_items RBRACE
+ | task_modifier_opt TASK NAME extends_opt SEMI
+ | task_modifier_opt TASK NAME LBRACKET NUMBER DOTDOT NUMBER RBRACKET extends_opt LBRACE task_body_items RBRACE
+ | task_modifier_opt TASK NAME LBRACKET NUMBER RBRACKET extends_opt LBRACE task_body_items RBRACE
+ | task_modifier_opt TASK NAME LBRACKET NUMBER DOTDOT NUMBER RBRACKET extends_opt SEMI
+ | task_modifier_opt TASK NAME LBRACKET NUMBER RBRACKET extends_opt SEMI
 
-optional_opt :
+task_modifier_opt :
    empty
  | OPTIONAL
+ | REQUEST
 
 extends_opt :
    empty
@@ -103,11 +127,13 @@ task_body_item :
  | task_start_opt
  | task_after
  | task_containedin
+ | param_block
  | constraints_block
  | pre_block
  | inv_block
  | post_block
  | task_impacts
+ | task_def
 
 task_id :
    ID_KW NUMBER SEMI
@@ -125,17 +151,41 @@ task_duration_range :
    DURATION_RANGE range SEMI
 
 task_duration :
-   DURATION NUMBER SEMI
+   DURATION value SEMI
 
 task_start_opt :
    START_KW NUMBER SEMI
  | empty
 
 task_after :
-   AFTER name_list SEMI
+   AFTER after_list SEMI
+
+after_list :
+   empty
+ | after_item
+ | after_list COMMA after_item
+
+after_item :
+   NAME
+ | NAME LBRACKET NUMBER COMMA NUMBER RBRACKET
+ | NAME NUMBER
 
 task_containedin :
-   CONTAINEDIN name_list SEMI
+   CONTAINEDIN containedin_list SEMI
+
+containedin_list :
+   empty
+ | containedin_item
+ | containedin_list COMMA containedin_item
+
+containedin_item :
+   NAME
+ | NAME offset offset
+ | NAME NUMBER
+
+offset :
+   LBRACKET NUMBER COMMA NUMBER RBRACKET
+ | NUMBER
 
 name_list :
    empty
@@ -215,6 +265,7 @@ impact_rhs :
  | MINUS_EQ NUMBER
  | PLUS_RATE NUMBER
  | MINUS_RATE NUMBER
+ | ASSIGN_RATE NUMBER
 
 constraints_tl_block :
    CONSTRAINTS LBRACE temporal_prop_list RBRACE
@@ -229,6 +280,7 @@ temporal_prop_list :
 
 temporal_prop :
    PROP NAME COLON tl_formula SEMI
+ | tl_formula SEMI
 
 tl_formula :
    tl_imp
@@ -263,7 +315,6 @@ tl_unary :
 tl_atom :
    NAME cmp_op NUMBER
  | NAME EQ NAME
- | NAME EQ NUMBER
  | NAME EQ TRUE
  | NAME EQ FALSE
  | ACTIVE LPAREN NAME RPAREN
@@ -279,6 +330,9 @@ tl_atom :
  | NAME DOT END cmp_op NAME DOT START_KW
  | NAME DOT END cmp_op NAME DOT END
  | SEQUENCE LBRACKET task_name_list RBRACKET
+ | MUTEX LBRACKET task_name_list RBRACKET
+ | MUTEX CROSS LBRACKET task_name_list RBRACKET
+ | MUTEX LBRACKET task_name_list RBRACKET WITH LBRACKET task_name_list RBRACKET
 
 task_name_list :
    NAME
@@ -297,4 +351,19 @@ value :
  | TRUE
  | FALSE
  | NAME
+
+param_block :
+   PARAM LBRACE param_decl_list RBRACE
+
+param_decl_list :
+   empty
+ | param_decl
+ | param_decl_list param_decl
+
+param_decl :
+   NAME EQ param_value SEMI
+
+param_value :
+   value
+ | LBRACKET NUMBER COMMA NUMBER RBRACKET
 
