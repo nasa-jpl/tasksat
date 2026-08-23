@@ -18,6 +18,7 @@ class WellFormednessError:
     message: str
 
     def __str__(self) -> str:
+        """Render as `[category] message`, the form shown to the user."""
         return f"[{self.category}] {self.message}"
 
 
@@ -25,6 +26,11 @@ class WellFormednessChecker:
     """Validates well-formedness of a TaskNet AST."""
 
     def __init__(self, tn: TaskNet):
+        """Prepare to check `tn`, indexing its timelines and tasks by name.
+
+        Collects errors rather than raising, so a single run can report every
+        problem at once; call `check()` to run the checks and get the list.
+        """
         self.tn = tn
         self.errors: List[WellFormednessError] = []
 

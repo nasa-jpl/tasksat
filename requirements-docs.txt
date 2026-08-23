@@ -1,0 +1,5 @@
+# Dependencies for building the Sphinx API documentation (doc/api/).
+# The runtime dependencies in requirements.txt are ALSO required, because
+# autodoc imports the modules it documents.
+sphinx
+furo

@@ -35,6 +35,7 @@ npm run start      # local dev server with hot reload (http://localhost:3000/tas
 npm run build      # production build into ./build
 npm run serve      # serve the production build locally
 npm run gen:grammar  # regenerate the grammar files by hand (normally automatic)
+npm run gen:api      # regenerate the Sphinx API reference into static/api/ (see §5)
 ```
 
 > The site is served under the **`/tasksat/`** base path (see `baseUrl` in
@@ -152,24 +153,67 @@ The generated files (`grammar-formal.md`, `grammar.txt`) are committed for
 convenience, but the build overwrites them, so the deployed site always matches
 the current parser.
 
-## 5. Deployment
+## 5. The API reference (Sphinx)
+
+The **code** documentation — everything under `src/smt/` — is a separate
+[Sphinx](https://www.sphinx-doc.org/) `autodoc` site generated from the module
+docstrings, published *inside* this site at
+<https://nasa-jpl.github.io/tasksat/api/>.
+
+```
+doc/api/                    # Sphinx sources (committed)
+  conf.py                   #   autodoc/napoleon/furo config
+  index.rst                 #   landing page + toctree
+  pipeline.rst              #   ast, parser, transforms, wellformedness, smt,
+                            #     realizability, compositional, verifier, printer
+  visualization.rst         #   gantt, timeline/temporal/structure viz, color_utils
+  tooling.rst               #   web UI, grammar tooling
+        │
+        └─ npm run gen:api ──► website/static/api/   (generated HTML, gitignored)
+                                       │
+                                       └─ copied verbatim into the Docusaurus
+                                          build → /tasksat/api/
+```
+
+Because Docusaurus copies `static/` into its output untouched, the API docs ship
+in the **same** Pages deployment as the rest of the site — one build, one URL, no
+second workflow. The navbar "API" link uses `to: 'pathname:///tasksat/api/'`; the
+`pathname://` prefix is required so Docusaurus emits a plain link instead of a
+client-side route (and skips broken-link checking on it).
+
+- **Run it**: `npm run gen:api`. Needs `pip install -r requirements.txt -r
+  requirements-docs.txt` — the runtime deps too, since autodoc *imports* every
+  module it documents.
+- **It is not in `prestart`**, only `prebuild` — it would add ~15s to every
+  dev-server boot. Run it by hand once and `npm run start` serves
+  `http://localhost:3000/tasksat/api/` from `static/` like any other asset.
+- **PLY plumbing is hidden**: an `autodoc-skip-member` hook in `conf.py` drops
+  the 221 `p_*` / `t_*` functions of `tasknet_parser`, whose docstrings are BNF
+  productions rather than prose (that grammar is §4's job).
+- **Docstrings are reStructuredText.** Keep them RST-clean: a blank line before
+  a bullet/numbered list, `::` before an indented code/literal block, and
+  backticks around anything with `*` or `|` in it. `default_role = 'literal'`
+  means single backticks render as code, so Markdown-style `` `foo` `` is fine.
+  The build must stay at **0 warnings**.
+
+## 6. Deployment
 
 GitHub Actions workflow: `.github/workflows/deploy-docs.yml`.
 
-- **Triggers** on push to `main` when `website/**` **or** the parser/grammar
-  scripts (`src/smt/tasknet_parser.py`, `extract_grammar.py`,
-  `gen_grammar_doc.py`) change — so a grammar change alone still redeploys the
-  Formal Grammar page. Also runnable manually via *workflow_dispatch*.
+- **Triggers** on push to `main` when `website/**`, `src/smt/**`, `doc/api/**`,
+  or the requirements files change — so editing a docstring or the parser alone
+  still redeploys. Also runnable manually via *workflow_dispatch*.
 - **Build job**: checkout → setup-node 20 → setup-python 3.11 → `npm ci` →
-  `npm run build` (the `prebuild` hook regenerates the grammar) → upload
-  `website/build` as a Pages artifact.
+  `pip install -r requirements.txt -r requirements-docs.txt` → `npm run build`
+  (the `prebuild` hook regenerates the grammar page *and* the API reference) →
+  upload `website/build` as a Pages artifact.
 - **Deploy job**: publishes the artifact to GitHub Pages
   (`actions/deploy-pages`). Pages source must be set to **GitHub Actions** in the
   repo settings.
 
 No `gh-pages` branch is used; deployment is artifact-based.
 
-## 6. Common tasks
+## 7. Common tasks
 
 - **Add a page**: drop a `.md` in the right `docs/<category>/` folder with front
   matter (`sidebar_position`, optional `sidebar_label`, optional `slug`).
@@ -178,3 +222,7 @@ No `gh-pages` branch is used; deployment is artifact-based.
 - **Change the parser grammar**: just edit `tasknet_parser.py` — the Formal
   Grammar page updates itself on the next build. Run
   `python3 src/smt/gen_grammar_doc.py` if you want to see it immediately.
+- **Document code**: write a docstring in `src/smt/` — it appears on the API
+  site on the next build. Preview with `npm run gen:api`.
+- **Add a module to the API site**: add an `.. automodule::` entry to the right
+  `doc/api/*.rst` page (nothing is auto-discovered, on purpose).

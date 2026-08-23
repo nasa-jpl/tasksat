@@ -38,13 +38,15 @@ def parse_schedule_json(json_data: Union[str, dict]) -> Dict[str, Tuple[int, int
     """
     Parse schedule from JSON format.
 
-    Expected format (dict mapping task_id -> [start, end]):
+    Expected format (dict mapping task_id -> [start, end])::
+
         {
             "task1": [10, 20],
             "task2": [30, 40]
         }
 
-    Or nested format with 'tasks' key:
+    Or nested format with 'tasks' key::
+
         {
             "tasks": {
                 "task1": {"start": 10, "end": 20},
@@ -111,6 +113,7 @@ def create_gantt_from_schedule(
     # session instance (drive1, drive2, ...) forms a contiguous band ordered by
     # its earliest task; standalone tasks are their own singleton group.
     def _group_key(item):
+        """The band a task belongs to: its session instance, or itself."""
         name, (start, _end) = item
         head, _tail = split_session_id(name)
         return head if head is not None else name
@@ -127,6 +130,7 @@ def create_gantt_from_schedule(
 
     # Clean, grouped y-labels: 'drive1__preheat' -> 'drive1 / preheat'.
     def _clean_label(name):
+        """Row label for a task: `drive1__preheat` reads as `drive1 / preheat`."""
         head, tail = split_session_id(name)
         return f"{head} / {tail}" if head is not None else name
 
@@ -247,6 +251,11 @@ def create_gantt_from_schedule(
 
 
 def main():
+    """CLI entry point: turn a schedule JSON file into a Gantt chart PNG.
+
+    Standalone counterpart to the chart the verifier produces automatically;
+    useful for re-rendering a schedule saved earlier.
+    """
     parser = argparse.ArgumentParser(
         description='Generate Gantt chart from TaskSAT schedule JSON file'
     )

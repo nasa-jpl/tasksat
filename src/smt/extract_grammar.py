@@ -10,6 +10,13 @@ from pathlib import Path
 from collections import OrderedDict
 
 def extract_productions(src: str):
+    """Scrape the `p_*` rule docstrings out of parser source text.
+
+    Works on the text rather than by importing the module, so no PLY tables are
+    built and nothing is executed. Returns a list of
+    `(line number, function name, docstring)` in source order — the order the
+    grammar is presented in.
+    """
     pattern = re.compile(
         r'def\s+(p_[A-Za-z0-9_]+)\s*\([^)]*\):\s*\n'
         r'[ \t]*[rR]?(?P<q>"""|\'\'\'|"|\')'  # opening quote
@@ -28,6 +35,12 @@ def extract_productions(src: str):
     return prods
 
 def collect_grammar_lines(prods):
+    """Group the scraped productions by non-terminal.
+
+    Several `p_*` functions may define alternatives of the same non-terminal;
+    they are merged here, dropping duplicates and keeping first-definition
+    order. Returns `{non-terminal: (line number, [right-hand sides])}`.
+    """
     grouped = OrderedDict()
     line_re = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+)$')
 
@@ -50,6 +63,11 @@ def collect_grammar_lines(prods):
     return grouped
 
 def main():
+    """Write the raw grammar (token names, not spellings) to `grammar.txt`.
+
+    The unprettified counterpart of `gen_grammar_doc`, which calls this to keep
+    the two in sync.
+    """
     here = Path(__file__).resolve().parent
     parse_path = here / "tasknet_parser.py"
     out_path = here / "grammar.txt"

@@ -94,6 +94,17 @@ const config = {
             label: 'Docs',
           },
           {
+            // Sphinx API reference, generated into static/api/ by `npm run gen:api`.
+            // `pathname://` emits a plain link instead of a client-side route, so
+            // Docusaurus serves the static file and skips broken-link checking.
+            to: 'pathname:///tasksat/api/',
+            label: 'API',
+            position: 'left',
+            // Without this Docusaurus treats the pathname:// link as external
+            // and opens a new tab; same-tab keeps the Back button working.
+            target: '_self',
+          },
+          {
             href: 'https://github.com/nasa-jpl/tasksat',
             label: 'GitHub',
             position: 'right',

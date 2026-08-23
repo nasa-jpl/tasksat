@@ -59,16 +59,28 @@ def build_terminal_map(parser_src: str) -> dict[str, str]:
 
 
 def convert_symbol(sym: str, term: dict[str, str]) -> str:
+    """Render one grammar symbol: a terminal as its spelling, else unchanged.
+
+    The `empty` production becomes `ε`; anything not in `term` is a
+    non-terminal and passes through as its own name.
+    """
     if sym == "empty":
         return "ε"
     return term.get(sym, sym)
 
 
 def convert_rhs(rhs: str, term: dict[str, str]) -> str:
+    """Render one production right-hand side, symbol by symbol."""
     return " ".join(convert_symbol(s, term) for s in rhs.split())
 
 
 def render_grammar(grouped, term) -> str:
+    """Render the whole grammar as EBNF text.
+
+    Non-terminals keep their order of definition in the parser rather than
+    being sorted alphabetically, so the result reads top-down from `start`.
+    Alternatives are listed one per line under a leading `|`.
+    """
     lines: list[str] = []
     for nt, (_lineno, rhs_list) in sorted(grouped.items(), key=lambda kv: kv[1][0]):
         alts = [convert_rhs(r, term) for r in rhs_list]
@@ -109,6 +121,13 @@ For the full language semantics, see the [Manual](manual.md).
 
 
 def main() -> None:
+    """Regenerate the Formal Grammar page (and `grammar.txt`) from the parser.
+
+    Run by the website's `prestart` / `prebuild` hooks, so the published page
+    can never drift from the real grammar. Overwrites
+    `website/docs/reference/grammar-formal.md`, which is therefore not to be
+    edited by hand.
+    """
     here = Path(__file__).resolve().parent
     repo = here.parents[1]
     parser_src = (here / "tasknet_parser.py").read_text(encoding="utf-8")

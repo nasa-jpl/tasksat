@@ -1,4 +1,22 @@
-# tn_ast.py
+"""TaskNet abstract syntax tree.
+
+The dataclasses in this module are the shared vocabulary of the whole pipeline:
+the parser builds them, the transforms rewrite them, the well-formedness checker
+validates them, the SMT encoder consumes them and the printer turns them back
+into `.tn` syntax.
+
+The main groups are:
+
+- **Network**: `TaskNet`, the root, holding parameters, timelines, tasks,
+  constraints, properties and the `initial` / `final` / `invariant` blocks.
+- **Tasks**: `Task` (a definition, an instance, optional or requested, per
+  `TaskKind`), `TaskRange` for the `T[min..max]` sugar, and the dependency
+  nodes `AfterDependency` / `ContainedinDependency`.
+- **Timelines**: `Timeline` and its impacts — the state a task reads and writes.
+- **Formulas**: the `Formula` hierarchy for constraints and temporal (LTL-style)
+  properties, including the sugar nodes `TLMutex` and `TLSequence` that the
+  transforms desugar away.
+"""
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Union, Literal, Tuple
@@ -13,11 +31,21 @@ Time         = int
 
 @dataclass
 class IntRange:
+    """An inclusive integer interval `[low, high]`, as written `[10, 20]`.
+
+    Used for the time-valued ranges: durations, start/end windows, `after` gaps
+    and `containedin` offsets.
+    """
     low: int
     high: int
 
 @dataclass
 class RealRange:
+    """An inclusive real interval `[low, high]`, as written `[0.0, 100.0]`.
+
+    Used for the numeric timeline ranges and bounds, and for real-valued
+    conditions.
+    """
     low: float
     high: float
 
@@ -39,8 +67,10 @@ class ContainedinDependency:
     """Containedin dependency with optional start/end offsets.
 
     Semantics:
+
     - No offsets: parent.start <= child.start AND child.end <= parent.end
     - With offsets:
+
       - start_offset=[min, max]: child.start ∈ [parent.start + min, parent.start + max]
       - end_offset=[min, max]: child.end ∈ [parent.end - max, parent.end - min]
     """
@@ -52,18 +82,27 @@ class ContainedinDependency:
 
 @dataclass
 class IntVal:
+    """An integer literal."""
     v: int
 
 @dataclass
 class RealVal:
+    """A floating-point literal."""
     v: float
 
 @dataclass
 class StrVal:
+    """A name literal: a state of a state timeline, e.g. `idle`.
+
+    Also the fallback for a `ParamRef` that resolved to nothing: unresolved
+    parameter references are turned into `StrVal` by `resolve_parameters()`,
+    on the assumption that the name denotes a timeline state.
+    """
     v: str
 
 @dataclass
 class BoolVal:
+    """A boolean literal, i.e. a state of a `bool` (two-state) timeline."""
     v: bool
 
 @dataclass
@@ -77,23 +116,53 @@ Value = Union[IntVal, RealVal, StrVal, BoolVal, ParamRef]
 
 @dataclass
 class StateTimeline:
+    """A discrete timeline ranging over a finite set of named states.
+
+    Written `mode : state(idle, driving)`. The `bool` timeline type is sugar
+    for `state(true, false)`. Only assignment impacts (`=`), in pre or post.
+    """
     id: TimeLineName
     states: List[str]
     initial: Optional[str]
 
 @dataclass
 class AtomicTimeline:
+    """An integer `[0, 1]` timeline enforcing mutual exclusion.
+
+    Written `res : atomic = 0` (0 = unclaimed, 1 = claimed). Only cumulative
+    impacts are allowed — `+= 1` to claim, `-= 1` to release, typically as a
+    `maint` impact so the claim is released automatically. Assignment is
+    rejected: it cannot detect a conflict, whereas two overlapping `+= 1`
+    claims push the value to 2 and violate the `[0, 1]` range.
+
+    The `__T_active` timelines synthesized for `active(T)` are of this type.
+    """
     id: TimeLineName
     initial: Optional[int] = 0  # 0 or 1
 
 @dataclass
 class ClaimableTimeline:
+    """A numeric timeline for resources claimed for the duration of a task.
+
+    Written `res : claim [0.0, 4.0] = 4.0`. Accepts delta impacts (`+=`, `-=`)
+    in `maint` only, so a claim is always matched by its release. `range` is
+    the interval the schedule must stay within.
+    """
     id: TimeLineName
     range: RealRange
     initial: Optional[float]
 
 @dataclass
 class CumulativeTimeline:
+    """A numeric timeline accumulating deltas, e.g. data volume or fuel.
+
+    Written `data : cumulative [0.0, 100.0] bounds [0.0, 100.0] = 0.0`.
+    Accepts assignment (pre/post) and delta impacts (pre/maint/post).
+
+    The two intervals differ: `range` is the interval a valid schedule must
+    stay within, while `bounds` is the timeline's type — computed values are
+    clamped into it. `range` is effectively a subtype of `bounds`.
+    """
     id: TimeLineName
     range: RealRange
     bounds: RealRange
@@ -101,6 +170,17 @@ class CumulativeTimeline:
 
 @dataclass
 class RateTimeline:
+    """A numeric timeline that also evolves on its own, at a rate.
+
+    Written `battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0
+    initial_rate = -0.5`. The value is the integral of the rate over time,
+    so it changes even while no task acts on it.
+
+    This is the only timeline carrying two pieces of state, and impacts can
+    target either: value impacts (`=`, `+=`, `-=`) and rate impacts (`=~`,
+    `+~`, `-~`). `range`/`bounds` are as for `CumulativeTimeline`; `bounds`
+    may be omitted.
+    """
     id: TimeLineName
     range: RealRange
     bounds: Optional[RealRange]  # Optional: bounds can be omitted
@@ -121,46 +201,81 @@ ImpactWhen = Literal["pre", "maint", "post"]
 
 @dataclass
 class ImpactAssign:
-    v: Value           
+    """Assignment impact, `timeline = value`: set the value outright."""
+    v: Value
 
 @dataclass
 class ImpactCumulative:
-    v: float           
+    """Delta impact, `timeline += v` / `-= v`: add to the current value.
+
+    As a `maint` impact it is self-restoring: applied at the task's start and
+    undone at its end.
+    """
+    v: float
 
 @dataclass
 class ImpactRateCumulative:
+    """Rate delta impact, `timeline +~ d` / `-~ d`: add to the current rate.
+
+    Rate timelines only. Self-restoring under `maint`, and unlike a value
+    impact it is written to zone s rather than s+1, so it governs the whole
+    execution interval of the task.
+    """
     delta: float  # Amount to add to current rate
 
 @dataclass
 class ImpactRateAssignment:
+    """Rate assignment impact, `timeline =~ r`: set the rate outright.
+
+    Rate timelines only, and not allowed under `maint` (there is nothing to
+    restore the previous rate to).
+    """
     r: float  # Absolute rate value to set
 
 ImpactHow = Union[ImpactAssign, ImpactCumulative, ImpactRateCumulative, ImpactRateAssignment]
 
 @dataclass
 class Impact:
-    id: TimeLineName   
-    when: ImpactWhen   
+    """One effect a task has on one timeline: what, when, and how.
+
+    `when` places it at the task's start (`pre`), across its execution
+    (`maint`, applied at the start and undone at the end), or at its end
+    (`post`). Which `how` a timeline accepts, and at which `when`, is
+    validated by `tasknet_wellformedness`.
+    """
+    id: TimeLineName
+    when: ImpactWhen
     how: ImpactHow
 
 # ----- Conditions -----
 
 @dataclass
 class ConVal:
+    """Condition on an exact value: `timeline = idle`, `battery = 50.0`."""
     v: Value
 
 @dataclass
 class ConIntRange:
+    """Condition on an integer interval: `timeline in [10, 20]`."""
     r: IntRange
 
 @dataclass
 class ConRealRange:
+    """Condition on a real interval: `battery in [20.0, 100.0]`."""
     r: RealRange
 
 Con = Union[ConVal, ConIntRange, ConRealRange]
 
 @dataclass
 class TlCon:
+    """A constraint on one timeline: a name plus the alternatives it may take.
+
+    The `cons` list is a disjunction — `mode in idle, [5, 10]` holds if the
+    timeline is `idle` OR within `[5, 10]`.
+
+    This is the shared body of the `initial`, `final` and `invariant` blocks
+    and of a task's `pre` / `inv` / `post` conditions.
+    """
     id: TimeLineName
     cons: List[Con]
 
@@ -242,21 +357,36 @@ class TaskRange:
 # ----- Temporal-logic formulas -----
 
 class Formula(ABC):
+    """Base class of the constraint / temporal-property expression language.
+
+    Subclasses fall into four groups: atoms over timeline state (`TLNumCmp`,
+    `TLStateIs`, `TLBoolIs`, `TLTaskActive`, `TLTrue`, `TLFalse`), atoms over
+    time (`TLTimeCmp` and its terms), the propositional and temporal operators
+    (`TLAnd` ... `TLSince`), and the sugar nodes `TLMutex` / `TLSequence` that
+    the transforms rewrite away.
+
+    A formula is evaluated at a zone; the temporal operators quantify over the
+    zone sequence, forward (`TLAlways`, `TLEventually`, `TLUntil`) or backward
+    (`TLSoFar`, `TLOnce`, `TLSince`).
+    """
     pass
 
 @dataclass
 class TLNumCmp(Formula):
+    """Numeric comparison on a timeline value: `battery >= 20.0`."""
     tl: TimeLineName
     op: Literal["<", "<=", "=", ">=", ">"]
     bound: float
 
 @dataclass
 class TLStateIs(Formula):
+    """Test that a state timeline holds a given state: `mode = idle`."""
     tl: TimeLineName
     value: str
 
 @dataclass
 class TLBoolIs(Formula):
+    """Test that a bool timeline holds a given value: `ready = true`."""
     tl: TimeLineName
     value: bool
 
@@ -298,46 +428,62 @@ class TLTimeCmp(Formula):
 
 @dataclass
 class TLAnd(Formula):
+    """Conjunction: `left and right`."""
     left: Formula
     right: Formula
 
 @dataclass
 class TLOr(Formula):
+    """Disjunction: `left or right`."""
     left: Formula
     right: Formula
 
 @dataclass
 class TLNot(Formula):
+    """Negation: `not sub`."""
     sub: Formula
 
 @dataclass
 class TLImplies(Formula):
+    """Implication: `left -> right`."""
     left: Formula
     right: Formula
 
 @dataclass
 class TLAlways(Formula):
+    """`always sub` — sub holds at this zone and every later one."""
     sub: Formula
 
 @dataclass
 class TLEventually(Formula):
+    """`eventually sub` — sub holds at this zone or some later one."""
     sub: Formula
 
 @dataclass
 class TLUntil(Formula):
+    """`left until right` — right holds eventually, and left holds up to then.
+
+    The strong reading: `right` must actually occur.
+    """
     left: Formula
     right: Formula
 
 @dataclass
 class TLSoFar(Formula):
+    """`sofar sub` — the past mirror of `always`: sub has held up to here."""
     sub: Formula
 
 @dataclass
 class TLOnce(Formula):
+    """`once sub` — the past mirror of `eventually`: sub has held at some point."""
     sub: Formula
 
 @dataclass
 class TLSince(Formula):
+    """`left since right` — the past mirror of `until`.
+
+    `right` held at some earlier zone, and `left` has held ever since.
+    """
     left: Formula
     right: Formula
 
@@ -358,6 +504,7 @@ class TLMutex(Formula):
     of its instances (manual + auto-instantiated) during desugaring.
 
     Within-group semantics for taskdef operands (group_b is None):
+
     - cross_only=False (default, `mutex [A, B]`): flatten all operands to instances
       and exclude every pair, INCLUDING same-taskdef pairs.
     - cross_only=True (`mutex cross [A, B]`): exclude only pairs from DIFFERENT
@@ -371,6 +518,16 @@ class TLMutex(Formula):
 
 @dataclass
 class TemporalProperty:
+    """A named formula, from either the `constraints` or `properties` block.
+
+    The name is what identifies the entry in the verification report; the
+    parser auto-names unnamed entries (`mutex_A_B`, `constraint_3`, ...).
+
+    The same node serves both blocks, and the distinction is in how they are
+    used, not in their shape: a `constraints` entry is asserted (it restricts
+    which schedules are valid), a `properties` entry is checked (it must hold
+    for every valid schedule).
+    """
     name: str
     formula: Formula
 
@@ -386,6 +543,21 @@ class ParamDecl:
 
 @dataclass
 class TaskNet:
+    """The root node: one complete tasknet specification.
+
+    Holds everything a `.tn` file declares — parameters, timelines, tasks, the
+    scheduling horizon `endTime`, and the constraint/property blocks — and is
+    the value passed between every stage of the pipeline. The transforms in
+    `tasknet_transforms` rewrite it in place of the sugar it was parsed with,
+    so a post-transform `TaskNet` contains only core constructs.
+
+    On the boundary blocks: `initial_constraints` are asserted at time 0 and
+    restrict which schedules are valid, whereas `final_constraints` are
+    *checked* against the terminal state of every valid schedule (see
+    `effective_final_constraints`). `invariant_constraints` is the raw
+    `invariant { P }` block, kept for provenance and desugared into the other
+    two.
+    """
     id: TaskNetName
     params: List[ParamDecl]
     timelines: List[Timeline]

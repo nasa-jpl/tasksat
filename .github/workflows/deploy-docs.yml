@@ -5,9 +5,12 @@ on:
     branches: [main]
     paths:
       - 'website/**'
-      - 'src/smt/tasknet_parser.py'
-      - 'src/smt/extract_grammar.py'
-      - 'src/smt/gen_grammar_doc.py'
+      # The whole package: the Formal Grammar page is generated from the parser,
+      # and the Sphinx API reference from every module's docstrings.
+      - 'src/smt/**'
+      - 'doc/api/**'
+      - 'requirements.txt'
+      - 'requirements-docs.txt'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
@@ -39,11 +42,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install dependencies
+      - name: Install Node dependencies
         run: npm ci
+      - name: Install Python dependencies
+        # Runtime deps too: Sphinx autodoc imports the modules it documents.
+        run: pip install -r requirements.txt -r requirements-docs.txt
+        working-directory: ${{ github.workspace }}
       - name: Build website
-        # `prebuild` (package.json) runs gen_grammar_doc.py to regenerate the
-        # Formal Grammar page + grammar.txt from the parser before building.
+        # `prebuild` (package.json) regenerates two things before the Docusaurus
+        # build: the Formal Grammar page + grammar.txt (gen_grammar_doc.py) and
+        # the Sphinx API reference into static/api/ (doc/api/).
         run: npm run build
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

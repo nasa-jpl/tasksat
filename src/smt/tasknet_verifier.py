@@ -1,11 +1,23 @@
 #!/usr/bin/env python3
-# solve_tasknet.py
-#
-# For real-time progress indicators, run with:
-#   python -u src/smt/tasknet_verifier.py <file>
-# or:
-#   PYTHONUNBUFFERED=1 python src/smt/tasknet_verifier.py <file>
-#
+"""Command-line entry point: verify a `.tn` file end to end.
+
+Drives the whole pipeline — parse, transform, well-formedness check, SMT
+encoding, solve — and writes the results (schedule JSON, Gantt chart, timeline
+plots, property results, unsat core, console log) under
+`.tasksat/schedules/<tasknet>/<timestamp>/`::
+
+    python src/smt/tasknet_verifier.py tasknet.tn                  # optimize (default)
+    python src/smt/tasknet_verifier.py tasknet.tn --mode satisfy   # any valid schedule
+    python src/smt/tasknet_verifier.py tasknet.tn --transform-only # inspect the transformed AST
+
+Verification runs in phases: validity (does a schedule exist), then the temporal
+properties and the `final` block, plus the opt-in `--realizability` and
+`--compositional` checks (see `tasknet_realizability` and
+`tasknet_compositional`).
+
+For real-time progress indicators, run with `python -u`, or set
+`PYTHONUNBUFFERED=1`.
+"""
 import argparse
 import os
 import sys
@@ -24,19 +36,28 @@ from color_utils import error, success, warning, info, header, bold, dim, Colors
 
 
 class TeeOutput:
-    """Capture output while still displaying it to the terminal."""
+    """Capture output while still displaying it to the terminal.
+
+    Installed as `sys.stdout` for the duration of a run so the full console
+    transcript can be written to `console_output.txt` alongside the other
+    results, and shown in the web UI.
+    """
     def __init__(self):
+        """Start capturing, wrapping the current `sys.stdout`."""
         self.terminal = sys.stdout
         self.log = StringIO()
 
     def write(self, message):
+        """Write to the terminal and to the capture buffer."""
         self.terminal.write(message)
         self.log.write(message)
 
     def flush(self):
+        """Flush the terminal (the buffer needs none)."""
         self.terminal.flush()
 
     def getvalue(self):
+        """Everything captured so far, as a string."""
         return self.log.getvalue()
 
 
@@ -182,6 +203,35 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
          realizability_budget: float = 60.0,
          compositional: bool = False, compositional_max_iters: int = 50,
          compositional_budget: float = 60.0):
+    """Verify one `.tn` file, writing every artifact of the run to disk.
+
+    The stages are: parse, transform (keeping a pre-transform copy for the
+    structure visualization), check well-formedness, then encode and solve.
+    A failure at any stage is reported and recorded rather than raised.
+
+    Verification itself proceeds in phases: validity (does a schedule exist at
+    all), the temporal properties together with the `final` block, and then the
+    two opt-in checks. Results, plots and logs go to
+    `.tasksat/schedules/<tasknet>/<timestamp>/`.
+
+    Args:
+        path: The `.tn` file to verify.
+        mode: `optimize` to solve for the best schedule under the declared
+            objectives, `satisfy` for any valid one.
+        transform_only: Write the transformed tasknet and stop, without
+            verifying. Useful for inspecting auto-instantiation and session
+            flattening.
+        realizability: Run the realizability check — every initial state the
+            spec admits must admit some schedule. See `tasknet_realizability`.
+        realizability_max_iters: Iteration budget for that check's CEGIS loop.
+        realizability_budget: Time budget in seconds for that check.
+        compositional: Run the compositional inductive-invariant check, which
+            verifies one session and concludes for any-length sequences. Also
+            enabled by `invariant compositional { ... }` in the spec itself.
+            See `tasknet_compositional`.
+        compositional_max_iters: Iteration budget for that check.
+        compositional_budget: Time budget in seconds for that check.
+    """
     print('\n\n\n\n\n\n\n' + header('*** NEW SCHEDULE***') + '\n')
 
     start_time = time.time()

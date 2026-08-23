@@ -101,6 +101,7 @@ def _draw_gantt_chart(
     # Group session siblings together, otherwise order by start time (matches
     # tasknet_gantt.py: each session instance forms a contiguous band).
     def _group_key(item):
+        """The band a task belongs to: its session instance, or itself."""
         name, (start, _end) = item
         head, _tail = split_session_id(name)
         return head if head is not None else name
@@ -116,6 +117,7 @@ def _draw_gantt_chart(
     )
 
     def _clean_label(name):
+        """Row label for a task: `drive1__preheat` reads as `drive1 / preheat`."""
         head, tail = split_session_id(name)
         return f"{head} / {tail}" if head is not None else name
 
@@ -332,10 +334,11 @@ def _draw_line_plot(ax, timeline_id, x_times, values, zone_times):
 def _draw_rate_plot(ax, timeline_id, x_times, values, zone_times):
     """Draw plot for rate timelines (shows value evolution with linear interpolation).
 
-    The extraction stores both start_value and end_value for each zone interval.
-    values[i] = {'start_value': value at zone_times[i],
-                 'end_value': value at zone_times[i+1],
-                 'rate': rate during zone}
+    The extraction stores both start_value and end_value for each zone interval::
+
+        values[i] = {'start_value': value at zone_times[i],
+                     'end_value': value at zone_times[i+1],
+                     'rate': rate during zone}
 
     Assignments can happen at zone boundaries (PRE/POST impacts). We detect them
     by checking if values jump discontinuously, and draw vertical lines for assignments.

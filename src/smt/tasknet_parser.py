@@ -1,3 +1,16 @@
+"""PLY-based lexer and parser for the TaskNet (`.tn`) language.
+
+Turns `.tn` source text into the AST defined in `tasknet_ast`. The module
+builds its lexer and parser at import time and exposes them as the module-level
+`lexer` and `parser` objects; `parser.parse(text)` returns a `TaskNet`.
+
+The grammar itself lives in the docstrings of the `p_*` functions, which is why
+those functions are omitted from this API page: they are the single source of
+truth for the published
+`Formal Grammar <https://nasa-jpl.github.io/tasksat/docs/reference/grammar-formal>`_
+page, generated from this file by `gen_grammar_doc`. Read the grammar there, and
+this file for the AST-construction actions.
+"""
 from __future__ import annotations
 from typing import List, Optional
 from pprint import pprint
@@ -1902,12 +1915,18 @@ parser = yacc.yacc(start="start")
 # ============================================================
 
 def parse_tasknet(text: str) -> TaskNet:
+    """Parse `.tn` source text into a `TaskNet` AST.
+
+    The counter behind auto-generated constraint names is reset first, so
+    parsing the same text twice yields the same names.
+    """
     global _constraint_counter
     _constraint_counter = 0  # Reset counter for each parse
     return parser.parse(text, lexer=lexer)
 
 
 def parse_tasknet_file(path: str) -> TaskNet:
+    """Parse a `.tn` file into a `TaskNet` AST."""
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
     return parse_tasknet(text)

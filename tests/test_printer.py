@@ -8,7 +8,7 @@ from pathlib import Path
 # Add src/smt to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src' / 'smt'))
 
-from tasknet_parser import parse_tasknet_file
+from tasknet_parser import parse_tasknet, parse_tasknet_file
 from tasknet_transforms import apply_transforms
 from tasknet_printer import print_tasknet_to_file, print_tasknet_to_string
 
@@ -167,6 +167,38 @@ class TestPrinter:
 
         # Check timeline declarations
         assert "state(" in content or "atomic" in content or "cumulative" in content
+
+    def test_print_rate_assignment_impact(self):
+        """Rate-assignment impacts (`=~`) print and round-trip.
+
+        Regression: print_impact read ImpactRateAssignment.rate, but the field
+        is named `r`, so printing any `=~` impact raised AttributeError. No
+        other test exercises `=~`, since it is the one impact form the .tn
+        fixtures never use.
+        """
+        src = """
+        tasknet RateAssign {
+          end = 100;
+          timelines {
+            battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0 initial_rate = -1.0;
+          }
+          taskdef charge {
+            duration 10;
+            impacts {
+              pre  { battery =~ 2.5; }
+              post { battery =~ -0.5; }
+            }
+          }
+          task c1 : charge {}
+        }
+        """
+        printed = print_tasknet_to_string(parse_tasknet(src))
+
+        assert "battery =~ 2.5;" in printed
+        assert "battery =~ -0.5;" in printed
+
+        # Re-parsing and re-printing must reproduce the same text.
+        assert print_tasknet_to_string(parse_tasknet(printed)) == printed
 
     def test_print_with_properties(self):
         """Test printing tasknet with temporal properties"""

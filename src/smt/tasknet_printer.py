@@ -11,24 +11,39 @@ import sys
 
 
 class TaskNetPrinter:
-    """Pretty-print TaskNet AST to .tn syntax."""
+    """Pretty-print TaskNet AST to .tn syntax.
+
+    The `print_*` methods mirror the AST node groups; each either returns a
+    string (values, ranges, formulas) or writes to a stream (timelines, tasks,
+    the network). Indentation is tracked in `indent_level` and applied by the
+    `_indent` helper, so nested blocks manage the level around their contents.
+
+    The output is intended to be re-parsable, and the printer preserves surface
+    sugar where the AST records it — the `within initial` form of a final
+    block, shorthand dependency gaps, session `children`.
+    """
 
     def __init__(self, indent_size: int = 2):
+        """Create a printer indenting each level by `indent_size` spaces."""
         self.indent_size = indent_size
         self.indent_level = 0
 
     def _indent(self) -> str:
+        """The leading whitespace for the current nesting level."""
         return " " * (self.indent_level * self.indent_size)
 
     def _write(self, out: TextIO, text: str):
+        """Write `text` verbatim."""
         out.write(text)
 
     def _writeln(self, out: TextIO, text: str = ""):
+        """Write `text` followed by a newline (a blank line if omitted)."""
         out.write(text + "\n")
 
     # ===== Values =====
 
     def print_value(self, v: Value) -> str:
+        """Render a literal: number, state name, `true`/`false`, or param name."""
         if isinstance(v, IntVal):
             return str(v.v)
         elif isinstance(v, RealVal):
@@ -52,9 +67,11 @@ class TaskNetPrinter:
             return self.print_value(v)
 
     def print_int_range(self, r: IntRange) -> str:
+        """Render an integer range as `[low, high]`."""
         return f"[{r.low}, {r.high}]"
 
     def print_real_range(self, r: RealRange) -> str:
+        """Render a real range as `[low, high]`."""
         return f"[{r.low}, {r.high}]"
 
     # ===== Dependencies =====
@@ -114,6 +131,11 @@ class TaskNetPrinter:
     # ===== Timelines =====
 
     def print_timeline(self, out: TextIO, tl: Timeline):
+        """Write one timeline declaration, in the form its type calls for.
+
+        E.g. `mode : state(idle, driving) = idle;` or
+        `battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0;`.
+        """
         ind = self._indent()
 
         if isinstance(tl, StateTimeline):
@@ -146,6 +168,12 @@ class TaskNetPrinter:
     # ===== Constraints =====
 
     def print_tlcon(self, out: TextIO, con: TlCon):
+        """Write one timeline constraint, as used in pre/inv/post and the
+        initial/final blocks.
+
+        A single exact value prints as an assignment (`mode = idle;`), anything
+        else as a membership list (`battery in [20.0, 100.0], 0.0;`).
+        """
         ind = self._indent()
         tl_name = con.id
 
@@ -168,6 +196,11 @@ class TaskNetPrinter:
     # ===== Impacts =====
 
     def print_impact(self, out: TextIO, imp: Impact):
+        """Write one impact statement, choosing the operator from its `how`.
+
+        A negative delta is printed with the subtracting operator rather than a
+        negative literal: `battery += -30.0` comes out as `battery -= 30.0`.
+        """
         ind = self._indent()
         tl = imp.id
 
@@ -186,9 +219,15 @@ class TaskNetPrinter:
             self._writeln(out, f"{ind}{tl} {op} {abs(v)};")
 
         elif isinstance(imp.how, ImpactRateAssignment):
-            self._writeln(out, f"{ind}{tl} =~ {imp.how.rate};")
+            self._writeln(out, f"{ind}{tl} =~ {imp.how.r};")
 
     def print_impacts_block(self, out: TextIO, impacts: List[Impact]):
+        """Write the `impacts { ... }` block, regrouped by timing.
+
+        The AST holds a flat list, so impacts are collected back into their
+        `pre` / `maint` / `post` sub-blocks here. Writes nothing for an empty
+        list.
+        """
         if not impacts:
             return
 
@@ -280,6 +319,13 @@ class TaskNetPrinter:
         self._writeln(out, f"{ind}}}")
 
     def print_task(self, out: TextIO, task: Task):
+        """Write a complete task or taskdef declaration.
+
+        The header follows `task.kind` — `taskdef T {`, `task t : T {`, or the
+        `optional` / `request` prefixed forms — and the body is emitted in a
+        fixed order: priority, params, timing, dependencies, pre/inv/post,
+        impacts, then any nested session `children`.
+        """
         ind = self._indent()
 
         # Task header
@@ -382,6 +428,12 @@ class TaskNetPrinter:
     # ===== Temporal Logic =====
 
     def print_tl_formula(self, f: Formula) -> str:
+        """Render a constraint / temporal-property formula as a string.
+
+        Recursive over the `Formula` tree, parenthesizing compound operands.
+        Handles the sugar nodes (`mutex`, `sequence`, `active(T)`) too, so a
+        pre-transform AST round-trips in the syntax it was written in.
+        """
         # Atomic formulas
         if isinstance(f, TLTaskActive):
             return f"active({f.task})"
@@ -446,6 +498,12 @@ class TaskNetPrinter:
     # ===== TaskNet =====
 
     def print_tasknet(self, out: TextIO, tn: TaskNet):
+        """Write the whole network — the top-level entry point.
+
+        Emits `end`, params, timelines, the initial and final blocks, the tasks
+        (taskdefs first, then instances), and finally the constraints and
+        properties blocks. Empty sections are skipped entirely.
+        """
         self._writeln(out, f"tasknet {tn.id} {{")
         self.indent_level += 1
         ind = self._indent()

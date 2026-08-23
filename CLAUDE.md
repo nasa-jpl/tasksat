@@ -80,6 +80,7 @@ npm install        # first time only (needs Node >= 20: brew install node)
 npm run start      # local preview at http://localhost:3000/tasksat/ (hot reload)
 npm run build      # production build into website/build
 npm run serve      # serve the production build locally
+npm run gen:api    # regenerate the Sphinx API reference (see below)
 ```
 
 - **Base path matters**: the site is served under `/tasksat/` (`baseUrl` in
@@ -94,6 +95,32 @@ npm run serve      # serve the production build locally
   Do not hand-edit it.
 - **Images**: `website/static/img/` (referenced as `/img/foo.png`).
 - Full reference: [website/README.md](website/README.md).
+
+### API Reference (Sphinx)
+
+Code documentation for `src/smt/` is a Sphinx `autodoc` site generated from the
+module docstrings, published inside the Docusaurus site at
+https://nasa-jpl.github.io/tasksat/api/.
+
+```bash
+pip install -r requirements.txt -r requirements-docs.txt   # autodoc IMPORTS the modules
+cd website && npm run gen:api                              # -> website/static/api/ (gitignored)
+```
+
+- **Sources**: `doc/api/` — `conf.py` plus `index.rst` and three grouped pages
+  (`pipeline.rst`, `visualization.rst`, `tooling.rst`). Modules are listed
+  explicitly with `.. automodule::`; nothing is auto-discovered. A new module in
+  `src/smt/` must be added to one of those pages to appear.
+- **Publishing**: the HTML goes into `website/static/api/`, which Docusaurus
+  copies verbatim into its build — same Pages deployment, no second workflow.
+  Run by `prebuild` (so CI always regenerates it), NOT by `prestart`.
+- **Docstrings are reStructuredText**, not Markdown: blank line before a list,
+  `::` before an indented literal block, backticks around anything containing
+  `*` or `|`. `default_role = 'literal'` makes single backticks render as code.
+  **Keep the build at 0 warnings.**
+- **PLY rules hidden**: an `autodoc-skip-member` hook in `conf.py` drops the 221
+  `p_*` / `t_*` functions of `tasknet_parser` (BNF docstrings — already published
+  on the Formal Grammar page).
 
 ## Architecture
 
@@ -122,6 +149,7 @@ tasksat/
 ├── tests/            # Pytest tests
 │   └── tasknet_files/  # Test .tn files
 ├── doc/              # Internal notes, figures, benchmarks
+│   └── api/            # Sphinx sources for the API reference (/tasksat/api/)
 └── website/          # Docusaurus docs site (published to GitHub Pages)
     └── docs/           # The published pages (intro, getting-started, reference, theory)
 ```

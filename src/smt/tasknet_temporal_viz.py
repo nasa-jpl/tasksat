@@ -235,6 +235,7 @@ def create_temporal_range_visualization(tn: TaskNet, output_path: str) -> bool:
     horizon = tn.endTime or 1
 
     def _kind_suffix(task):
+        """Label marker for a non-required task: ` (opt)`, ` (req)`, or nothing."""
         if task.kind == TaskKind.OPTIONAL:
             return " (opt)"
         if task.kind == TaskKind.REQUEST:

@@ -352,6 +352,7 @@ def flatten_sessions(tn: TaskNet) -> tuple[TaskNet, bool]:
 
         # Session instances = non-definition tasks whose definition is a session def.
         def is_session_instance(t) -> bool:
+            """True if `t` is an instance of one of this round's session defs."""
             return (not isinstance(t, TaskRange)
                     and t.kind != TaskKind.DEFINITION
                     and t.definition in session_defs)
@@ -365,11 +366,13 @@ def flatten_sessions(tn: TaskNet) -> tuple[TaskNet, bool]:
                 inst_child_names[t.id] = [f"{t.id}{SEP}{c.id}" for c in sdef.children]
 
         def deep_copy_tlcons(tlcons):
+            """Copy a pre/inv/post condition list so each child owns its own."""
             if not tlcons:
                 return None
             return [TlCon(tc.id, tc.cons.copy()) for tc in tlcons]
 
         def deep_copy_impacts(impacts):
+            """Copy an impact list so each child owns its own."""
             if not impacts:
                 return None
             return [Impact(imp.id, imp.when, imp.how) for imp in impacts]
@@ -381,6 +384,7 @@ def flatten_sessions(tn: TaskNet) -> tuple[TaskNet, bool]:
             return [AfterDependency(task_id=dep.task_id, gap=dep.gap)]
 
         def qualify_containedin(dep: ContainedinDependency, inst_name: str, sibling_ids: Set[str]):
+            """Rewrite a child's containedin-dep: sibling → qualified; else keep."""
             if dep.task_id in sibling_ids:
                 return [ContainedinDependency(task_id=f"{inst_name}{SEP}{dep.task_id}",
                                               start_offset=dep.start_offset, end_offset=dep.end_offset)]
@@ -395,6 +399,8 @@ def flatten_sessions(tn: TaskNet) -> tuple[TaskNet, bool]:
             return [AfterDependency(task_id=dep.task_id, gap=dep.gap)]
 
         def expand_session_containedin(dep: ContainedinDependency):
+            """Session-instance containedin-dep → fan out to the target's children
+            if the target is itself a session instance; otherwise keep as-is."""
             if dep.task_id in inst_child_names:
                 return [ContainedinDependency(task_id=q, start_offset=dep.start_offset,
                                               end_offset=dep.end_offset)
@@ -579,20 +585,26 @@ def desugar_mutex(tn: TaskNet) -> TaskNet:
     """
     Transform mutex [task1, task2, ...] constructs into non-overlap constraints.
 
-    This is syntactic sugar for mutual exclusion:
+    This is syntactic sugar for mutual exclusion::
+
         mutex [T1, T2]
-    becomes:
+
+    becomes::
+
         (T1.end <= T2.start) or (T2.end <= T1.start)
 
-    And between-group exclusion:
+    And between-group exclusion::
+
         mutex [T1, T2] with [T3, T4]
+
     becomes the cross-product of all pairs from both groups.
 
     Operands may be task instances or taskdefs. A taskdef operand expands to all
     of its instances (manual + auto-instantiated). Within-group behavior for
     taskdef operands is controlled by TLMutex.cross_only:
-      - cross_only=False (mutex [A, B]): flatten to instances, exclude all pairs.
-      - cross_only=True (mutex cross [A, B]): exclude only cross-operand pairs.
+
+    - cross_only=False (mutex [A, B]): flatten to instances, exclude all pairs.
+    - cross_only=True (mutex cross [A, B]): exclude only cross-operand pairs.
 
     Runs after instantiate_from_definitions so that auto-instances exist.
 
@@ -796,11 +808,14 @@ def inject_task_state_timelines(tn: TaskNet) -> TaskNet:
     Automatically generate __taskname_active timelines for tasks referenced
     in temporal formulas or conditions.
 
-    This transformation allows users to write properties like:
+    This transformation allows users to write properties like::
+
         always (__T1_active = true -> A = true)
+
     without manually creating and maintaining task state timelines.
 
     For each referenced task T, this creates:
+
     - An atomic timeline __T_active with initial value false
     - A MAINT impact on T that claims __T_active (+=1) during execution
 
@@ -939,19 +954,22 @@ def reclassify_constraints(tn: TaskNet) -> TaskNet:
     Reclassify after/containedin constraints based on what they reference.
 
     The parser categorizes constraints based on the container task's kind:
+
     - If parsing a taskdef, constraints go to after_definitions/containedin_definitions
     - If parsing an instance, constraints go to after_instances/containedin_instances
 
     But this is wrong! The categorization should be based on whether the
     referenced ID is a taskdef or an instance:
-    - If reference points to a taskdef → should be in *_definitions
-    - If reference points to an instance → should be in *_instances
+
+    - If reference points to a taskdef → should be in `*_definitions`
+    - If reference points to an instance → should be in `*_instances`
 
     This pass fixes the categorization by:
+
     1. Building a set of all taskdef IDs
     2. For each task, checking its constraints
-    3. Moving taskdef references from *_instances to *_definitions
-    4. Moving instance references from *_definitions to *_instances
+    3. Moving taskdef references from `*_instances` to `*_definitions`
+    4. Moving instance references from `*_definitions` to `*_instances`
 
     Args:
         tn: The TaskNet AST
@@ -1124,11 +1142,13 @@ def instantiate_from_definitions(tn: TaskNet) -> TaskNet:
 
             # Deep copy lists to avoid shared references
             def deep_copy_tlcons(tlcons):
+                """Copy a condition list so the auto-instance owns its own."""
                 if not tlcons:
                     return None
                 return [TlCon(tc.id, tc.cons.copy()) for tc in tlcons]
 
             def deep_copy_impacts(impacts):
+                """Copy an impact list so the auto-instance owns its own."""
                 if not impacts:
                     return None
                 return [Impact(imp.id, imp.when, imp.how) for imp in impacts]

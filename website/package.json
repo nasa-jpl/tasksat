@@ -5,9 +5,10 @@
   "scripts": {
     "docusaurus": "docusaurus",
     "gen:grammar": "python3 ../src/smt/gen_grammar_doc.py",
+    "gen:api": "python3 -m sphinx -b html ../doc/api static/api",
     "prestart": "npm run gen:grammar",
     "start": "docusaurus start",
-    "prebuild": "npm run gen:grammar",
+    "prebuild": "npm run gen:grammar && npm run gen:api",
     "build": "docusaurus build",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",

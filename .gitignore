@@ -70,6 +70,10 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+doc/api/_build/
+# Generated API reference HTML (built into the Docusaurus static dir by
+# `npm run gen:api`; sources live in doc/api/)
+website/static/api/
 
 # PyBuilder
 .pybuilder/

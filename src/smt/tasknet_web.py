@@ -1171,6 +1171,7 @@ def main():
 
     # Open browser in background thread
     def open_browser_with_port():
+        """Open the UI in a browser, after giving Flask a moment to bind."""
         import time
         time.sleep(1.5)
         webbrowser.open(f'http://localhost:{args.port}')

@@ -16,7 +16,7 @@ its counterexample is a concrete initial state from which nothing can be
 scheduled, reported together with the unsat core explaining why.
 
 Algorithm: CEGIS (counterexample-guided) loop. A direct quantified query would
-face the encoding's nonlinear terms (rate * zone-duration); instead:
+face the encoding's nonlinear terms (rate * zone-duration); instead::
 
   S_init := the initial region (TaskNetSMT.init_region_constraints)
   repeat:
@@ -131,7 +131,8 @@ def check_realizability(tn: TaskNet, max_iters: int = 50, budget_sec: float = 60
                         formula: Optional[str] = None) -> dict:
     """
     Run the realizability check. Returns a dict shaped like a property result
-    (name/status/duration_sec/formula) plus:
+    (name/status/duration_sec/formula) plus::
+
       iterations, skeletons_found, note,
       counterexample_initial_state (dict or None), unsat_core (dict or None).
 
@@ -148,6 +149,11 @@ def check_realizability(tn: TaskNet, max_iters: int = 50, budget_sec: float = 60
 
     def result(status: str, note: str, iterations: int = 0, skeletons: int = 0,
                counterexample=None, unsat_core=None) -> dict:
+        """Build the result dict, stamping the elapsed time.
+
+        Every exit path of the CEGIS loop goes through here, so HOLDS,
+        VIOLATED and UNKNOWN are all reported in the same shape.
+        """
         return {
             'name': name,
             'status': status,

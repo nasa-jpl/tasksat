@@ -1,4 +1,24 @@
+"""SMT encoding of TaskNet scheduling problems, and the Z3 interface.
 
+Encodes a (transformed, well-formed) `TaskNet` as a quantifier-free SMT formula
+and solves it with Z3, in either `satisfy` mode (find any valid schedule) or
+`optimize` mode (best schedule under the declared objective).
+
+The encoding is **zone-based**: time is discretized at task boundaries, so a
+schedule of N tasks induces a sequence of zones over which every timeline's
+value is piecewise described. Task start/end times are the free variables;
+timeline evolution, impacts, preconditions, invariants and postconditions become
+constraints relating consecutive zones.
+
+Two classes:
+
+- `TaskNetSMT` — the encoder/solver: builds the constraint system, solves it,
+  extracts the schedule and the timeline evolution, and produces an unsat core
+  when the problem is infeasible.
+- `TaskNetTL` — temporal-logic interpretation on top of a solved encoding:
+  checks the LTL-style properties (always, eventually, until, since) and the
+  `final` block by asking Z3 for a valid schedule that violates them.
+"""
 from __future__ import annotations
 from typing import List, Optional, Dict, Union, Literal, Tuple
 
@@ -18,6 +38,29 @@ class TaskNetSMT:
     """
 
     def __init__(self, tn: TaskNet, use_optimization: bool = True, track: bool = True):
+        """Build the complete SMT encoding of `tn`.
+
+        The constructor does the encoding work: it normalizes the network,
+        creates the schedule variables (a start and an end per task, plus an
+        inclusion flag per optional/request task) and the per-zone timeline
+        variables, and asserts every constraint into `self.solver`. After it
+        returns, the problem is fully encoded and only needs `solve()`.
+
+        Args:
+            tn: A transformed, well-formed network. It is normalized and its
+                task definitions resolved into instances; the original is left
+                untouched.
+            use_optimization: Use a Z3 `Optimize` solver rather than a plain
+                `Solver`, so optional and request tasks can be optimized over.
+                Only takes effect if the network actually has such tasks.
+                A plain `Solver` is used otherwise — and only a plain `Solver`
+                can produce an unsat core.
+            track: Label each assertion so an unsat core can name it. Pass
+                False to make `solver.assertions()` the exact constraint
+                conjunction, which the realizability check needs as a formula
+                template (tracked assertions are stored as `Implies(tracker, c)`
+                and are unusable for that).
+        """
         self.tn = self.normalize_tasknet(tn)
         self.tn = self.resolve_task_definitions(self.tn)
         # When track=False, add_tracked degrades to plain solver.add so that
@@ -809,6 +852,15 @@ class TaskNetSMT:
 
 
     def normalize_tasknet(self, tn: TaskNet) -> TaskNet:
+        """Fill in the optional bits of the AST with permissive defaults.
+
+        Omitted timeline ranges and task start/end windows become effectively
+        unbounded intervals, so the encoder can assume they are always present.
+        Timeline `bounds` are deliberately left as None: unlike a range, an
+        absent bound means "do not clamp", which is not the same as a wide one.
+
+        Mutates and returns `tn`.
+        """
         MAX_INT  = 10**9
         MIN_REAL = -1e9
         MAX_REAL =  1e9
@@ -848,6 +900,11 @@ class TaskNetSMT:
     # ------------------------------
 
     def _mk_schedule_vars(self):
+        """Create the integer start/end variable pair for every task.
+
+        These are the primary unknowns: a solution is an assignment to them
+        (plus the inclusion flags of the optional and request tasks).
+        """
         for t in self.all_scheduled_tasks:
             s = Int(f"start_{t.id}")
             e = Int(f"end_{t.id}")
@@ -855,6 +912,21 @@ class TaskNetSMT:
             self.end_vars[t.id] = e
 
     def _encode_start_end_times_ok(self):
+        """Assert everything that constrains task start and end times.
+
+        Covers the per-task timing (start/end/duration, whether fixed or given
+        as a range, all inside the horizon) and the ordering relations between
+        tasks: `after` dependencies with their optional gaps, and `containedin`
+        with its optional start/end offsets.
+
+        Type-level dependencies are resolved here too — a dependency naming a
+        taskdef binds to the auto-instance created for this task where one
+        exists (via `auto_instance_map`), and otherwise to every instance of
+        that taskdef.
+
+        Constraints belonging to an optional or request task are guarded by its
+        inclusion flag, so they only bite if the task is actually scheduled.
+        """
         n = self.tn.endTime
         tasks = self.all_scheduled_tasks
 
@@ -868,6 +940,12 @@ class TaskNetSMT:
 
             # Helper to conditionally add constraint for optional/request tasks
             def add_constraint(*args, label=None):
+                """Assert a constraint about the enclosing task `t`.
+
+                For an optional or request task the constraint is made
+                conditional on its inclusion flag, so an excluded task imposes
+                nothing. Several arguments are conjoined.
+                """
                 constraint = And(*args) if len(args) > 1 else args[0]
                 if t.kind == TaskKind.OPTIONAL:
                     # Only apply constraint if task is included
@@ -1217,6 +1295,18 @@ class TaskNetSMT:
     # ------------------------------
 
     def _mk_zone_state_vars(self):
+        """Create the per-zone variables holding each timeline's state.
+
+        One variable per timeline per zone, typed by the timeline: an `Int`
+        index into the state list for state timelines, an `Int` in `[0, 1]` for
+        atomic ones, a `Real` for the numeric ones. Rate timelines get a second
+        `Real` per zone for the rate itself, since value and rate evolve
+        separately.
+
+        The domain constraints on zone 0 are recorded in
+        `init_region_constraints` as well, since they are part of the initial
+        region the realizability check reasons about.
+        """
         Z = self.zone_count
         for tl in self.tn.timelines:
             if isinstance(tl, StateTimeline):
@@ -1265,6 +1355,16 @@ class TaskNetSMT:
         self.init_region_constraints.append(constraint)
 
     def _encode_initial_state_zones(self):
+        """Pin zone 0 to the initial values declared on the timelines.
+
+        Only timelines that declare one are pinned; the rest are left free, so
+        a schedule may start from any state their range allows. Two exceptions
+        default rather than float: an atomic timeline starts unclaimed, and a
+        rate timeline with no `initial_rate` starts at rate 0.
+
+        This is the declaration-level half of the initial state; the
+        `initial { ... }` block is handled by `_encode_init_predicate`.
+        """
         # Zone 0 corresponds to time 0
         z0_idx = 0
         for tl in self.tn.timelines:
@@ -1306,6 +1406,11 @@ class TaskNetSMT:
                     self._add_initial(rate_vars[0] == 0.0)
 
     def _encode_initial_bounds(self):
+        """Confine zone 0 of each bounded timeline to its declared bounds.
+
+        Applies to cumulative and rate timelines that declare `bounds`: an
+        unpinned initial value may still not start outside the timeline's type.
+        """
         for tl in self.tn.timelines:
             if isinstance(tl, (CumulativeTimeline, RateTimeline)) and tl.bounds is not None:
                 _, bounds, vars_z = self.numeric_tl_zone[tl.id]
@@ -1319,6 +1424,11 @@ class TaskNetSMT:
                 self.init_region_constraints.append(vars_z[0] <= bounds.high)
 
     def _encode_init_predicate(self):
+        """Assert the `initial { ... }` block at zone 0.
+
+        Unlike the `final` block, this is a hard constraint: it restricts which
+        schedules are valid rather than being checked against them.
+        """
         # init constraints apply at zone 0
         init_constraint = self._conds_holds_zone(self.tn.initial_constraints, 0)
         if isinstance(self.solver, Solver) and self.tn.initial_constraints:
@@ -1952,9 +2062,10 @@ class TaskNetSMT:
 
     def _conds_holds_zone(self, conds: List[TlCon], zi: int):
         """
-        SMT formula for a list of TlCon at zone index zi:
-          AND over TlCon (each TlCon is an OR of Cons).
-        Empty list => True.
+        SMT formula for a list of TlCon at zone index zi.
+
+        A conjunction over the TlCons, each of which is itself a disjunction
+        over its Cons. An empty list yields True.
         """
         if not conds:
             return True
@@ -2081,6 +2192,24 @@ class TaskNetSMT:
     # ------------------------------
 
     def solve(self):
+        """Solve the encoded problem and return `(model, unsat_core_data)`.
+
+        On an `Optimize` solver the objectives are added here, in strict
+        priority order — Z3 optimizes them lexicographically, so an earlier one
+        is never traded away for a later one:
+
+        1. minimize the number of included optional tasks, and maximize the
+           number of included request tasks;
+        2. maximize the priority-weighted benefit of what is scheduled;
+        3. minimize deviation from preferred start times;
+        4. minimize deviation from preferred durations.
+
+        Returns `(model, None)` when satisfiable. When not, returns
+        `(None, unsat_core_data)`: with a plain `Solver` the core is analyzed
+        into categories, human-readable explanations, suggestions and the raw
+        Z3 formulas, all of which are also printed; with `Optimize` (no core
+        support) the second element is None as well.
+        """
         # Add optimization objectives if using Optimize
         if isinstance(self.solver, Optimize):
             # 1a. Primary objective: minimize the number of included optional tasks
@@ -2380,6 +2509,12 @@ class TaskNetSMT:
         }
 
     def pretty_print(self, model):
+        """Print a solved model to the console: schedule, zones, timelines.
+
+        Optional and request tasks that were not included are listed as such
+        rather than omitted, so the report shows what the optimizer decided
+        against.
+        """
         # 1) Schedule
         print(f"Schedule for TaskNet `{self.tn.id}`:")
         sched = self.extract_schedule(model)
@@ -2478,16 +2613,42 @@ class TaskNetTL(TaskNetSMT):
     """Temporal logic interpretation"""
 
     def __init__(self, tn: TaskNet, error_trace: bool = True, use_optimization: bool = True, track: bool = True):
+        """Build the SMT encoding and add the temporal constraints on top.
+
+        Extends `TaskNetSMT.__init__` by asserting every entry of the
+        `constraints` block at zone 0. The `properties` block is *not* asserted
+        here — those are checked, one at a time, by
+        `check_temporal_properties`.
+
+        Args:
+            error_trace: Retain what is needed to produce a counterexample
+                trace for a violated property.
+            use_optimization: See `TaskNetSMT`.
+            track: See `TaskNetSMT`.
+        """
         super().__init__(tn, use_optimization=use_optimization, track=track)
         self._encode_temporal_constraints()
         self.error_trace = error_trace
 
     def _encode_temporal_constraints(self):
+        """Assert each `constraints` entry, evaluated from zone 0."""
         # each constraint prop must hold at position 0
         for prop in getattr(self.tn, "constraints", []):
             self.solver.add(self._encode_formula_at_pos(prop.formula, 0))
 
     def _encode_formula_at_pos(self, f: Formula, j: int):
+        """Encode formula `f` evaluated at zone `j` as a Z3 expression.
+
+        Recursive over the formula structure. The atoms read the timeline
+        variables of zone `j`; the temporal operators expand into finite
+        conjunctions/disjunctions over the remaining zones, forward for
+        `always` / `eventually` / `until` and backward for `sofar` / `once` /
+        `since`, which is what keeps the encoding quantifier-free.
+
+        Comparisons involving a task boundary are made conditional on that
+        task's inclusion flag, so an optional task that was not scheduled
+        cannot falsify a property that mentions it.
+        """
         Z = self.zone_count
 
         # Atomic
@@ -2535,6 +2696,11 @@ class TaskNetTL(TaskNetSMT):
             # Encode comparison between temporal terms (time, task.start, task.end, numbers)
             # Semantics: Conditional on optional/request tasks (evaluates to true if not scheduled)
             def encode_temporal_term(term):
+                """Encode one side of a time comparison as a Z3 term.
+
+                `time` becomes the current zone boundary, `T.start` / `T.end`
+                the task's schedule variables, and a number stays itself.
+                """
                 if isinstance(term, TLTimeVar):
                     # Current time at zone j
                     return self.zones[j]
@@ -2684,6 +2850,7 @@ class TaskNetTL(TaskNetSMT):
         """
         For each TemporalProperty in self.tn.properties, check whether it holds
         for all schedules/zone-traces that satisfy:
+
           - schedule/zone semantics
           - initial_constraints (zone 0)
           - temporal constraints (self.tn.constraints) at position 0

@@ -5,7 +5,7 @@ Goal: verify that ONE session preserves a predicate P ({P}S{P}) and conclude tha
 ANY-length sequence of that session preserves P — verify once, sequence for free,
 N-independent. This is the `pre = post = P` special case of a session interface.
 
-Correctness requires BOTH checks over the same P:
+Correctness requires BOTH checks over the same P::
 
   AA safety           forall i . forall s . valid(i, s) -> P(final)
   AE realizability-P  forall state |= P . exists s . valid(state, s) AND P(final)
@@ -27,7 +27,7 @@ Mechanism (all sugar / reuse — no new encoder):
 
 Assumption (this cut): gamma = 0 — no inter-session gap drift. Cross-session
 dependencies are dropped by the projection. The gamma-closure check
-(forall v |= P . P(v + gamma)) is a deferred follow-up.
+(`forall v |= P . P(v + gamma)`) is a deferred follow-up.
 """
 
 import copy
@@ -108,6 +108,7 @@ def project_single_session(tn_pre_transform: TaskNet) -> Tuple[TaskNet, str]:
             "children) instantiated at least once; none found")
 
     def is_session_instance(t) -> bool:
+        """True if `t` is an instance of one of this network's session defs."""
         return (not isinstance(t, TaskRange)
                 and t.kind != TaskKind.DEFINITION
                 and t.definition in sdefs)
@@ -180,6 +181,12 @@ def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_c
     def result(status, note, session=None, aa=None, ae=None,
                counterexample=None, unsat_core=None,
                per_session_properties=None) -> dict:
+        """Build the result dict, stamping the elapsed time.
+
+        Every exit path of the check goes through here, so the shape reported
+        to the caller is the same whether the verdict is HOLDS, VIOLATED or
+        UNKNOWN.
+        """
         return {
             'name': 'compositional',
             'status': status,

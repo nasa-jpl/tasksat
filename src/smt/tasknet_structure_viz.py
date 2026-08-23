@@ -3,7 +3,7 @@
 Static TaskNet structure visualization.
 
 Renders the STRUCTURE of a tasknet *specification* (as opposed to a solved
-schedule) as TWO Graphviz images:
+schedule) as TWO Graphviz images::
 
   Graph 1 - Task / taskdef relations  (<base>_relations.png):
       nodes  = tasks + taskdefs (styled by TaskKind)
@@ -23,10 +23,12 @@ IMPORTANT: this operates on the RAW parsed AST (parse only, NOT apply_transforms
 mutex/sequence survive as TLMutex/TLSequence only before desugaring, so callers
 must pass a pre-transform TaskNet to see those edges.
 
-Usage as script:
+Usage as script::
+
     python src/smt/tasknet_structure_viz.py foo.tn [output.png]
 
-Usage as module:
+Usage as module::
+
     from tasknet_structure_viz import create_structure_visualization
     create_structure_visualization(tn, "structure.png")
 """
@@ -83,6 +85,11 @@ def split_session_id(task_id: str) -> Tuple[Optional[str], str]:
 
 @dataclass
 class Node:
+    """One Graphviz node — a task, taskdef or timeline — and its styling.
+
+    Rendered by `_node_line`. The visual attributes encode meaning: shape and
+    fill distinguish task kinds and timeline types.
+    """
     id: str
     label: str
     shape: str = "box"
@@ -93,6 +100,12 @@ class Node:
 
 @dataclass
 class Edge:
+    """One Graphviz edge — a relation between two nodes — and its styling.
+
+    Rendered by `_edge_line`. Color and style say which relation it is (after,
+    containedin, defines, mutex, sequence, impact, read); `dir="none"` marks
+    the symmetric ones, where an arrowhead would be misleading.
+    """
     from_id: str
     to_id: str
     label: str = ""
@@ -106,9 +119,9 @@ class Edge:
 def _esc(text: str) -> str:
     """Escape a string for a DOT double-quoted label.
 
-    Real newline characters are converted to the DOT newline escape `\\n`.
-    Labels in this module use actual "\n" characters (not the two-char sequence)
-    so that this is the single place newlines are rendered.
+    Real newline characters are converted to the DOT escape `\\n`. Labels in
+    this module embed actual newline characters rather than that two-character
+    escape, so this function is the single place newlines are rendered.
     """
     return (text.replace("\\", "\\\\")
                 .replace('"', '\\"')
@@ -175,6 +188,13 @@ def _taskdef_color_map(tn: TaskNet) -> dict:
 
 
 def _task_node(task: Task, color_map: dict) -> Node:
+    """Build the node for a task or taskdef.
+
+    The label carries the declared start/end/duration ranges and the kind, and
+    the border style repeats the kind visually: bold for a taskdef, dashed for
+    optional and request. The fill comes from `color_map`, which colors
+    instances of the same taskdef alike.
+    """
     label = task.id
 
     # Add range information if available
@@ -214,6 +234,7 @@ def _iter_after(task: Task):
 
 
 def _iter_containedin(task: Task):
+    """Yield (ContainedinDependency) from both instance- and definition-level lists."""
     for lst in (task.containedin_instances, task.containedin_definitions):
         if lst:
             for dep in lst:
@@ -229,6 +250,11 @@ def _mutex_edges_from_formula(f: Formula, taskdef_ids: set,
     """
     if isinstance(f, TLMutex):
         def pairs():
+            """Yield the operand pairs this mutex excludes.
+
+            Within-group forms pair the operands with each other; the `with`
+            form takes the cross-product of the two groups.
+            """
             if f.group_b is None:
                 if f.cross_only:
                     # cross-only: only pairs across distinct operands
@@ -371,6 +397,11 @@ def build_task_relation_graph(tn: TaskNet) -> Tuple[List[Node], List[Edge]]:
 # ============================================================================
 
 def _timeline_node(tl: Timeline) -> Node:
+    """Build the node for a timeline, shaped and colored by its type.
+
+    Each timeline type gets its own shape and fill so the type is readable at a
+    glance; the label repeats it in words.
+    """
     tid = tl.id
     if isinstance(tl, StateTimeline):
         return Node(tid, f"{tid}\nstate", shape="hexagon", fillcolor="yellow", style="filled")
@@ -386,6 +417,11 @@ def _timeline_node(tl: Timeline) -> Node:
 
 
 def _impact_op(impact: Impact) -> str:
+    """Render an impact as its `.tn` operator and operand, for an edge label.
+
+    Deltas are shown with their sign as written (`+= -30.0` stays negative
+    here), unlike the printer, which normalizes to `-=`.
+    """
     how = impact.how
     if isinstance(how, ImpactAssign):
         return f"= {_fmt_value(how.v)}"
@@ -411,6 +447,7 @@ def build_timeline_interaction_graph(tn: TaskNet) -> Tuple[List[Node], List[Edge
     session_defs = _session_defs(tn)
 
     def is_session_instance(t) -> bool:
+        """True if `t` instantiates a session taskdef (one with children)."""
         return (t.kind != TaskKind.DEFINITION
                 and getattr(t, 'definition', None) in session_defs)
 
@@ -488,11 +525,17 @@ def _prepare(tn: TaskNet) -> TaskNet:
 
 
 def _node_line(n: Node) -> str:
+    """Render a `Node` as one line of DOT."""
     return (f'  "{n.id}" [label="{_esc(n.label)}", shape={n.shape}, '
             f'fillcolor="{n.fillcolor}", style="{n.style}"];')
 
 
 def _edge_line(e: Edge, use_xlabel: bool = False) -> str:
+    """Render an `Edge` as one line of DOT, emitting only non-default attributes.
+
+    `use_xlabel` puts the label in a free-floating `xlabel` instead of `label`
+    — see `generate_relations_dot` for the Graphviz crash that forces it.
+    """
     attrs = [f'color="{e.color}"']
     if e.label:
         # `xlabel` (free-floating) instead of `label` avoids a Graphviz crash
@@ -686,6 +729,7 @@ def _compose_side_by_side(left_png: Path, right_png: Path, out_png: Path,
         font = _load_title_font(19)
 
         def _centered(text: str, region_x: int, region_w: int):
+            """Draw `text` horizontally centered over one panel's region."""
             if not text:
                 return
             bbox = draw.textbbox((0, 0), text, font=font)
@@ -748,6 +792,12 @@ def create_structure_visualization(tn: TaskNet, output_path: str) -> List[str]:
 # ============================================================================
 
 def main():
+    """CLI entry point: parse a `.tn` file and render its structure to PNG.
+
+    The file is parsed but deliberately NOT transformed, so `mutex` and
+    `sequence` are still visible as such. Exits non-zero if parsing fails or
+    Graphviz is unavailable.
+    """
     parser = argparse.ArgumentParser(
         description="Visualize the static structure of a TaskNet specification."
     )
