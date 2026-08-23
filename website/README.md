@@ -10,12 +10,24 @@ grammar pages are auto-generated from the parser, and how deployment happens.
 
 ## 1. Prerequisites
 
-- **Node.js >= 20** and npm (the site build).
+- **Node.js >= 20** and npm (the site build). On macOS: `brew install node`.
 - **Python 3** (>= 3.9). Required because the build auto-generates the **Formal
   Grammar** page from the parser (see §4). `npm run build` / `npm run start`
   will fail if `python3` is not on `PATH`.
 
 ## 2. Commands
+
+Everyday loop — preview your doc edits locally:
+
+```bash
+cd website
+npm run start      # then open http://localhost:3000/tasksat/  (Ctrl-C to stop)
+```
+
+Edits to files under `docs/` hot-reload in the browser on save; changes to
+`docusaurus.config.js` or `sidebars.js` need a restart.
+
+All commands:
 
 ```bash
 npm install        # first time only
