@@ -12,6 +12,7 @@ from pathlib import Path
 import json
 import os
 import subprocess
+import sys
 import time
 import webbrowser
 import threading
@@ -31,14 +32,19 @@ RUNNING_TASKS = {}
 RUNNING_TASKS_LOCK = threading.Lock()
 
 
-def verifier_cmd(tn_path, mode, realizability=False, compositional=False):
+def verifier_cmd(tn_path, mode, realizability=False, compositional=False,
+                 unsat_core=True):
     """Build the tasknet_verifier.py command line."""
-    cmd = ['python', str(TASKSAT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py'),
+    # sys.executable, not 'python': the latter is absent on systems that ship
+    # only 'python3', and it would ignore the interpreter this server runs under.
+    cmd = [sys.executable, str(TASKSAT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py'),
            str(tn_path), '--mode', mode]
     if realizability:
         cmd.append('--realizability')
     if compositional:
         cmd.append('--compositional')
+    if not unsat_core:
+        cmd.append('--no-unsat-core')
     return cmd
 
 
@@ -397,6 +403,7 @@ def api_verify(name):
     mode = data.get('mode', 'optimize')
     realizability = bool(data.get('realizability', False))
     compositional = bool(data.get('compositional', False))
+    unsat_core = bool(data.get('unsat_core', True))
     task_id = data.get('task_id')
 
     if mode not in ['optimize', 'satisfy']:
@@ -432,7 +439,7 @@ def api_verify(name):
     # Run verifier with mode
     try:
         result = run_verifier(
-            verifier_cmd(tn_file, mode, realizability, compositional),
+            verifier_cmd(tn_file, mode, realizability, compositional, unsat_core),
             task_id=task_id
         )
         duration = result['duration']
@@ -493,6 +500,7 @@ def api_create():
         mode = data.get('mode', 'optimize')
         realizability = bool(data.get('realizability', False))
         compositional = bool(data.get('compositional', False))
+        unsat_core = bool(data.get('unsat_core', True))
         task_id = data.get('task_id')
 
         if not name:
@@ -525,7 +533,7 @@ def api_create():
 
         # Run verification
         result = run_verifier(
-            verifier_cmd(file_path, mode, realizability, compositional),
+            verifier_cmd(file_path, mode, realizability, compositional, unsat_core),
             task_id=task_id
         )
         duration = result['duration']
@@ -643,6 +651,7 @@ def api_save_and_verify(name):
         mode = data.get('mode', 'optimize')
         realizability = bool(data.get('realizability', False))
         compositional = bool(data.get('compositional', False))
+        unsat_core = bool(data.get('unsat_core', True))
         task_id = data.get('task_id')
 
         # Find original source file
@@ -663,7 +672,7 @@ def api_save_and_verify(name):
 
         # Run verification
         result = run_verifier(
-            verifier_cmd(source_path, mode, realizability, compositional),
+            verifier_cmd(source_path, mode, realizability, compositional, unsat_core),
             task_id=task_id
         )
         duration = result['duration']
@@ -944,6 +953,7 @@ def api_verify_file():
         mode = data.get('mode', 'optimize')
         realizability = bool(data.get('realizability', False))
         compositional = bool(data.get('compositional', False))
+        unsat_core = bool(data.get('unsat_core', True))
         task_id = data.get('task_id')
 
         if not file_path:
@@ -962,7 +972,7 @@ def api_verify_file():
 
         # Run verifier on the real file (no copying)
         result = run_verifier(
-            verifier_cmd(file_path, mode, realizability, compositional),
+            verifier_cmd(file_path, mode, realizability, compositional, unsat_core),
             task_id=task_id
         )
         duration = result['duration']

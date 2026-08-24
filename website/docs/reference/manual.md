@@ -1231,6 +1231,30 @@ TaskSAT performs up to three verification checks:
 
 In **standard mode**, these checks run on the full N-instance network. In **compositional mode**, they run on a projected single session instance, and an additional compositional proof shows that the single-session results discharge all N instances.
 
+### How Phase 1 Runs (Two Cores)
+
+Phase 1 solves the network twice at once, on two cores, and takes the first
+usable answer. One copy is solved plainly; the other has every constraint
+labelled, which is what makes the UNSAT core — the list of conflicting
+constraints reported when no schedule exists — possible.
+
+This is worth a core because neither form is reliably faster. Labelling costs
+time when a schedule exists — up to 5x on satisfiable networks — but can *save*
+several times that when proving a network infeasible, and the gap grows with the
+number of task instances. Nothing in a spec reveals which case it is beforehand,
+so TaskSAT runs both rather than guessing.
+
+Verifying the same spec twice always produces the same schedule: only the
+infeasibility proof is raced, never the choice of schedule.
+
+Pass `--no-unsat-core` to solve on a single core instead. That halves CPU and
+memory use, but gives up the core that explains an UNSAT, and can take several
+times longer on infeasible networks:
+
+```bash
+python src/smt/tasknet_verifier.py tasknet.tn --no-unsat-core
+```
+
 ### Property Verification Output
 
 When you run the TaskSAT verifier, it checks all properties and generates detailed reports:

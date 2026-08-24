@@ -20,12 +20,14 @@ Two classes:
   `final` block by asking Z3 for a valid schedule that violates them.
 """
 from __future__ import annotations
+import threading
 from typing import List, Optional, Dict, Union, Literal, Tuple
 
 from z3 import (
     Solver, Optimize, Int, Real, Bool,
     And, Or, Not, If,
-    sat, Sum,
+    sat, unsat, Sum,
+    Context, main_ctx,
 )
 
 from tasknet_ast import *
@@ -37,7 +39,8 @@ class TaskNetSMT:
     Solver for TaskNet using Z3 SMT.
     """
 
-    def __init__(self, tn: TaskNet, use_optimization: bool = True, track: bool = True):
+    def __init__(self, tn: TaskNet, use_optimization: bool = True, track: bool = True,
+                 portfolio: bool = False):
         """Build the complete SMT encoding of `tn`.
 
         The constructor does the encoding work: it normalizes the network,
@@ -60,13 +63,18 @@ class TaskNetSMT:
                 conjunction, which the realizability check needs as a formula
                 template (tracked assertions are stored as `Implies(tracker, c)`
                 and are unusable for that).
+            portfolio: Solve by racing this untracked encoding against a tracked
+                twin on a second core (see `_check_portfolio`). Implies
+                `track=False` for this solver, since the twin supplies the core.
         """
         self.tn = self.normalize_tasknet(tn)
         self.tn = self.resolve_task_definitions(self.tn)
         # When track=False, add_tracked degrades to plain solver.add so that
         # solver.assertions() is the exact constraint conjunction (assert_and_track
         # stores Implies(tracker, c) forms, unusable as a formula template).
-        self.track = track
+        # The portfolio needs exactly that form to clone into the twin's context.
+        self.portfolio = portfolio
+        self.track = track and not portfolio
 
         # === Task categorization ===
         self.required_tasks = [t for t in self.tn.tasks if t.kind == TaskKind.INSTANCE]
@@ -202,6 +210,10 @@ class TaskNetSMT:
 
     def add_tracked(self, constraint, label: str):
         """Add a constraint with tracking for unsat core analysis."""
+        if isinstance(self.solver, Solver) and self.portfolio:
+            # Untracked here (the twin does the tracking), but remember the label
+            # so _build_tracked_twin can re-attach it to this exact constraint.
+            self.constraint_map[label] = constraint
         if isinstance(self.solver, Solver) and self.track:
             # Use assert_and_track for Solver (supports unsat cores)
             self.solver.assert_and_track(constraint, label)
@@ -2191,8 +2203,114 @@ class TaskNetSMT:
     # Solving + pretty-printing
     # ------------------------------
 
-    def solve(self):
+    def _build_tracked_twin(self):
+        """Clone this solver into a second Z3 context, with labels re-attached.
+
+        `self.solver.assertions()` is the ground truth for what was encoded —
+        using it means constraints added by a direct `solver.add` (there are many)
+        cannot be missed, which matters because a twin missing constraints would
+        be a weaker problem and could disagree about satisfiability. Each
+        assertion is matched back to its label by AST id, so the twin asserts
+        exactly the same set, tracked wherever a label is known.
+
+        Returns `(ctx, solver)` — the twin lives in its own context so it can be
+        checked concurrently with, and interrupted independently of, this one.
+        """
+        ctx = Context()
+        twin = Solver(ctx=ctx)
+        id_to_label = {c.get_id(): label for label, c in self.constraint_map.items()}
+        used_labels = set()
+        for assertion in self.solver.assertions():
+            label = id_to_label.get(assertion.get_id())
+            cloned = assertion.translate(ctx)
+            # A duplicate label would make Z3 reject the tracker as non-fresh, so
+            # only the first constraint carrying a given label is tracked.
+            if label is not None and label not in used_labels:
+                used_labels.add(label)
+                twin.assert_and_track(cloned, Bool(label, ctx))
+            else:
+                twin.add(cloned)
+        return ctx, twin
+
+    def _check_portfolio(self):
+        """Race the untracked encoding against a tracked twin, on two cores.
+
+        The two forms have complementary strengths: dropping the trackers lets Z3
+        preprocess freely and find models much faster, while keeping them can make
+        refutation dramatically faster on resource-contended networks. Which one
+        wins is not predictable from the spec, so both run and the first usable
+        answer is taken.
+
+        The loser is stopped via its context's interrupt flag, which makes its
+        `check()` return `unknown` promptly without disturbing the other context.
+
+        Only refutation is actually raced. A returned *schedule* always comes from
+        the untracked solver, even if the twin finds one first, because a race
+        winner varies between runs and the same spec must not yield a different
+        schedule each time it is verified. Since the untracked form is the faster
+        one at finding models, conceding that case costs nothing in practice.
+        UNSAT stays deterministic either way: there is no model to disagree about,
+        and the core always comes from the twin.
+
+        Returns `(result, model, twin)` where `model` is None unless satisfiable
+        and `twin` is None unless it holds a completed UNSAT (i.e. has a core).
+        """
+        twin_ctx, twin = self._build_tracked_twin()
+        state = {}
+        lock = threading.Lock()
+
+        def run_untracked():
+            result = self.solver.check()
+            with lock:
+                state['untracked'] = result
+                # A model makes the twin redundant; an UNSAT still needs its core.
+                if result == sat and 'tracked' not in state:
+                    twin_ctx.interrupt()
+
+        def run_tracked():
+            result = twin.check()
+            with lock:
+                state['tracked'] = result
+                # Only a refutation pre-empts the untracked solve. A model found
+                # here is discarded (see above), so there is no reason to stop the
+                # other side for one.
+                if result == unsat and 'untracked' not in state:
+                    main_ctx().interrupt()
+
+        threads = [threading.Thread(target=run_untracked, daemon=True),
+                   threading.Thread(target=run_tracked, daemon=True)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        untracked_result = state.get('untracked')
+        tracked_result = state.get('tracked')
+
+        # The model always comes from the untracked solver, in the main context,
+        # so nothing downstream has to be translated.
+        if untracked_result == sat:
+            return sat, self.solver.model(), None
+        # Whichever side refuted first, the twin is the one holding a core: it is
+        # never interrupted while the untracked side is still running.
+        if tracked_result == unsat:
+            return unsat, None, twin
+        if untracked_result == unsat:
+            return unsat, None, None
+        return untracked_result or tracked_result, None, None
+
+    def solve(self, analyze_core: bool = True):
         """Solve the encoded problem and return `(model, unsat_core_data)`.
+
+        Args:
+            analyze_core: When False, an UNSAT result skips core retrieval and
+                analysis and returns `(None, None)`. Used by the untracked fast
+                path, where the core would be empty anyway and reporting it
+                would only emit a misleading "constraints not tracked" notice.
+
+        With `portfolio=True` the check is raced against a tracked twin on a
+        second core and the core, when there is one, comes from whichever solver
+        actually refuted the problem. See `_check_portfolio`.
 
         On an `Optimize` solver the objectives are added here, in strict
         priority order — Z3 optimizes them lexicographically, so an earlier one
@@ -2290,14 +2408,22 @@ class TaskNetSMT:
                 objective_duration_deviation = Sum(duration_deviation_terms)
                 self.solver.minimize(objective_duration_deviation)
 
-        res = self.solver.check()
+        portfolio_model = None
+        core_solver = self.solver
+        if self.portfolio and isinstance(self.solver, Solver):
+            res, portfolio_model, twin = self._check_portfolio()
+            if twin is not None:
+                core_solver = twin
+        else:
+            res = self.solver.check()
+
         if res != sat:
             print("TaskNet constraints (schedule + zone trace):", res)
 
             unsat_core_data = None
             # If using Solver (not Optimize), retrieve and display unsat core
-            if isinstance(self.solver, Solver):
-                core = self.solver.unsat_core()
+            if analyze_core and isinstance(self.solver, Solver):
+                core = core_solver.unsat_core()
                 if len(core) == 0:
                     print("\nUNSAT CORE: Empty (constraints not tracked)")
                     print("Hint: The conflict involves untracked constraints.")
@@ -2383,7 +2509,8 @@ class TaskNetSMT:
                     }
 
             return None, unsat_core_data
-        return self.solver.model(), None
+        return (portfolio_model if portfolio_model is not None
+                else self.solver.model()), None
 
     def extract_schedule(self, model, include_unscheduled=False):
         """
@@ -2612,7 +2739,8 @@ class TaskNetSMT:
 class TaskNetTL(TaskNetSMT):
     """Temporal logic interpretation"""
 
-    def __init__(self, tn: TaskNet, error_trace: bool = True, use_optimization: bool = True, track: bool = True):
+    def __init__(self, tn: TaskNet, error_trace: bool = True, use_optimization: bool = True,
+                 track: bool = True, portfolio: bool = False):
         """Build the SMT encoding and add the temporal constraints on top.
 
         Extends `TaskNetSMT.__init__` by asserting every entry of the
@@ -2625,8 +2753,10 @@ class TaskNetTL(TaskNetSMT):
                 trace for a violated property.
             use_optimization: See `TaskNetSMT`.
             track: See `TaskNetSMT`.
+            portfolio: See `TaskNetSMT`.
         """
-        super().__init__(tn, use_optimization=use_optimization, track=track)
+        super().__init__(tn, use_optimization=use_optimization, track=track,
+                         portfolio=portfolio)
         self._encode_temporal_constraints()
         self.error_trace = error_trace
 

@@ -180,6 +180,12 @@
                         Check compositional invariant (one session preserves P ⇒ any-length sequence preserves P)
                     </label>
                 </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="createSingleCore">
+                    <label class="form-check-label" for="createSingleCore">
+                        Solve on a single core (halves CPU use; gives up the UNSAT explanation and can be slower on infeasible networks)
+                    </label>
+                </div>
             </div>
             <div id="createError" class="alert alert-danger" style="display: none; margin: 1rem;"></div>
             <div class="modal-footer">
@@ -253,6 +259,12 @@
                     <input class="form-check-input" type="checkbox" id="verifyCompositional">
                     <label class="form-check-label" for="verifyCompositional">
                         Check compositional invariant (one session preserves P ⇒ any-length sequence preserves P)
+                    </label>
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="verifySingleCore">
+                    <label class="form-check-label" for="verifySingleCore">
+                        Solve on a single core (halves CPU use; gives up the UNSAT explanation and can be slower on infeasible networks)
                     </label>
                 </div>
             </div>
@@ -518,6 +530,7 @@ function createAndVerify() {
             mode: mode,
             realizability: document.getElementById('createRealizability').checked,
             compositional: document.getElementById('createCompositional').checked,
+            unsat_core: !document.getElementById('createSingleCore').checked,
             task_id: taskId
         })
     })
@@ -736,6 +749,7 @@ function runVerification() {
             mode: mode,
             realizability: document.getElementById('verifyRealizability').checked,
             compositional: document.getElementById('verifyCompositional').checked,
+            unsat_core: !document.getElementById('verifySingleCore').checked,
             task_id: taskId
         })
     })

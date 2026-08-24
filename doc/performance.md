@@ -129,6 +129,42 @@ Comprehensive stress tests are located in `tests/tasknet_files/stress/`.
 
 **Guideline:** Don't worry about timeline count; focus on constraint patterns.
 
+## How Phase 1 Solves: The Two-Core Portfolio
+
+Phase 1 does not run a single solve. It races two forms of the same problem on
+two cores and takes the first usable answer:
+
+- an **untracked** solve, and
+- a **tracked twin**, in which every constraint is labelled via
+  `assert_and_track` so that an infeasible network can be explained by an unsat
+  core naming the conflicting constraints.
+
+The reason is that neither form dominates. Labelling makes Z3 solve under
+assumptions and lose most of its preprocessing, which is expensive when a
+schedule exists — but the same labels can make *refutation* dramatically faster
+on resource-contended networks. Measured on translated MEXEC networks:
+
+| case | tracked only | untracked only | portfolio |
+|---|---|---|---|
+| 9 tasks, satisfiable | 58s | 10s | **10.6s** |
+| 13 tasks, satisfiable | >90s (no result) | 43s | **47.5s** |
+| 15 instances, infeasible | 1.8s | 5.3s | **2.1s** |
+| 21 instances, infeasible | 3.1s | 20.7s | **3.6s** |
+
+The penalty for guessing wrong grows with instance count — for infeasible
+networks the untracked form went from 1.1x to 6.7x slower as instances went from
+3 to 21 — and nothing in a spec says up front which case it is. Racing costs a
+second core and roughly 10% overhead, and gets close to the better of the two
+every time.
+
+**Determinism:** only refutation is raced. A returned schedule always comes from
+the untracked solver even if the twin finds one first, so verifying the same
+spec twice always yields the same schedule.
+
+**`--no-unsat-core`** drops the twin and solves on one core. It halves CPU and
+memory use, at the price of the unsat core and, on infeasible networks, several
+times the wall-clock time.
+
 ## Complexity Guidelines
 
 ### Problem is Likely Tractable If:

@@ -202,7 +202,7 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
          realizability: bool = False, realizability_max_iters: int = 50,
          realizability_budget: float = 60.0,
          compositional: bool = False, compositional_max_iters: int = 50,
-         compositional_budget: float = 60.0):
+         compositional_budget: float = 60.0, unsat_core: bool = True):
     """Verify one `.tn` file, writing every artifact of the run to disk.
 
     The stages are: parse, transform (keeping a pre-transform copy for the
@@ -231,6 +231,10 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
             See `tasknet_compositional`.
         compositional_max_iters: Iteration budget for that check.
         compositional_budget: Time budget in seconds for that check.
+        unsat_core: When True (default), Phase 1 races the untracked solve
+            against a tracked twin (see `TaskNetSMT._check_portfolio`), which
+            supplies the conflicting-constraint core if the network is
+            infeasible. Set False to solve on one core without the twin.
     """
     print('\n\n\n\n\n\n\n' + header('*** NEW SCHEDULE***') + '\n')
 
@@ -328,8 +332,15 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     import copy
     tn_pre_encoding = copy.deepcopy(tn)
 
+    # Phase 1 races an untracked solve against a tracked twin on a second core.
+    # Neither form dominates: dropping the trackers finds models ~5x faster, but
+    # keeping them refutes resource-contended networks up to ~7x faster (and the
+    # gap grows with instance count). Which case a spec falls into is not
+    # knowable up front, so both run and the first usable answer wins. With
+    # unsat_core disabled there is nothing to race for, so only the fast form runs.
     try:
-        enc = TaskNetTL(tn, error_trace=True, use_optimization=use_optimization)
+        enc = TaskNetTL(tn, error_trace=True, use_optimization=use_optimization,
+                        track=False, portfolio=unsat_core)
     except Exception as e:
         import traceback
         error_details = f"SMT encoding error: {str(e)}\n\n{traceback.format_exc()}"
@@ -347,7 +358,7 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
 
     validity_start = time.time()
     try:
-        m, unsat_core_data = enc.solve()
+        m, unsat_core_data = enc.solve(analyze_core=unsat_core)
     except Exception as e:
         import traceback
         error_details = f"Solver error: {str(e)}\n\n{traceback.format_exc()}"
@@ -792,6 +803,8 @@ if __name__ == "__main__":
                         help='Maximum CEGIS iterations for the compositional AE check (default: 50)')
     parser.add_argument('--compositional-budget', type=float, default=60.0,
                         help='Wall-clock budget in seconds for the compositional AE check (default: 60)')
+    parser.add_argument('--no-unsat-core', action='store_true',
+                        help='Solve Phase 1 on a single core, without the tracked twin that explains an UNSAT. Halves CPU and memory use, but gives up the conflicting-constraint core and can be several times slower on infeasible networks.')
     args = parser.parse_args()
 
     # Capture console output
@@ -806,7 +819,8 @@ if __name__ == "__main__":
              realizability_budget=args.realizability_budget,
              compositional=args.compositional,
              compositional_max_iters=args.compositional_max_iters,
-             compositional_budget=args.compositional_budget)
+             compositional_budget=args.compositional_budget,
+             unsat_core=not args.no_unsat_core)
     finally:
         sys.stdout = old_stdout
 

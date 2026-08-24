@@ -206,6 +206,11 @@ code[class*="language-"] {
                        {% if metadata.compositional %}checked{% endif %}>
                 <label class="form-check-label small" for="chkCompositional">Compositional</label>
             </div>
+            <div class="form-check form-check-inline me-2 align-middle"
+                 title="Solve Phase 1 on a single core instead of racing a tracked twin: halves CPU use, but gives up the UNSAT core that explains an infeasible network and can be several times slower on one">
+                <input class="form-check-input" type="checkbox" id="chkSingleCore">
+                <label class="form-check-label small" for="chkSingleCore">Single core</label>
+            </div>
             <button id="btnReVerify" class="btn btn-primary me-2 btn-verify"
                     onclick="runVerification()"
                     title="Re-run verification on the source file">
@@ -1093,6 +1098,7 @@ function runVerification() {
             mode: document.getElementById('selVerifyMode').value,
             realizability: document.getElementById('chkRealizability').checked,
             compositional: document.getElementById('chkCompositional').checked,
+            unsat_core: !document.getElementById('chkSingleCore').checked,
             task_id: taskId
         })
     })
@@ -1352,6 +1358,7 @@ function saveCode() {
             mode: document.getElementById('selVerifyMode').value,
             realizability: document.getElementById('chkRealizability').checked,
             compositional: document.getElementById('chkCompositional').checked,
+            unsat_core: !document.getElementById('chkSingleCore').checked,
             task_id: taskId
         })
     })
