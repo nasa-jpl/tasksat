@@ -98,7 +98,7 @@ const config = {
             // `pathname://` emits a plain link instead of a client-side route, so
             // Docusaurus serves the static file and skips broken-link checking.
             to: 'pathname:///tasksat/api/',
-            label: 'API',
+            label: 'Code Reference',
             position: 'left',
             // Without this Docusaurus treats the pathname:// link as external
             // and opens a new tab; same-tab keeps the Back button working.

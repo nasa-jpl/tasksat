@@ -1,8 +1,15 @@
-TaskSAT API Reference
-=====================
+TaskSAT Code Reference
+======================
 
 Reference documentation for the TaskSAT implementation, generated from the
 docstrings in ``src/smt``.
+
+.. note::
+
+   These modules document TaskSAT's **internal implementation** — they are not a
+   stable public API, and their signatures may change without notice. The
+   supported interface is the ``.tn`` language and the command-line tools; see the
+   main documentation site below.
 
 TaskSAT is a domain-specific language and tool for modeling and verifying task
 scheduling problems with rich temporal and resource constraints. This site
