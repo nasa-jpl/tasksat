@@ -1255,6 +1255,29 @@ times longer on infeasible networks:
 python src/smt/tasknet_verifier.py tasknet.tn --no-unsat-core
 ```
 
+### Bounding the Solve (`--timeout`)
+
+Phase 1 is where the solve cost lives, and on large or tightly-coupled networks
+it can run a long time. Pass `--timeout SECONDS` to bound it:
+
+```bash
+python src/smt/tasknet_verifier.py tasknet.tn --timeout 10
+```
+
+The limit applies to the Phase-1 validity solve (and its second core). If the
+solve exceeds it, the run stops with status `timeout` — recorded in
+`metadata.json` and shown in the web UI — instead of a schedule or an UNSAT
+result. Omitting the flag, or passing `0`, means no limit.
+
+The bound is enforced inside the solver (a Z3 timeout), so it interrupts the
+solve itself rather than relying on an external wall-clock kill. The opt-in
+checks keep their own budgets (`--realizability-budget`,
+`--compositional-budget`), and per-property checks keep their fixed internal
+cap; `--timeout` governs Phase 1 only.
+
+In the web UI the same control is a **timeout (s)** field beside the verify
+options on a tasknet's report page (blank = no limit).
+
 ### Property Verification Output
 
 When you run the TaskSAT verifier, it checks all properties and generates detailed reports:

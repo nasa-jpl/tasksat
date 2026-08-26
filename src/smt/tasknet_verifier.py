@@ -24,13 +24,14 @@ import sys
 import time
 from pprint import pprint
 from io import StringIO
+from typing import Optional
 
 # Set environment variable to request unbuffered mode
 os.environ['PYTHONUNBUFFERED'] = '1'
 
 from tasknet_parser import parse_tasknet_file
 from tasknet_transforms import apply_transforms
-from tasknet_smt import TaskNetSMT, TaskNetTL
+from tasknet_smt import TaskNetSMT, TaskNetTL, SolverTimeout
 from tasknet_wellformedness import check_wellformedness
 from color_utils import error, success, warning, info, header, bold, dim, Colors
 
@@ -202,7 +203,8 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
          realizability: bool = False, realizability_max_iters: int = 50,
          realizability_budget: float = 60.0,
          compositional: bool = False, compositional_max_iters: int = 50,
-         compositional_budget: float = 60.0, unsat_core: bool = True):
+         compositional_budget: float = 60.0, unsat_core: bool = True,
+         timeout: Optional[float] = None):
     """Verify one `.tn` file, writing every artifact of the run to disk.
 
     The stages are: parse, transform (keeping a pre-transform copy for the
@@ -235,6 +237,10 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
             against a tracked twin (see `TaskNetSMT._check_portfolio`), which
             supplies the conflicting-constraint core if the network is
             infeasible. Set False to solve on one core without the twin.
+        timeout: Wall-clock limit in seconds for the Phase-1 validity solve.
+            Applied as a Z3 per-solver `timeout`; if the solve exceeds it the
+            run stops with status `timeout` (recorded in `metadata.json`) rather
+            than a schedule or UNSAT. None or 0 means no limit.
     """
     print('\n\n\n\n\n\n\n' + header('*** NEW SCHEDULE***') + '\n')
 
@@ -339,8 +345,9 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     # knowable up front, so both run and the first usable answer wins. With
     # unsat_core disabled there is nothing to race for, so only the fast form runs.
     try:
+        timeout_ms = int(timeout * 1000) if timeout and timeout > 0 else None
         enc = TaskNetTL(tn, error_trace=True, use_optimization=use_optimization,
-                        track=False, portfolio=unsat_core)
+                        track=False, portfolio=unsat_core, timeout_ms=timeout_ms)
     except Exception as e:
         import traceback
         error_details = f"SMT encoding error: {str(e)}\n\n{traceback.format_exc()}"
@@ -359,6 +366,13 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     validity_start = time.time()
     try:
         m, unsat_core_data = enc.solve(analyze_core=unsat_core)
+    except SolverTimeout as e:
+        elapsed = time.time() - validity_start
+        msg = f"{e} (validity solve ran {elapsed:.2f}s)"
+        print(warning(f"\n⏱️  TIMEOUT: {msg}"))
+        print(f"Total time: {time.time() - start_time:.2f} seconds")
+        save_failed_verification(path, mode, start_time, msg, error_type="timeout")
+        return
     except Exception as e:
         import traceback
         error_details = f"Solver error: {str(e)}\n\n{traceback.format_exc()}"
@@ -591,6 +605,8 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         "mode": mode,
         "num_violations": len(violations) if violations else 0
     }
+    if timeout and timeout > 0:
+        metadata["timeout_sec"] = timeout
     if not compositional_active:
         metadata["validity_check_sec"] = round(validity_end - validity_start, 3)
         metadata["property_check_sec"] = round(property_end - property_start, 3)
@@ -805,6 +821,8 @@ if __name__ == "__main__":
                         help='Wall-clock budget in seconds for the compositional AE check (default: 60)')
     parser.add_argument('--no-unsat-core', action='store_true',
                         help='Solve Phase 1 on a single core, without the tracked twin that explains an UNSAT. Halves CPU and memory use, but gives up the conflicting-constraint core and can be several times slower on infeasible networks.')
+    parser.add_argument('--timeout', type=float, default=None,
+                        help='Wall-clock limit in seconds for the Phase-1 validity solve. If exceeded, the run stops with status "timeout" instead of a schedule or UNSAT. 0 or omitted means no limit.')
     args = parser.parse_args()
 
     # Capture console output
@@ -820,7 +838,8 @@ if __name__ == "__main__":
              compositional=args.compositional,
              compositional_max_iters=args.compositional_max_iters,
              compositional_budget=args.compositional_budget,
-             unsat_core=not args.no_unsat_core)
+             unsat_core=not args.no_unsat_core,
+             timeout=args.timeout)
     finally:
         sys.stdout = old_stdout
 

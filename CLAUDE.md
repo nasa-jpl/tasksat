@@ -26,6 +26,9 @@ python src/smt/tasknet_verifier.py tasknet.tn --mode satisfy
 
 # Generate transformed tasknet without verification (useful for inspecting auto-instantiation)
 python src/smt/tasknet_verifier.py tasknet.tn --transform-only
+
+# Bound the Phase-1 validity solve (seconds); stops with status "timeout" if exceeded
+python src/smt/tasknet_verifier.py tasknet.tn --timeout 10
 ```
 
 **Note:** Gantt charts automatically saved to `.tasksat/schedules/<tasknet>_gantt.png` and schedule JSON to `.tasksat/schedules/<tasknet>_schedule.json`
@@ -624,6 +627,104 @@ Results: HOLDS / VIOLATED / UNKNOWN (iteration/time budget), shipped in
 `properties.json` under the name `realizability` and in `metadata.json`.
 Tuning: `--realizability-max-iters` (default 50), `--realizability-budget` (default 60s).
 
+### Solve Timeout (`--timeout`)
+
+Optional wall-clock bound on the **Phase-1 validity solve** (the scaling
+bottleneck), in seconds: `python src/smt/tasknet_verifier.py net.tn --timeout 10`.
+Omitted or `0` means no limit.
+
+**Mechanism.** Applied as a Z3 per-solver `timeout` on the Phase-1 solver *and* its
+tracked twin (the portfolio race), so it interrupts the actual solve in-process — a
+wall-clock `timeout(1)` shell wrapper can't, and macOS ships no such command anyway.
+When the deadline fires, `check()` returns `unknown`, which `TaskNetTL.solve()`
+surfaces as a `SolverTimeout` exception (only when a deadline was set — otherwise
+`unknown` keeps its historical fall-through). The verifier catches it and records
+`status: "timeout"` in `metadata.json` (via `save_failed_verification(...,
+error_type="timeout")`) rather than misreading it as UNSAT. Scoped to Phase 1; the
+property checks keep their own 10 s cap and the opt-in checks their `--*-budget`.
+
+**Web UI.** A "timeout (s)" field sits with the verify controls on the report page;
+blank = no limit. It rides the same request body as the other verify options
+(`api_verify` / `api_save_and_verify` / `api_verify_file`), parsed by
+`parse_timeout()` and passed to `verifier_cmd(..., timeout=...)`. The verifier
+subprocess also gets a wall-clock backstop of `timeout + 30 s` (`verify_subprocess_timeout()`,
+default 300 s when unbounded) in case anything outside the Phase-1 solve hangs.
+
+**Implementation:**
+- SMT: `TaskNetSMT.__init__(..., timeout_ms=...)` sets the solver/twin timeout;
+  `solve()` raises `SolverTimeout` on `unknown` in [tasknet_smt.py](src/smt/tasknet_smt.py)
+- CLI: `--timeout` flag + `SolverTimeout` handling in [tasknet_verifier.py](src/smt/tasknet_verifier.py)
+- Web: `verifier_cmd` / `parse_timeout` / `verify_subprocess_timeout` + the four
+  verify endpoints in [tasknet_web.py](src/smt/tasknet_web.py); "timeout (s)" input in
+  [templates/verification_report.html](src/smt/templates/verification_report.html)
+- Tests: [tests/test_timeout.py](tests/test_timeout.py)
+
+### LLM Advisor (`tasknet_advisor.py`)
+
+An LLM-assisted advisor that reads a `.tn`, runs the verifier for diagnostics, asks
+Claude to propose a rewrite (e.g. restructure a flat network into a uniform session
+with `invariant compositional { P }` so it checks N-independently), applies the
+proposal **to a copy**, re-verifies, and reports before/after. **The original file is
+never modified** — "accept" only copies the chosen rewrite to a path you name.
+
+**Two conversation modes** (both built on the single-iteration primitive
+`advise_once`):
+- **`--mode step` (default)** — human-in-the-loop: run ONE iteration, then stop so you
+  can evaluate the proposal + diff + verdict, exactly like normal prompting. Resume
+  with `--continue <session.json>` (optionally `--feedback "..."`), or `--accept
+  OUT.tn` to save the best attempt.
+- **`--mode loop`** — iterate autonomously until the goal is met or the
+  `--max-iters` / `--budget` cap is hit, keeping the best-improving copy.
+
+```bash
+python src/smt/tasknet_advisor.py FILE.tn \
+  --mode step --goal "make this compositional and preserve intent" \
+  --verify-flags "--compositional"
+# then, after reviewing:
+python src/smt/tasknet_advisor.py --continue .tasksat/advisor/<stem>/<ts>/session.json \
+  --feedback "keep the recharge net-zero"
+```
+
+**Key behavior:**
+- **Backend**: Anthropic API; `import anthropic` is **lazy** (inside `propose_rewrite`)
+  and `ANTHROPIC_API_KEY` is read from the env, so the module and its tests import
+  without the SDK or a key. Tests inject a mock proposer.
+- **Diagnostics**: the verifier runs **out-of-process** (its Z3 solves can't be
+  interrupted in-process) with a per-verify wall-clock cap, reusing the
+  `tasknet_web.run_verifier` subprocess pattern; results are read from the JSON
+  artifacts (`metadata.json`/`properties.json`/`unsat_core.json`), not stdout.
+- **Syntactic gate**: every LLM rewrite is `parse_tasknet`-validated (and
+  round-tripped through `print_tasknet_to_string`) before any solve; a parse error is
+  fed back to the LLM as the next turn's context rather than aborting.
+- **Fidelity guard** (`check_fidelity`, on by default; `--no-fidelity-guard` to opt
+  out): after the parse gate and before any solve, the candidate's AST is compared to
+  the original's and **rejected** (fed back like a parse error, no solve) if it reaches
+  a verdict by *gutting the model rather than restructuring it*. It refuses three
+  semantic-deletion cheats: (1) **dropping** a declared timeline or taskdef; (2)
+  **neutralizing** — keeping a taskdef by name but zeroing/removing its active impact
+  on a timeline it used to drive (`+~ -0.01` → `+~ 0.0`); (3) **orphaning** — demoting
+  a required taskdef to request/optional-only (or un-instantiating it) so
+  `--compositional`'s single-session projection would discard it. Motivated by two real
+  MEXEC-199 advisor runs that both hit HOLDS this way (see
+  [jpl/mexec/compositional/FINDINGS_199.md](jpl/mexec/compositional/FINDINGS_199.md));
+  "no deletion" is thus enforced as *no semantic deletion*, not just no missing
+  declaration.
+- **Artifacts**: everything for a run lives under `.tasksat/advisor/<stem>/<ts>/`
+  (copies, per-attempt verification dirs, `session.json`, `report.json`/`report.md`).
+
+**Web UI**: `tasknet_web.py` surfaces the whole conversation — an "Ask Claude to
+improve" button on the tasknet detail page (`POST /api/advise/<name>`, cancellable via
+`/api/kill`) and a report view at `/advisor/<name>/<timestamp>` rendering baseline
+diagnostics, each proposal + rationale, the diff, and before/after verdicts, with
+step-mode "Run next iteration" / feedback controls. **Local only** — advisor artifacts
+live under gitignored `.tasksat/`; nothing is published to the public docs site.
+
+**Implementation:**
+- Advisor + CLI: [tasknet_advisor.py](src/smt/tasknet_advisor.py)
+- Web endpoints + template: [tasknet_web.py](src/smt/tasknet_web.py),
+  [tasknet_advisor.py](src/smt/templates/advisor_report.html)
+- Tests (mock proposer, no API key): [tests/test_advisor.py](tests/test_advisor.py)
+
 ## Dependencies
 
 **Python:**
@@ -631,5 +732,6 @@ Tuning: `--realizability-max-iters` (default 50), `--realizability-budget` (defa
 - ply - Parser generator
 - matplotlib - Visualization
 - flask - Web UI
+- anthropic - LLM advisor (`tasknet_advisor.py`); optional, lazily imported
 - pytest - Testing
 

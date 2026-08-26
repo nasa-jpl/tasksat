@@ -18,11 +18,56 @@
                 <i class="bi bi-file-earmark-code text-primary"></i>
                 {{ name }}
             </h1>
-            {% if schedule %}
-            <a href="/report/{{ name }}" class="btn btn-success">
-                <i class="bi bi-file-earmark-check"></i> View Report
-            </a>
-            {% endif %}
+            <div class="d-flex gap-2">
+                {% if advisor_sessions %}
+                <a href="/advisor/{{ name }}/latest" class="btn btn-outline-primary">
+                    <i class="bi bi-chat-dots"></i> Advisor sessions ({{ advisor_sessions|length }})
+                </a>
+                {% endif %}
+                <button id="askClaudeBtn" class="btn btn-primary" data-bs-toggle="modal"
+                        data-bs-target="#askClaudeModal">
+                    <i class="fa-solid fa-brain"></i> Ask Claude to improve
+                </button>
+                {% if schedule %}
+                <a href="/report/{{ name }}" class="btn btn-success">
+                    <i class="bi bi-file-earmark-check"></i> View Report
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Ask Claude modal -->
+        <div class="modal fade" id="askClaudeModal" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title"><i class="fa-solid fa-brain"></i> Ask Claude to improve “{{ name }}”</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body">
+                <div class="mb-3">
+                  <label class="form-label">Goal</label>
+                  <textarea id="adviseGoal" class="form-control" rows="3">Reduce verification time while preserving intent; where sound, restructure into a uniform session with `invariant compositional { P }` for N-independence.</textarea>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="checkbox" id="adviseCompositional" checked>
+                  <label class="form-check-label" for="adviseCompositional">Verify with <code>--compositional</code></label>
+                </div>
+                <div class="mb-2">
+                  <label class="form-label">Mode</label>
+                  <select id="adviseMode" class="form-select">
+                    <option value="step" selected>Step — one iteration, then I review</option>
+                    <option value="loop">Loop — iterate autonomously to a budget</option>
+                  </select>
+                </div>
+                <div id="adviseStatus" class="small text-muted"></div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="adviseRunBtn" onclick="runAdvisor()">Run</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Tabs -->
@@ -239,10 +284,54 @@
 
 {% block extra_js %}
 <script>
+// Auto-open the advisor popup when linked with ?advise=1 (one click from home/report).
+if (new URLSearchParams(window.location.search).get('advise') === '1') {
+    document.addEventListener('DOMContentLoaded', function () {
+        new bootstrap.Modal(document.getElementById('askClaudeModal')).show();
+    });
+}
+
 function openImageModal(src) {
     document.getElementById('modalImage').src = src;
     const modal = new bootstrap.Modal(document.getElementById('imageModal'));
     modal.show();
+}
+
+function runAdvisor() {
+    const btn = document.getElementById('adviseRunBtn');
+    const status = document.getElementById('adviseStatus');
+    const taskId = 'advise-' + Date.now();
+    btn.disabled = true;
+    status.innerHTML = '<i class="bi bi-hourglass-split"></i> Claude is analyzing and re-verifying… this can take a while. '
+        + '<button class="btn btn-sm btn-outline-danger ms-2" onclick="killAdvisor(\'' + taskId + '\')">Cancel</button>';
+    fetch('/api/advise/{{ name }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            mode: document.getElementById('adviseMode').value,
+            goal: document.getElementById('adviseGoal').value,
+            compositional: document.getElementById('adviseCompositional').checked,
+            task_id: taskId
+        })
+    }).then(r => r.json()).then(d => {
+        if (d.status === 'success') {
+            window.location.href = d.report_url;
+        } else {
+            status.innerHTML = '<span class="text-danger">' + (d.message || 'Advisor failed') + '</span>';
+            btn.disabled = false;
+        }
+    }).catch(e => {
+        status.innerHTML = '<span class="text-danger">' + e + '</span>';
+        btn.disabled = false;
+    });
+}
+
+function killAdvisor(taskId) {
+    fetch('/api/kill', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({task_id: taskId})
+    });
 }
 
 // Rotate chevron when structure collapse is toggled

@@ -1,0 +1,74 @@
+# tasknet69 — a FLAT rover network to fix with the LLM advisor in the web UI.
+#
+# This is deliberately written the "dumb" way: the drive/charge cycle is
+# hand-unrolled into sixteen separate tasks (drive1, charge1, ..., drive8, charge8),
+# chained with `after`. It verifies fine (SAT — you'll get a schedule + Gantt +
+# timeline), but it is NOT compositional: there is no session and no invariant, so
+# proving it for N cycles costs N times the work — the solve time grows with the
+# chain (8 pairs ~5s, 12 pairs ~20s, ...). It does not scale.
+#
+# ---------------------------------------------------------------------------
+# HOW TO PLAY WITH THIS IN THE BROWSER:
+#   1. Open this tasknet, click "View Report" / verify — see the flat schedule.
+#   2. Click "Ask Claude to improve".
+#        Goal (suggested):
+#          "Restructure this flat drive/charge chain into ONE uniform
+#           MissionCycle session and add `invariant compositional { P }` over
+#           battery so it verifies N-independently. Preserve intent."
+#        Tick "Verify with --compositional", pick "Step" mode.
+#   3. Read Claude's proposal + diff + verdict, then talk back with feedback
+#      ("keep the cycle net-zero", "free the initial battery value", ...) and
+#      run the next iteration. Iterate until it reaches compositional = HOLDS.
+#   4. The fidelity guard is on: if Claude tries to cheat (zero an impact, drop a
+#      timeline/taskdef, or demote a required task so the projection hides it),
+#      the rewrite is REJECTED and fed back — so the fix has to be a real
+#      restructuring, not a deletion.
+#
+# A faithful fix EXISTS: each Drive drains 1.0/tick for 10 ticks (-10) and each
+# Charge restores 1.0/tick for 10 ticks (+10), so one drive+charge pair is
+# net-zero on battery. Grouping one pair into a session with
+# `invariant compositional { battery in [40.0, 100.0]; }` should HOLD.
+# ---------------------------------------------------------------------------
+
+tasknet FlatRover {
+  end = 1000;
+
+  timelines {
+    battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 70.0 initial_rate = 0.0;
+  }
+
+  taskdef Drive {
+    duration_range [10, 10];
+    duration 10;
+    inv { battery in [20.0, 100.0]; }
+    impacts {
+      maint { battery +~ -1.0; }
+    }
+  }
+
+  taskdef Charge {
+    duration_range [10, 10];
+    duration 10;
+    impacts {
+      maint { battery +~ 1.0; }
+    }
+  }
+
+  # The flat, hand-unrolled chain: drive, charge, drive, charge, ... (no session).
+  task drive1  : Drive;
+  task charge1 : Charge { after drive1; }
+  task drive2  : Drive  { after charge1; }
+  task charge2 : Charge { after drive2; }
+  task drive3  : Drive  { after charge2; }
+  task charge3 : Charge { after drive3; }
+  task drive4  : Drive  { after charge3; }
+  task charge4 : Charge { after drive4; }
+  task drive5  : Drive  { after charge4; }
+  task charge5 : Charge { after drive5; }
+  task drive6  : Drive  { after charge5; }
+  task charge6 : Charge { after drive6; }
+  task drive7  : Drive  { after charge6; }
+  task charge7 : Charge { after drive7; }
+  task drive8  : Drive  { after charge7; }
+  task charge8 : Charge { after drive8; }
+}

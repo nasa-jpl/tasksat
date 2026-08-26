@@ -23,6 +23,7 @@ app = Flask(__name__)
 TASKSAT_ROOT = Path(__file__).parent.parent.parent
 SCHEDULES_DIR = TASKSAT_ROOT / '.tasksat' / 'schedules'
 ERRORS_DIR = TASKSAT_ROOT / '.tasksat' / 'errors'
+ADVISOR_DIR = TASKSAT_ROOT / '.tasksat' / 'advisor'
 TESTS_DIR = TASKSAT_ROOT / 'tests' / 'tasknet_files'
 
 # Registry of in-flight verification subprocesses, keyed by a client-supplied
@@ -33,7 +34,7 @@ RUNNING_TASKS_LOCK = threading.Lock()
 
 
 def verifier_cmd(tn_path, mode, realizability=False, compositional=False,
-                 unsat_core=True):
+                 unsat_core=True, timeout=None):
     """Build the tasknet_verifier.py command line."""
     # sys.executable, not 'python': the latter is absent on systems that ship
     # only 'python3', and it would ignore the interpreter this server runs under.
@@ -45,7 +46,28 @@ def verifier_cmd(tn_path, mode, realizability=False, compositional=False,
         cmd.append('--compositional')
     if not unsat_core:
         cmd.append('--no-unsat-core')
+    if timeout and timeout > 0:
+        cmd.extend(['--timeout', str(timeout)])
     return cmd
+
+
+def parse_timeout(data):
+    """Read an optional Phase-1 solve timeout (seconds) from a request body.
+
+    Returns a positive float, or None for 'no limit' (blank/missing/invalid/<=0).
+    """
+    timeout = data.get('timeout')
+    try:
+        timeout = float(timeout) if timeout not in (None, '') else None
+    except (TypeError, ValueError):
+        timeout = None
+    return timeout if (timeout is not None and timeout > 0) else None
+
+
+def verify_subprocess_timeout(timeout):
+    """Wall-clock backstop for the verifier subprocess: the solve timeout plus a
+    grace margin, or the 300 s default when no solve timeout is set."""
+    return (timeout + 30) if timeout else 300
 
 
 def run_verifier(cmd, task_id=None, timeout=300):
@@ -235,7 +257,8 @@ def tasknet_detail(name):
         has_gantt=gantt_file.exists(),
         has_timeline_viz=timeline_viz_file.exists(),
         has_structure=structure_file.exists(),
-        errors=errors
+        errors=errors,
+        advisor_sessions=_advisor_timestamps(name)
     )
 
 
@@ -243,6 +266,159 @@ def tasknet_detail(name):
 def serve_schedule(filename):
     """Serve schedule visualization files."""
     return send_from_directory(SCHEDULES_DIR, filename)
+
+
+def _find_tasknet_file(name):
+    """Resolve a tasknet name to its source .tn path (metadata first, then dirs)."""
+    metadata_file = SCHEDULES_DIR / name / 'latest' / 'metadata.json'
+    if metadata_file.exists():
+        try:
+            with open(metadata_file, 'r') as f:
+                src = Path(json.load(f).get('source_path', ''))
+            if src.exists():
+                return src
+        except (OSError, ValueError):
+            pass
+    for candidate in [TASKSAT_ROOT / f"{name}.tn", TESTS_DIR / 'valid' / f"{name}.tn"]:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _advisor_timestamps(name):
+    """All advisor-run timestamps for a tasknet, newest first."""
+    base = ADVISOR_DIR / name
+    if not base.exists():
+        return []
+    return sorted((d.name for d in base.iterdir()
+                   if d.is_dir() and (d / 'report.json').exists()), reverse=True)
+
+
+def _find_genai_api_dir():
+    """Locate a JPL genai_api install (env override, then common spots)."""
+    env = os.environ.get('GENAI_API_PATH')
+    cands = ([Path(env)] if env else []) + [
+        Path.home() / 'Desktop' / 'genai_api', Path.home() / 'genai_api']
+    for d in cands:
+        if (d / 'pyproject.toml').exists():
+            return d
+    return None
+
+
+def _refresh_gov_credentials():
+    """If a JPL genai_api install is present (and no static API key is set), mint a
+    fresh Bearer token and derive the gateway base URL from its config. Gov tokens
+    are short-lived, so this runs before each advisor call. No-op otherwise, so the
+    server still works against the public API or a pre-set ANTHROPIC_AUTH_TOKEN."""
+    if os.environ.get('ANTHROPIC_API_KEY'):
+        return
+    d = _find_genai_api_dir()
+    if not d:
+        return
+    try:
+        tok = subprocess.run(['uv', 'run', 'genai_api', 'token'], cwd=str(d),
+                             capture_output=True, text=True, timeout=60)
+        token = (tok.stdout or '').strip().split('\n')[0].strip()
+        if tok.returncode == 0 and token:
+            os.environ['ANTHROPIC_AUTH_TOKEN'] = token
+        if not os.environ.get('ANTHROPIC_BASE_URL'):
+            cfg = subprocess.run(
+                ['uv', 'run', 'python3', '-c',
+                 'from genai_api.login.config import get_user_base_url, '
+                 'get_user_subscription_id as s; print(get_user_base_url()); print(s())'],
+                cwd=str(d), capture_output=True, text=True, timeout=60)
+            lines = [x for x in (cfg.stdout or '').strip().split('\n') if x.strip()]
+            if cfg.returncode == 0 and len(lines) >= 2:
+                os.environ['ANTHROPIC_BASE_URL'] = f'{lines[-2]}/sub-id-{lines[-1]}'
+    except Exception:
+        pass  # fall through: the credential check / SDK reports any real problem
+
+
+@app.route('/api/advise/<name>', methods=['POST'])
+def api_advise(name):
+    """Run the LLM advisor on a tasknet (one step, or a bounded loop).
+
+    Mirrors api_verify: synchronous, cancellable via /api/kill (the in-flight
+    verifier subprocess is registered under task_id). Body: mode, goal,
+    compositional, feedback, session (timestamp to resume), max_iters, task_id.
+    """
+    import tasknet_advisor as advisor  # lazy: server starts even without the SDK
+
+    data = request.get_json(silent=True) or {}
+    mode = data.get('mode', 'step')
+    goal = data.get('goal') or ('Reduce verification time while preserving intent; '
+                                'where sound, restructure into a uniform session with '
+                                '`invariant compositional { P }` for N-independence.')
+    verify_flags = ['--compositional'] if data.get('compositional') else []
+    feedback = data.get('feedback')
+    resume_ts = data.get('session')
+    task_id = data.get('task_id')
+    max_iters = int(data.get('max_iters', 5))
+    # Model is env-overridable so the same server works against the public API
+    # (claude-opus-4-8) or a gateway that needs a prefixed id (us-gov.anthropic...).
+    model = os.environ.get('ANTHROPIC_MODEL') or advisor.DEFAULT_MODEL
+
+    # Mint a fresh gov token if a genai_api install is available (no-op otherwise).
+    _refresh_gov_credentials()
+
+    # Accept either credential style: x-api-key (ANTHROPIC_API_KEY) or a Bearer
+    # token (ANTHROPIC_AUTH_TOKEN, e.g. an SSO gateway).
+    if not (os.environ.get('ANTHROPIC_API_KEY') or os.environ.get('ANTHROPIC_AUTH_TOKEN')):
+        return jsonify({'status': 'error',
+                        'message': 'No Anthropic credential on the server '
+                        '(set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN).'}), 400
+
+    resume_path = None
+    if resume_ts:
+        resume_path = ADVISOR_DIR / name / resume_ts / 'session.json'
+        if not resume_path.exists():
+            return jsonify({'status': 'error', 'message': 'Session not found'}), 404
+
+    tn_file = _find_tasknet_file(name)
+    if not tn_file and not resume_path:
+        return jsonify({'status': 'error', 'message': 'TaskNet file not found'}), 404
+
+    reg = {'task_id': task_id, 'running_tasks': RUNNING_TASKS,
+           'running_lock': RUNNING_TASKS_LOCK}
+    try:
+        session = advisor.advise(
+            str(tn_file) if tn_file else None, goal, mode=mode, max_iters=max_iters,
+            verify_flags=verify_flags, resume=str(resume_path) if resume_path else None,
+            feedback=feedback, reg=reg, model=model)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Advisor error: {e}'}), 500
+
+    return jsonify({'status': 'success',
+                    'timestamp': session['timestamp'],
+                    'report_url': f"/advisor/{name}/{session['timestamp']}"})
+
+
+@app.route('/advisor/<name>')
+@app.route('/advisor/<name>/<timestamp>')
+def advisor_report(name, timestamp='latest'):
+    """Render an advisor session (the Claude conversation) for a tasknet."""
+    timestamps = _advisor_timestamps(name)
+    if not timestamps:
+        return "No advisor sessions for this tasknet", 404
+    if timestamp == 'latest':
+        timestamp = timestamps[0]
+
+    report_file = ADVISOR_DIR / name / timestamp / 'report.json'
+    report = None
+    if report_file.exists():
+        with open(report_file, 'r') as f:
+            report = json.load(f)
+    if report is None:
+        return "Advisor report not found", 404
+
+    return render_template('advisor_report.html', name=name, timestamp=timestamp,
+                           report=report, timestamps=timestamps)
+
+
+@app.route('/static/advisor/<path:filename>')
+def serve_advisor_file(filename):
+    """Serve advisor artifacts (attempt .tn files, reports)."""
+    return send_from_directory(ADVISOR_DIR, filename)
 
 
 @app.route('/static/report/<name>/<timestamp>/<filename>')
@@ -406,6 +582,11 @@ def api_verify(name):
     unsat_core = bool(data.get('unsat_core', True))
     task_id = data.get('task_id')
 
+    # Optional Phase-1 solve timeout (seconds). Passed to the verifier as
+    # --timeout (a clean, status-recording Z3 cap); the subprocess wall-clock
+    # is set a little higher as a hard backstop for any other hang.
+    timeout = parse_timeout(data)
+
     if mode not in ['optimize', 'satisfy']:
         return jsonify({'status': 'error', 'message': 'Invalid mode. Use "optimize" or "satisfy"'}), 400
 
@@ -439,8 +620,10 @@ def api_verify(name):
     # Run verifier with mode
     try:
         result = run_verifier(
-            verifier_cmd(tn_file, mode, realizability, compositional, unsat_core),
-            task_id=task_id
+            verifier_cmd(tn_file, mode, realizability, compositional, unsat_core,
+                         timeout=timeout),
+            task_id=task_id,
+            timeout=verify_subprocess_timeout(timeout)
         )
         duration = result['duration']
 
@@ -501,6 +684,7 @@ def api_create():
         realizability = bool(data.get('realizability', False))
         compositional = bool(data.get('compositional', False))
         unsat_core = bool(data.get('unsat_core', True))
+        timeout = parse_timeout(data)
         task_id = data.get('task_id')
 
         if not name:
@@ -533,7 +717,9 @@ def api_create():
 
         # Run verification
         result = run_verifier(
-            verifier_cmd(file_path, mode, realizability, compositional, unsat_core),
+            verifier_cmd(file_path, mode, realizability, compositional, unsat_core,
+                         timeout=timeout),
+            timeout=verify_subprocess_timeout(timeout),
             task_id=task_id
         )
         duration = result['duration']
@@ -652,6 +838,7 @@ def api_save_and_verify(name):
         realizability = bool(data.get('realizability', False))
         compositional = bool(data.get('compositional', False))
         unsat_core = bool(data.get('unsat_core', True))
+        timeout = parse_timeout(data)
         task_id = data.get('task_id')
 
         # Find original source file
@@ -672,8 +859,10 @@ def api_save_and_verify(name):
 
         # Run verification
         result = run_verifier(
-            verifier_cmd(source_path, mode, realizability, compositional, unsat_core),
-            task_id=task_id
+            verifier_cmd(source_path, mode, realizability, compositional, unsat_core,
+                         timeout=timeout),
+            task_id=task_id,
+            timeout=verify_subprocess_timeout(timeout)
         )
         duration = result['duration']
 
@@ -954,6 +1143,7 @@ def api_verify_file():
         realizability = bool(data.get('realizability', False))
         compositional = bool(data.get('compositional', False))
         unsat_core = bool(data.get('unsat_core', True))
+        timeout = parse_timeout(data)
         task_id = data.get('task_id')
 
         if not file_path:
@@ -972,8 +1162,10 @@ def api_verify_file():
 
         # Run verifier on the real file (no copying)
         result = run_verifier(
-            verifier_cmd(file_path, mode, realizability, compositional, unsat_core),
-            task_id=task_id
+            verifier_cmd(file_path, mode, realizability, compositional, unsat_core,
+                         timeout=timeout),
+            task_id=task_id,
+            timeout=verify_subprocess_timeout(timeout)
         )
         duration = result['duration']
 

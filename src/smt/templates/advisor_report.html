@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Advisor · {{ name }}{% endblock %}
+
+{% macro verdict(diag) %}
+  {% if not diag %}
+    <span class="badge bg-secondary">no result</span>
+  {% elif diag.timed_out %}
+    <span class="badge bg-dark">TIMEOUT</span>
+  {% else %}
+    {% set s = diag.status %}
+    {% set cls = 'bg-success' if s == 'success' else ('bg-warning text-dark' if s == 'violated' else ('bg-secondary' if s == 'unsat' else 'bg-danger')) %}
+    <span class="badge {{ cls }}">{{ s }}</span>
+    {% if diag.compositional %}
+      {% set cc = 'bg-success' if diag.compositional == 'holds' else ('bg-warning text-dark' if diag.compositional == 'violated' else 'bg-secondary') %}
+      <span class="badge {{ cc }}">compositional: {{ diag.compositional }}</span>
+    {% endif %}
+    {% if diag.durations and diag.durations.total is not none %}
+      <span class="badge bg-light text-dark">{{ diag.durations.total }}s</span>
+    {% endif %}
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/">Home</a></li>
+    <li class="breadcrumb-item"><a href="/tasknet/{{ name }}">{{ name }}</a></li>
+    <li class="breadcrumb-item active">Advisor</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="display-6"><i class="fa-solid fa-brain text-primary"></i> Advisor session</h1>
+  {% if timestamps and timestamps|length > 1 %}
+  <div>
+    <label class="small text-muted me-1">Session:</label>
+    <select class="form-select d-inline-block w-auto" onchange="location.href='/advisor/{{ name }}/'+this.value">
+      {% for ts in timestamps %}
+      <option value="{{ ts }}" {% if ts == timestamp %}selected{% endif %}>{{ ts }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <p class="mb-1"><strong>Goal:</strong> {{ report.goal }}</p>
+    <p class="mb-1"><strong>Mode:</strong> {{ report.mode }}
+       &nbsp;·&nbsp; <strong>Model:</strong> <code>{{ report.model }}</code>
+       &nbsp;·&nbsp; <strong>Verify flags:</strong> <code>{{ report.verify_flags|join(' ') or '(none)' }}</code></p>
+    <p class="mb-1"><strong>Baseline:</strong> {{ verdict(report.baseline) }}</p>
+    {% if report.best %}
+    <p class="mb-1"><strong>Best:</strong> iteration {{ report.best.iteration }} — {{ verdict(report.best.diagnostics) }}
+      &nbsp;<a class="btn btn-sm btn-outline-success"
+              href="/static/advisor/{{ name }}/{{ timestamp }}/{{ report.best.attempt_path.split('/')[-1] }}"
+              download><i class="bi bi-download"></i> Download best .tn</a></p>
+    {% endif %}
+    <p class="mb-0"><strong>Stop reason:</strong> <span class="badge bg-info text-dark">{{ report.stop_reason }}</span></p>
+  </div>
+</div>
+
+<h4 class="mb-3">Conversation</h4>
+
+{% for h in report.iterations %}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>{% if h.note == 'feedback' %}<i class="bi bi-person-fill"></i> Your feedback{% else %}<i class="bi bi-robot"></i> Iteration {{ h.iteration }}{% endif %}</span>
+    {% if h.parse_error %}
+      <span class="badge bg-danger">rejected: parse error</span>
+    {% elif h.fidelity_error %}
+      <span class="badge bg-danger">rejected: fidelity guard</span>
+    {% elif h.note != 'feedback' %}
+      {{ verdict(h.diagnostics) }}
+    {% endif %}
+  </div>
+  <div class="card-body">
+    {% if h.note == 'feedback' %}
+      <p class="mb-0 fst-italic">{{ h.rationale|replace('[user feedback] ', '') }}</p>
+    {% else %}
+      {% if h.rationale %}<p>{{ h.rationale }}</p>{% endif %}
+      {% if h.parse_error %}
+        <div class="alert alert-danger py-2 mb-0"><strong>Parser rejected the proposal:</strong>
+          <code>{{ h.parse_error }}</code>. Fed back to Claude for the next attempt.</div>
+      {% elif h.fidelity_error %}
+        <div class="alert alert-danger py-2 mb-0"><strong>Fidelity guard rejected the proposal:</strong>
+          {{ h.fidelity_error }}. Fed back to Claude for the next attempt.</div>
+      {% elif h.diff %}
+        <details {% if report.best and report.best.iteration == h.iteration %}open{% endif %}>
+          <summary class="mb-2">Diff vs original</summary>
+          <div class="advisor-diff">{% for line in h.diff.split('\n') %}{% if line.startswith('+') and not line.startswith('+++') %}<span class="d-add">{{ line }}</span>{% elif line.startswith('-') and not line.startswith('---') %}<span class="d-del">{{ line }}</span>{% elif line.startswith('@@') %}<span class="d-hunk">{{ line }}</span>{% elif line.startswith('+++') or line.startswith('---') %}<span class="d-file">{{ line }}</span>{% else %}<span class="d-ctx">{{ line }}</span>{% endif %}{% endfor %}</div>
+        </details>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+{% if report.mode == 'step' %}
+<div class="card mb-4 border-primary">
+  <div class="card-header bg-primary text-white"><i class="bi bi-arrow-repeat"></i> Continue this session</div>
+  <div class="card-body">
+    <div class="mb-2">
+      <label class="form-label">Feedback for the next iteration (optional)</label>
+      <textarea id="feedback" class="form-control" rows="2"
+                placeholder="e.g. keep the recharge net-zero; don't drop the downlink windows"></textarea>
+    </div>
+    <button class="btn btn-primary" id="continueBtn" onclick="continueSession('step')">
+      <i class="fa-solid fa-brain"></i> Run next iteration
+    </button>
+    <button class="btn btn-outline-primary ms-2" id="loopBtn" onclick="continueSession('loop')"
+            title="Iterate autonomously until the goal is met or the budget is hit">
+      <i class="bi bi-arrow-repeat"></i> Run to completion (loop)
+    </button>
+    <div id="continueStatus" class="small text-muted mt-2"></div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function continueSession(mode) {
+    const btn = document.getElementById('continueBtn');
+    const loopBtn = document.getElementById('loopBtn');
+    const status = document.getElementById('continueStatus');
+    const taskId = 'advise-' + Date.now();
+    btn.disabled = true; loopBtn.disabled = true;
+    status.innerHTML = '<i class="bi bi-hourglass-split"></i> Running… '
+        + '<button class="btn btn-sm btn-outline-danger ms-2" onclick="fetch(\'/api/kill\',{method:\'POST\',headers:{\'Content-Type\':\'application/json\'},body:JSON.stringify({task_id:\'' + taskId + '\'})})">Cancel</button>';
+    fetch('/api/advise/{{ name }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            mode: mode,
+            session: '{{ timestamp }}',
+            feedback: document.getElementById('feedback').value,
+            task_id: taskId
+        })
+    }).then(r => r.json()).then(d => {
+        if (d.status === 'success') { location.reload(); }
+        else { status.innerHTML = '<span class="text-danger">' + (d.message || 'failed') + '</span>'; btn.disabled = false; loopBtn.disabled = false; }
+    }).catch(e => { status.innerHTML = '<span class="text-danger">' + e + '</span>'; btn.disabled = false; loopBtn.disabled = false; });
+}
+</script>
+<style>
+.advisor-diff {
+    background: #fff; border: 1px solid #d0d7de; border-radius: 6px;
+    padding: 8px 0; font-size: 0.85rem; max-height: 480px; overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    line-height: 1.5;
+}
+.advisor-diff span {
+    display: block; padding: 0 12px; white-space: pre;
+    border-left: 3px solid transparent; min-height: 1.5em;
+}
+.advisor-diff .d-add  { background: #e6ffec; border-left-color: #2da44e; color: #1a7f37; }
+.advisor-diff .d-del  { background: #ffebe9; border-left-color: #cf222e; color: #cf222e; }
+.advisor-diff .d-hunk { background: #ddf4ff; color: #0550ae; font-weight: 600; }
+.advisor-diff .d-file { background: #f6f8fa; color: #57606a; font-weight: 600; }
+.advisor-diff .d-ctx  { color: #24292f; }
+</style>
+{% endblock %}

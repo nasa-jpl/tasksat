@@ -112,6 +112,10 @@
                         <a href="/report/{{ tn.name }}" class="btn btn-success btn-sm">
                             <i class="bi bi-file-earmark-check"></i> View Report
                         </a>
+                        <a href="/tasknet/{{ tn.name }}?advise=1" class="btn btn-outline-primary btn-sm"
+                           title="Ask Claude to improve this tasknet">
+                            <i class="fa-solid fa-brain"></i> Ask Claude
+                        </a>
                         <button class="btn btn-outline-danger btn-sm" onclick="deleteVerification('{{ tn.name }}')">
                             <i class="bi bi-trash"></i>
                         </button>

@@ -26,9 +26,18 @@ from typing import List, Optional, Dict, Union, Literal, Tuple
 from z3 import (
     Solver, Optimize, Int, Real, Bool,
     And, Or, Not, If,
-    sat, unsat, Sum,
+    sat, unsat, unknown, Sum,
     Context, main_ctx,
 )
+
+
+class SolverTimeout(Exception):
+    """Raised when the Phase-1 validity solve hits its `timeout_ms` deadline.
+
+    Z3 returns `unknown` when a per-solver `timeout` fires. We surface that as a
+    distinct outcome so the caller can report a clean timeout rather than
+    misreading it as UNSAT (which would then try — and fail — to extract a core).
+    """
 
 from tasknet_ast import *
 from tasknet_ast import TaskKind
@@ -40,7 +49,7 @@ class TaskNetSMT:
     """
 
     def __init__(self, tn: TaskNet, use_optimization: bool = True, track: bool = True,
-                 portfolio: bool = False):
+                 portfolio: bool = False, timeout_ms: Optional[int] = None):
         """Build the complete SMT encoding of `tn`.
 
         The constructor does the encoding work: it normalizes the network,
@@ -66,6 +75,10 @@ class TaskNetSMT:
             portfolio: Solve by racing this untracked encoding against a tracked
                 twin on a second core (see `_check_portfolio`). Implies
                 `track=False` for this solver, since the twin supplies the core.
+            timeout_ms: Per-solver Z3 timeout in milliseconds for the Phase-1
+                validity solve, applied to this solver and the tracked twin. When
+                the deadline fires, `check()` returns `unknown` and `solve()`
+                raises `SolverTimeout`. None (default) means no limit.
         """
         self.tn = self.normalize_tasknet(tn)
         self.tn = self.resolve_task_definitions(self.tn)
@@ -75,6 +88,10 @@ class TaskNetSMT:
         # The portfolio needs exactly that form to clone into the twin's context.
         self.portfolio = portfolio
         self.track = track and not portfolio
+        # Per-solver Z3 timeout for the Phase-1 validity solve (ms). When set and
+        # the solve exceeds it, `check()` returns `unknown` and `solve()` raises
+        # SolverTimeout. None (default) means no limit.
+        self.timeout_ms = timeout_ms
 
         # === Task categorization ===
         self.required_tasks = [t for t in self.tn.tasks if t.kind == TaskKind.INSTANCE]
@@ -104,6 +121,11 @@ class TaskNetSMT:
             self.solver = Solver()
             # Enable unsat core tracking for Solver (not available for Optimize)
             self.solver.set(unsat_core=True)
+
+        # Apply the Phase-1 solve timeout, if one was requested. Works on both
+        # Optimize and Solver; the tracked twin gets the same deadline below.
+        if self.timeout_ms is not None:
+            self.solver.set("timeout", int(self.timeout_ms))
 
         # Store mapping from labels to raw Z3 constraints for UNSAT core debugging
         self.constraint_map: Dict[str, object] = {}
@@ -2218,6 +2240,8 @@ class TaskNetSMT:
         """
         ctx = Context()
         twin = Solver(ctx=ctx)
+        if self.timeout_ms is not None:
+            twin.set("timeout", int(self.timeout_ms))
         id_to_label = {c.get_id(): label for label, c in self.constraint_map.items()}
         used_labels = set()
         for assertion in self.solver.assertions():
@@ -2416,6 +2440,13 @@ class TaskNetSMT:
                 core_solver = twin
         else:
             res = self.solver.check()
+
+        # A Z3 `timeout` firing surfaces as `unknown`. Only treat it as a timeout
+        # when a deadline was actually set — otherwise `unknown` keeps its
+        # historical meaning and falls through to the non-sat branch below.
+        if res == unknown and self.timeout_ms is not None:
+            raise SolverTimeout(
+                f"Phase-1 validity solve exceeded the {self.timeout_ms} ms timeout")
 
         if res != sat:
             print("TaskNet constraints (schedule + zone trace):", res)
@@ -2740,7 +2771,7 @@ class TaskNetTL(TaskNetSMT):
     """Temporal logic interpretation"""
 
     def __init__(self, tn: TaskNet, error_trace: bool = True, use_optimization: bool = True,
-                 track: bool = True, portfolio: bool = False):
+                 track: bool = True, portfolio: bool = False, timeout_ms: Optional[int] = None):
         """Build the SMT encoding and add the temporal constraints on top.
 
         Extends `TaskNetSMT.__init__` by asserting every entry of the
@@ -2754,9 +2785,10 @@ class TaskNetTL(TaskNetSMT):
             use_optimization: See `TaskNetSMT`.
             track: See `TaskNetSMT`.
             portfolio: See `TaskNetSMT`.
+            timeout_ms: See `TaskNetSMT`.
         """
         super().__init__(tn, use_optimization=use_optimization, track=track,
-                         portfolio=portfolio)
+                         portfolio=portfolio, timeout_ms=timeout_ms)
         self._encode_temporal_constraints()
         self.error_trace = error_trace
 

@@ -211,11 +211,23 @@ code[class*="language-"] {
                 <input class="form-check-input" type="checkbox" id="chkSingleCore">
                 <label class="form-check-label small" for="chkSingleCore">Single core</label>
             </div>
+            <span class="me-2 align-middle"
+                  title="Wall-clock limit in seconds for the Phase-1 validity solve. If exceeded, the run stops with a 'timeout' status instead of a schedule. Leave blank for no limit.">
+                <input id="inpTimeout" type="number" min="0" step="1" placeholder="∞"
+                       class="form-control form-control-sm d-inline-block align-middle"
+                       style="width: 5.5rem;"
+                       value="{{ metadata.timeout_sec if metadata.timeout_sec else '' }}">
+                <label class="form-label small mb-0 align-middle" for="inpTimeout">timeout (s)</label>
+            </span>
             <button id="btnReVerify" class="btn btn-primary me-2 btn-verify"
                     onclick="runVerification()"
                     title="Re-run verification on the source file">
                 <i class="bi bi-arrow-clockwise"></i> Re-verify
             </button>
+            <a href="/tasknet/{{ name }}?advise=1" class="btn btn-outline-primary me-2"
+               title="Ask Claude to improve this tasknet">
+                <i class="fa-solid fa-brain"></i> Ask Claude
+            </a>
             <button id="btnShowNotes" class="btn btn-outline-secondary me-2" onclick="showNotesSection()">
                 <i class="bi bi-sticky"></i> {% if metadata.notes %}View Notes{% else %}Add Notes{% endif %}
             </button>
@@ -1099,6 +1111,7 @@ function runVerification() {
             realizability: document.getElementById('chkRealizability').checked,
             compositional: document.getElementById('chkCompositional').checked,
             unsat_core: !document.getElementById('chkSingleCore').checked,
+            timeout: document.getElementById('inpTimeout').value,
             task_id: taskId
         })
     })
@@ -1359,6 +1372,7 @@ function saveCode() {
             realizability: document.getElementById('chkRealizability').checked,
             compositional: document.getElementById('chkCompositional').checked,
             unsat_core: !document.getElementById('chkSingleCore').checked,
+            timeout: document.getElementById('inpTimeout').value,
             task_id: taskId
         })
     })
