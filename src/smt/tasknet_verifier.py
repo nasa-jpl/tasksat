@@ -204,7 +204,8 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
          realizability_budget: float = 60.0,
          compositional: bool = False, compositional_max_iters: int = 50,
          compositional_budget: float = 60.0, unsat_core: bool = True,
-         timeout: Optional[float] = None):
+         timeout: Optional[float] = None,
+         property_timeout: Optional[float] = None):
     """Verify one `.tn` file, writing every artifact of the run to disk.
 
     The stages are: parse, transform (keeping a pre-transform copy for the
@@ -458,13 +459,18 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     else:
         print(header("\n=== Phase 2: Property Verification (AA - ∀∀) ==="))
 
+    # Per-property Z3 timeout (ms). Default 10s; raise via --property-timeout for
+    # heavy nonlinear ∀-schedule (AA) queries that would otherwise report UNKNOWN.
+    property_timeout_ms = int(property_timeout * 1000) if property_timeout else 10000
+
     property_start = time.time()
     if hasattr(enc, 'check_temporal_properties'):
         # In compositional mode the properties hold on ONE session and thereby for
         # all N — tag them per_session. This is the single AA computation; the
         # compositional proof (Phase 3.5) reuses it rather than recomputing.
         property_results, violations = enc.check_temporal_properties(
-            per_session=compositional_active)
+            per_session=compositional_active,
+            property_timeout_ms=property_timeout_ms)
     else:
         property_results, violations = [], []
     property_end = time.time()
@@ -509,7 +515,8 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         compositional_result = check_compositional(
             tn_pre_transform, apply_transforms,
             max_iters=compositional_max_iters, budget_sec=compositional_budget,
-            aa_result=(aa_status, per_session_props))
+            aa_result=(aa_status, per_session_props),
+            property_timeout_ms=property_timeout_ms)
 
         cr = compositional_result
         detail = (f"safety (every run keeps P)={cr.get('aa')}, "
@@ -823,6 +830,8 @@ if __name__ == "__main__":
                         help='Solve Phase 1 on a single core, without the tracked twin that explains an UNSAT. Halves CPU and memory use, but gives up the conflicting-constraint core and can be several times slower on infeasible networks.')
     parser.add_argument('--timeout', type=float, default=None,
                         help='Wall-clock limit in seconds for the Phase-1 validity solve. If exceeded, the run stops with status "timeout" instead of a schedule or UNSAT. 0 or omitted means no limit.')
+    parser.add_argument('--property-timeout', type=float, default=None,
+                        help='Per-property Z3 timeout in seconds for the temporal-property / final-block (AA safety) checks. Default 10s. Raise it for heavy nonlinear ∀-schedule queries (e.g. many rate-timeline tasks) that would otherwise report UNKNOWN.')
     args = parser.parse_args()
 
     # Capture console output
@@ -839,7 +848,8 @@ if __name__ == "__main__":
              compositional_max_iters=args.compositional_max_iters,
              compositional_budget=args.compositional_budget,
              unsat_core=not args.no_unsat_core,
-             timeout=args.timeout)
+             timeout=args.timeout,
+             property_timeout=args.property_timeout)
     finally:
         sys.stdout = old_stdout
 

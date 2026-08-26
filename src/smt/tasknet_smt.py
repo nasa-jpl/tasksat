@@ -3008,7 +3008,8 @@ class TaskNetTL(TaskNetSMT):
       
     def check_temporal_properties(self, skip_final: bool = False,
                                   skip_properties: bool = False,
-                                  per_session: bool = False):
+                                  per_session: bool = False,
+                                  property_timeout_ms: int = 10000):
         """
         For each TemporalProperty in self.tn.properties, check whether it holds
         for all schedules/zone-traces that satisfy:
@@ -3091,7 +3092,7 @@ class TaskNetTL(TaskNetSMT):
             try:
                 enc = TaskNetTL(self.tn, error_trace=self.error_trace, use_optimization=False)
                 enc.solver.add(Not(enc._encode_formula_at_pos(phi, 0)))
-                enc.solver.set("timeout", 10000)  # 10s, prevents hanging
+                enc.solver.set("timeout", property_timeout_ms)  # default 10s, prevents hanging
                 res = enc.solver.check()
                 encode_error = None
             except Exception as e:  # noqa: BLE001 — surface as UNKNOWN, keep going
@@ -3195,7 +3196,7 @@ class TaskNetTL(TaskNetSMT):
 
             enc = TaskNetTL(self.tn, error_trace=self.error_trace, use_optimization=False)
             enc.solver.add(Not(enc._encode_final_holds()))
-            enc.solver.set("timeout", 10000)
+            enc.solver.set("timeout", property_timeout_ms)
             res = enc.solver.check()
             prop_duration = time.time() - prop_start
 

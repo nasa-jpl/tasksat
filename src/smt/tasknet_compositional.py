@@ -155,7 +155,8 @@ def project_single_session(tn_pre_transform: TaskNet) -> Tuple[TaskNet, str]:
 
 def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_cls=TaskNetTL,
                         max_iters: int = 50, budget_sec: float = 60.0,
-                        verbose: bool = True, aa_result=None) -> dict:
+                        verbose: bool = True, aa_result=None,
+                        property_timeout_ms: int = 10000) -> dict:
     """Run the inductive-invariant sequencing check.
 
     Projects one session, runs AA (safety) + AE (realizability-under-P), combines.
@@ -236,7 +237,8 @@ def check_compositional(tn_pre_transform: TaskNet, apply_transforms, TaskNetTL_c
         aa_status, per_session_props = aa_result
     else:
         enc = TaskNetTL_cls(projected, error_trace=False, use_optimization=False)
-        prop_results, _violations = enc.check_temporal_properties(per_session=True)
+        prop_results, _violations = enc.check_temporal_properties(
+            per_session=True, property_timeout_ms=property_timeout_ms)
         final_entry = next((r for r in prop_results if r.get('name') == 'final'), None)
         aa_status = final_entry['status'] if final_entry else 'unknown'
         # Per-session user-property results (everything except the `final` AA

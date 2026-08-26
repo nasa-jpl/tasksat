@@ -659,6 +659,36 @@ default 300 s when unbounded) in case anything outside the Phase-1 solve hangs.
   [templates/verification_report.html](src/smt/templates/verification_report.html)
 - Tests: [tests/test_timeout.py](tests/test_timeout.py)
 
+### Property-Check Timeout (`--property-timeout`)
+
+Optional per-property Z3 cap for the **Phase-2 property-verification solve** (the
+`∀∀` checks: user `properties {...}`, the `final` block, and the AA half of
+`--compositional`), in seconds. Distinct from `--timeout`, which bounds only the
+Phase-1 validity solve. Omitted means the historical default of **10 s per property**
+(so the flag is a no-op unless set — no behavior change).
+
+**Why it exists.** Each property is negated and handed to Z3 under a hardcoded 10 s
+cap; on **nonlinear** queries (rate × zone-width products across many
+battery-touching tasks) Z3 can exceed 10 s and return `unknown`, which surfaces as
+property status `unknown` even though the property in fact HOLDS given more time. A
+faithful `--compositional` re-model of a battery-heavy mission is the motivating case:
+its AA ∀-schedule query needs ~34 s, so it reports UNKNOWN by default but **HOLDS**
+with `--property-timeout 180`. The flag raises the cap for exactly these cases; AE
+realizability and Phase-1 keep their own budgets.
+
+```bash
+python src/smt/tasknet_verifier.py net.tn --property-timeout 180
+python src/smt/tasknet_verifier.py net.tn --compositional --property-timeout 180
+```
+
+**Implementation:**
+- SMT: `check_temporal_properties(..., property_timeout_ms=10000)` — both
+  `enc.solver.set("timeout", ...)` sites use the parameter in [tasknet_smt.py](src/smt/tasknet_smt.py)
+- Compositional: `check_compositional(..., property_timeout_ms=10000)` threads it to
+  the AA check in [tasknet_compositional.py](src/smt/tasknet_compositional.py)
+- CLI: `--property-timeout` flag; `main()` computes `property_timeout_ms` and passes
+  it to the Phase-2 property check and to `check_compositional` in [tasknet_verifier.py](src/smt/tasknet_verifier.py)
+
 ### LLM Advisor (`tasknet_advisor.py`)
 
 An LLM-assisted advisor that reads a `.tn`, runs the verifier for diagnostics, asks

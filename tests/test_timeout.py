@@ -98,3 +98,44 @@ class TestTimeoutWebPlumbing:
         import tasknet_web as w
         assert w.verify_subprocess_timeout(5) == 35     # solve cap + 30 s grace
         assert w.verify_subprocess_timeout(None) == 300  # default when unbounded
+
+
+class TestPropertyTimeout:
+    """The Phase-2 property-check cap (--property-timeout), distinct from --timeout.
+
+    Bounds the per-property ∀∀ solve (user properties, `final`, compositional AA).
+    Default 10 s per property (a no-op unless the flag is set)."""
+
+    def test_check_temporal_properties_accepts_and_defaults(self):
+        import inspect
+        from tasknet_smt import TaskNetTL
+        sig = inspect.signature(TaskNetTL.check_temporal_properties)
+        assert 'property_timeout_ms' in sig.parameters
+        assert sig.parameters['property_timeout_ms'].default == 10000
+
+    def test_check_compositional_threads_the_cap(self):
+        import inspect
+        from tasknet_compositional import check_compositional
+        sig = inspect.signature(check_compositional)
+        assert 'property_timeout_ms' in sig.parameters
+        assert sig.parameters['property_timeout_ms'].default == 10000
+
+    def test_main_accepts_property_timeout(self):
+        import inspect
+        import tasknet_verifier as v
+        assert 'property_timeout' in inspect.signature(v.main).parameters
+
+    def test_cli_exposes_flag(self):
+        import subprocess
+        out = subprocess.run(
+            [sys.executable, str(PROJECT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py'),
+             '--help'], capture_output=True, text=True).stdout
+        assert '--property-timeout' in out
+
+    def test_generous_cap_still_decides_properties(self):
+        # A raised cap must not change a normal, fast property outcome: the `final`
+        # property of tasknet46 holds, and still holds under a 180 s cap.
+        enc = _encode('tasknet46_final_holds.tn')
+        results, _violations = enc.check_temporal_properties(property_timeout_ms=180000)
+        final = next((r for r in results if r.get('name') == 'final'), None)
+        assert final is not None and final['status'] == 'holds'
