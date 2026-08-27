@@ -402,7 +402,24 @@ def build_task_relation_graph(tn: TaskNet) -> Tuple[List[Node], List[Edge]]:
     # --- Task instance edges: of / after / containedin (all tasks, no special session handling) ---
     for task in tn.tasks:
         if task.kind == TaskKind.DEFINITION:
-            continue  # taskdefs have no instance-level dependencies
+            # A session taskdef is a cluster (its children carry the edges), not a
+            # plain node — skip it here.
+            if task.id in session_defs:
+                continue
+            # Definition-level (type-level) after/containedin between taskdefs,
+            # e.g. `taskdef drive { after predrive; containedin heat; }`. Draw
+            # these so preheat/maintainheat-style defs referenced only at the type
+            # level aren't left floating. There is no `of` edge — a def
+            # instantiates nothing.
+            for dep in _iter_after(task):
+                if dep.task_id in task_ids:
+                    edges.append(Edge(from_id=task.id, to_id=dep.task_id,
+                                      label=_fmt_gap(dep.gap), style="solid", color="blue"))
+            for dep in _iter_containedin(task):
+                if dep.task_id in task_ids:
+                    edges.append(Edge(from_id=task.id, to_id=dep.task_id,
+                                      label=_fmt_containedin(dep), style="dashed", color="purple"))
+            continue
         # instance -> taskdef (of). If the taskdef is a session, point the edge
         # INTO its cluster (target a child, clip at the cluster border via lhead
         # + compound=true) so the instance connects to the container, not a
