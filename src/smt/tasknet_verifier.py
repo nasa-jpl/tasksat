@@ -199,7 +199,56 @@ def write_transformed_tasknet(tn, output_path: str, input_path: str):
 
         print(f"📄 Transformed tasknet written to: {output_path} (JSON format)\n")
 
+def render_structure_only(path: str, tn_pre_transform, start_time: float) -> None:
+    """Render just the static structure diagram for `path` and record the run.
+
+    Parse-only quick look (no transforms / well-formedness / solve). Writes
+    `structure.png` (+ any per-panel fallbacks) into a fresh timestamped run dir
+    and mirrors it into `latest/`, alongside a minimal `metadata.json` with
+    status ``structure_only`` so the web UI lists and can display the run.
+    """
+    from pathlib import Path
+    from datetime import datetime
+    import json
+
+    input_path = Path(path)
+    tasknet_name = input_path.stem
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    run_dir = Path('.tasksat/schedules') / tasknet_name / timestamp
+    latest_dir = Path('.tasksat/schedules') / tasknet_name / 'latest'
+    run_dir.mkdir(parents=True, exist_ok=True)
+    latest_dir.mkdir(parents=True, exist_ok=True)
+
+    created = []
+    try:
+        from tasknet_structure_viz import create_structure_visualization
+        created = create_structure_visualization(tn_pre_transform, str(run_dir / "structure.png"))
+        if created:
+            import shutil
+            for src_png in created:
+                shutil.copy(src_png, str(latest_dir / Path(src_png).name))
+            print(success(f"🗺️  Structure diagram saved to: {run_dir}"))
+            print(info(f"📄 Latest at: {latest_dir}"))
+        else:
+            print(error("⚠️  Structure diagram skipped (Graphviz 'dot' not found)"))
+    except ImportError:
+        print(error("⚠️  Structure diagram skipped (tasknet_structure_viz unavailable)"))
+
+    metadata = {
+        "source_path": str(input_path.absolute()),
+        "timestamp": datetime.now().isoformat(),
+        "status": "structure_only",
+        "duration_sec": round(time.time() - start_time, 3),
+        "command": f"python src/smt/tasknet_verifier.py {path} --structure-only",
+        "mode": "structure_only",
+    }
+    for d in (run_dir, latest_dir):
+        with open(d / "metadata.json", 'w') as f:
+            json.dump(metadata, f, indent=2)
+
+
 def main(path: str, mode: str = 'optimize', transform_only: bool = False,
+         structure_only: bool = False,
          realizability: bool = False, realizability_max_iters: int = 50,
          realizability_budget: float = 60.0,
          compositional: bool = False, compositional_max_iters: int = 50,
@@ -224,6 +273,12 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         transform_only: Write the transformed tasknet and stop, without
             verifying. Useful for inspecting auto-instantiation and session
             flattening.
+        structure_only: Render the static structure diagram from the
+            pre-transform AST and stop, without transforming, checking
+            well-formedness, or solving. A fast (parse-only) way to eyeball the
+            spec's task/taskdef/timeline structure; writes to the usual
+            `.tasksat/schedules/<tasknet>/latest/structure.png` so the web UI
+            picks it up.
         realizability: Run the realizability check — every initial state the
             spec admits must admit some schedule. See `tasknet_realizability`.
         realizability_max_iters: Iteration budget for that check's CEGIS loop.
@@ -262,6 +317,13 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     # would not preserve the original spec.
     import copy
     tn_pre_transform = copy.deepcopy(tn)
+
+    # Structure-only: render the static diagram from the pre-transform AST and
+    # stop — no transforms, no well-formedness, no solve. Parse-only, so it is
+    # ~instant even on networks whose full solve would take minutes.
+    if structure_only:
+        render_structure_only(path, tn_pre_transform, start_time)
+        return
 
     # Apply AST transformations (desugar derived constructs). The returned flag
     # signals a structural rewrite (auto-instantiation OR session flattening) —
@@ -330,7 +392,10 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         print(info(f"    Verifying single instance '{session_id}' (compositional check will discharge all N)\n"))
         # Flatten the projected session: expand session .children into subtask
         # instances, or the encoder would treat the session as one atomic task.
-        tn, _ = apply_transforms(tn_single)
+        # apply_transforms mutates in place, so transform a COPY — tn_single must
+        # stay the pre-flatten projected session for the structure diagram (line
+        # ~707), which relies on the session structure (taskdefs + is-a edges).
+        tn, _ = apply_transforms(copy.deepcopy(tn_single))
 
     # Snapshot the (possibly projected) transformed tasknet before encoding. SMT
     # encoding mutates task ranges (fills unconstrained start/end with MAX_INT and
@@ -814,6 +879,8 @@ if __name__ == "__main__":
                         help='Mode for main schedule generation: optimize (use Optimize solver for best schedule) or satisfy (use Solver for any valid schedule). Property verification always uses Solver for faster counterexample finding.')
     parser.add_argument('--transform-only', action='store_true',
                         help='Only write transformed tasknet (if auto-instantiation occurs) and exit without verification')
+    parser.add_argument('--structure-only', action='store_true',
+                        help='Only render the static structure diagram (parse-only, no solve) and exit. Fast way to eyeball task/taskdef/timeline structure; writes to .tasksat/schedules/<name>/latest/structure.png.')
     parser.add_argument('--realizability', action='store_true',
                         help='After finding a valid schedule, also check that EVERY initial state admitted by the spec has some valid schedule (forall init exists schedule)')
     parser.add_argument('--realizability-max-iters', type=int, default=50,
@@ -841,6 +908,7 @@ if __name__ == "__main__":
 
     try:
         main(args.tasknet_file, args.mode, args.transform_only,
+             structure_only=args.structure_only,
              realizability=args.realizability,
              realizability_max_iters=args.realizability_max_iters,
              realizability_budget=args.realizability_budget,

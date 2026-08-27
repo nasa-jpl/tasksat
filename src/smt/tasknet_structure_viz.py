@@ -95,6 +95,7 @@ class Node:
     shape: str = "box"
     fillcolor: str = "white"
     style: str = "filled"
+    penwidth: Optional[float] = None  # border weight; None = Graphviz default (1.0)
     cluster: Optional[str] = None  # session-instance id, if this node is a session child
 
 
@@ -171,29 +172,50 @@ _SET3 = [
 
 
 def _taskdef_color_map(tn: TaskNet) -> dict:
-    """Map each task id -> a Set3 color keyed by its taskdef family.
+    """Map each task id -> a Set3 color keyed by its (leaf) taskdef family.
 
     Mirrors the schedule charts (tasknet_gantt.py / tasknet_timeline_viz.py):
     each task belongs to the family `task.definition or task.id`; families are
     sorted and indexed into Set3 so all instances of a taskdef share a color.
-    Taskdef DEFINITION nodes get the same color as their instances.
+
+    Only LEAF taskdefs consume a palette slot. A *session* taskdef is a container
+    that is flattened away before scheduling — it never gets a Gantt bar — so
+    counting it here would shift the leaf colors out of step with the schedule
+    charts (the reported "work is teal in the Gantt but yellow here" mismatch).
+    Session taskdefs and the session instances that reference them map to no
+    color (their subtasks carry the leaf color instead).
     """
+    session_ids = {t.id for t in tn.tasks
+                   if t.kind == TaskKind.DEFINITION and getattr(t, 'children', None)}
     family = {}
     for task in tn.tasks:
         # A taskdef instance -> its definition; a taskdef itself or a bare task -> own id.
         family[task.id] = task.definition if task.definition else task.id
-    unique = sorted(set(family.values()))
-    fam_color = {fam: _SET3[i % len(_SET3)] for i, fam in enumerate(unique)}
-    return {tid: fam_color[fam] for tid, fam in family.items()}
+    # Assign LEAF families first so they land on the same Set3 slots as the
+    # schedule charts (a leaf taskdef teal in the Gantt stays teal here). Session
+    # families come AFTER — they get colors too (so a session def and its
+    # instance share one, like work<->Work), without shifting the leaf colors.
+    leaf_families = sorted({fam for fam in family.values() if fam not in session_ids})
+    session_families = sorted({fam for fam in family.values() if fam in session_ids})
+    ordered = leaf_families + session_families
+    fam_color = {fam: _SET3[i % len(_SET3)] for i, fam in enumerate(ordered)}
+    return {tid: fam_color.get(fam, "white") for tid, fam in family.items()}
 
 
 def _task_node(task: Task, color_map: dict) -> Node:
     """Build the node for a task or taskdef.
 
-    The label carries the declared start/end/duration ranges and the kind, and
-    the border style repeats the kind visually: bold for a taskdef, dashed for
-    optional and request. The fill comes from `color_map`, which colors
-    instances of the same taskdef alike.
+    Two orthogonal visual axes:
+
+    * BORDER says DEF vs INSTANCE. A taskdef DEFINITION is a SHARP box with a
+      thick border (``penwidth=2``); an instance is a thin-bordered ROUNDED box.
+      Optional/request instances keep the dashed border. This is the SAME
+      "thick sharp border = definition" rule the session-taskdef clusters use in
+      `generate_relations_dot` — a leaf def and a session def read identically as
+      "definition" (a single thick outline, which renders the same on a node and
+      a cluster), they just differ in whether they contain child templates.
+    * FILL COLOR (from `color_map`) says taskdef FAMILY, so an instance shares
+      its definition's color — the def/instance distinction never touches fill.
     """
     label = task.id
 
@@ -209,11 +231,19 @@ def _task_node(task: Task, color_map: dict) -> Node:
     if range_info:
         label += "\n" + "\n".join(range_info)
 
-    # Taskdef DEFINITION nodes are drawn double-bordered; optional/request noted in label.
+    fill = color_map.get(task.id, "white")
+
+    # Taskdef DEFINITION: a template — sharp box with a single THICK border.
+    # No text suffix: the thick sharp border already reads as "definition", and
+    # it is the same encoding the session-def clusters use, so all defs look
+    # alike (and it renders identically on a node and a cluster, unlike a double
+    # border, which looks doubled on a node but single on a cluster).
     if task.kind == TaskKind.DEFINITION:
-        label += "\n(taskdef)"
-        style = "filled,rounded,bold"
-    elif task.kind == TaskKind.OPTIONAL:
+        return Node(id=task.id, label=label, shape="box",
+                    fillcolor=fill, style="filled", penwidth=2.0)
+
+    # Instances: flat rounded boxes; optional/request keep the dashed border + note.
+    if task.kind == TaskKind.OPTIONAL:
         label += "\n(optional)"
         style = "filled,rounded,dashed"
     elif task.kind == TaskKind.REQUEST:
@@ -221,7 +251,6 @@ def _task_node(task: Task, color_map: dict) -> Node:
         style = "filled,rounded,dashed"
     else:
         style = "filled,rounded"
-    fill = color_map.get(task.id, "white")
     return Node(id=task.id, label=label, shape="box", fillcolor=fill, style=style)
 
 
@@ -363,16 +392,31 @@ def build_task_relation_graph(tn: TaskNet) -> Tuple[List[Node], List[Edge]]:
         expand_session_def(def_id)
 
     # --- All task nodes (instances and non-session taskdefs) ---
+    # A session taskdef is NOT drawn as a standalone node: it IS its cluster (the
+    # box that contains its child templates), so drawing a separate box3d node too
+    # would duplicate it. Every other task/taskdef gets a node.
     for task in tn.tasks:
+        if task.id in session_defs:
+            continue
         nodes.append(_task_node(task, color_map))
     # --- Task instance edges: of / after / containedin (all tasks, no special session handling) ---
     for task in tn.tasks:
         if task.kind == TaskKind.DEFINITION:
             continue  # taskdefs have no instance-level dependencies
-        # instance -> taskdef (of)
+        # instance -> taskdef (of). If the taskdef is a session, point the edge
+        # INTO its cluster (target a child, clip at the cluster border via lhead
+        # + compound=true) so the instance connects to the container, not a
+        # duplicate node.
         if task.definition and task.definition in task_ids:
-            edges.append(Edge(from_id=task.id, to_id=task.definition,
-                              label="of", style="dotted", color="gray"))
+            if task.definition in session_defs:
+                sdef = session_defs[task.definition]
+                rep = f"{task.definition}{SESSION_SEP}{sdef.children[0].id}"
+                edges.append(Edge(from_id=task.id, to_id=rep, label="of",
+                                  style="dotted", color="gray",
+                                  lhead=f"cluster_{task.definition}"))
+            else:
+                edges.append(Edge(from_id=task.id, to_id=task.definition,
+                                  label="of", style="dotted", color="gray"))
         # after
         for dep in _iter_after(task):
             if dep.task_id in task_ids:
@@ -457,14 +501,18 @@ def build_timeline_interaction_graph(tn: TaskNet) -> Tuple[List[Node], List[Edge
         `src` supplies the reads/writes; `node_id` is the graph node they attach
         to (the qualified subtask id for session children).
         """
+        # READS: a pre/inv/post guard reads the timeline, so information flows
+        # FROM the timeline INTO the task — draw the arrow that way (timeline ->
+        # task). The `when` alone labels it; the direction already says "read".
         for when, conlist in (("pre", src.pre), ("inv", src.inv), ("post", src.post)):
             if not conlist:
                 continue
             for tlcon in conlist:
                 if tlcon.id in timeline_ids:
-                    edges.append(Edge(from_id=node_id, to_id=tlcon.id,
-                                      label=f"{when} (read)", style="dotted",
+                    edges.append(Edge(from_id=tlcon.id, to_id=node_id,
+                                      label=when, style="dotted",
                                       color="gray40"))
+        # WRITES: an impact writes the timeline — task -> timeline.
         if src.impacts:
             for imp in src.impacts:
                 if imp.id in timeline_ids:
@@ -476,20 +524,28 @@ def build_timeline_interaction_graph(tn: TaskNet) -> Tuple[List[Node], List[Edge
     # Task nodes: same taskdef-family color as the schedule charts and Panel 1.
     # Session instances contribute one node per subtask (the subtask's reads/
     # writes live on the child template, not the session instance).
+    task_nodes: List[Node] = []
     for task in tn.tasks:
         if is_session_instance(task):
             sdef = session_defs[task.definition]
             for child in sdef.children:
                 q_id = f"{task.id}{SESSION_SEP}{child.id}"
                 fill = color_map.get(child.definition, "white") if child.definition else "white"
-                nodes.append(Node(id=q_id, label=f"{task.id} / {child.id}", shape="box",
-                                  fillcolor=fill, style="filled,rounded"))
+                task_nodes.append(Node(id=q_id, label=f"{task.id} / {child.id}", shape="box",
+                                       fillcolor=fill, style="filled,rounded"))
                 _reads_writes(q_id, child)
         else:
-            nodes.append(Node(id=task.id, label=task.id, shape="box",
-                              fillcolor=color_map.get(task.id, "white"),
-                              style="filled,rounded"))
+            task_nodes.append(Node(id=task.id, label=task.id, shape="box",
+                                   fillcolor=color_map.get(task.id, "white"),
+                                   style="filled,rounded"))
             _reads_writes(task.id, task)
+
+    # This is an INTERACTION graph: a task that reads/writes no timeline has
+    # nothing to show here, so drop the orphans (e.g. a session container, or a
+    # session-instance subtask whose impacts are declared on its leaf taskdef,
+    # which appears connected in its own right). Keeps the panel to real edges.
+    referenced = {e.from_id for e in edges} | {e.to_id for e in edges}
+    nodes = [n for n in task_nodes if n.id in referenced]
 
     for tl in tn.timelines:
         nodes.append(_timeline_node(tl))
@@ -526,8 +582,11 @@ def _prepare(tn: TaskNet) -> TaskNet:
 
 def _node_line(n: Node) -> str:
     """Render a `Node` as one line of DOT."""
-    return (f'  "{n.id}" [label="{_esc(n.label)}", shape={n.shape}, '
-            f'fillcolor="{n.fillcolor}", style="{n.style}"];')
+    attrs = (f'label="{_esc(n.label)}", shape={n.shape}, '
+             f'fillcolor="{n.fillcolor}", style="{n.style}"')
+    if n.penwidth is not None:
+        attrs += f', penwidth={n.penwidth}'
+    return f'  "{n.id}" [{attrs}];'
 
 
 def _edge_line(e: Edge, use_xlabel: bool = False) -> str:
@@ -561,7 +620,9 @@ def generate_relations_dot(tn: TaskNet, use_xlabel: bool = False) -> str:
     `use_xlabel` renders edge labels as free-floating xlabels; the renderer sets
     it on a retry when inline labels + many clusters trip a Graphviz crash.
     """
-    nodes, edges = build_task_relation_graph(_prepare(tn))
+    prepared = _prepare(tn)
+    nodes, edges = build_task_relation_graph(prepared)
+    color_map = _taskdef_color_map(prepared)  # to color session-def clusters
 
     lines: List[str] = []
     lines.append("digraph tasknet_relations {")
@@ -585,9 +646,18 @@ def generate_relations_dot(tn: TaskNet, use_xlabel: bool = False) -> str:
         if n.cluster:
             clustered.setdefault(n.cluster, []).append(n)
     for inst_id, members in clustered.items():
+        # Every cluster here is a session TASKDEF (a template whose children are
+        # nested); mark it as such and give it the def treatment.
         lines.append(f'  subgraph "cluster_{inst_id}" {{')
-        lines.append(f'    label="{_esc(inst_id)}";')
-        lines.append('    style="rounded,filled"; fillcolor="#f4f4f4"; color="#999999";')
+        lines.append(f'    label="{_esc(inst_id)}"; labelloc="t";')
+        # A session taskdef IS a definition that contains child templates. It
+        # gets the SAME "thick sharp border = definition" encoding as a leaf-def
+        # node (single thick black outline + the taskdef's own family fill), so
+        # every definition — leaf or session — reads identically; a session def
+        # just additionally contains its child templates. Shares its instance's
+        # color, like work<->Work.
+        cluster_fill = color_map.get(inst_id, "#ececec")
+        lines.append(f'    style="filled"; fillcolor="{cluster_fill}"; color="black"; penwidth=2;')
         lines.append('    fontname="Helvetica"; fontsize=11;')
         for n in members:
             lines.append('  ' + _node_line(n))
@@ -596,6 +666,35 @@ def generate_relations_dot(tn: TaskNet, use_xlabel: bool = False) -> str:
         if not n.cluster:
             lines.append(_node_line(n))
     lines.append('')
+
+    # Pin the two kinds to opposite ends (rankdir=LR): every INSTANCE to the
+    # minimum rank (leftmost column) and every DEFINITION to the maximum rank
+    # (rightmost column), so the diagram reads "instances on the left, the
+    # templates they instantiate on the right". `of` edges (instance -> def)
+    # already point rightward, so this only tightens a layout the edges imply.
+    # Session taskdefs are CLUSTERS, not plain nodes, and can't be rank-pinned;
+    # their `of` edges still push them right. Session children (nodes with a
+    # `.cluster`) live inside those clusters and are left unpinned.
+    def_ids = {t.id for t in prepared.tasks if t.kind == TaskKind.DEFINITION}
+    request_ids = {t.id for t in prepared.tasks if t.kind == TaskKind.REQUEST}
+    instance_ids = [n.id for n in nodes if not n.cluster and n.id not in def_ids]
+    plain_def_ids = [n.id for n in nodes if not n.cluster and n.id in def_ids]
+    if instance_ids:
+        lines.append('  { rank=min; ' + " ".join(f'"{i}";' for i in instance_ids) + ' }')
+    if plain_def_ids:
+        lines.append('  { rank=max; ' + " ".join(f'"{d}";' for d in plain_def_ids) + ' }')
+
+    # Within the left (instance) column, sink REQUEST instances to the bottom:
+    # order the min-rank nodes as [non-requests..., requests...] via an invisible
+    # flat-edge chain. Both endpoints are already pinned to rank=min, so these
+    # edges can't add a rank — they only fix the top-to-bottom order (first node
+    # on top, last on the bottom), grouping the requests together at the end.
+    ordered_instances = ([i for i in instance_ids if i not in request_ids]
+                         + [i for i in instance_ids if i in request_ids])
+    for a, b in zip(ordered_instances, ordered_instances[1:]):
+        lines.append(f'  "{a}" -> "{b}" [style=invis];')
+    lines.append('')
+
     for e in edges:
         lines.append(_edge_line(e, use_xlabel=use_xlabel))
     lines.append("}")

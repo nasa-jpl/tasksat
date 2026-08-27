@@ -228,6 +228,11 @@ code[class*="language-"] {
                title="Ask Claude to improve this tasknet">
                 <i class="fa-solid fa-brain"></i> Ask Claude
             </a>
+            <button id="showStructureBtn" class="btn btn-outline-secondary me-2"
+                    onclick="renderStructure()"
+                    title="Render the static structure diagram (parse-only, no solve)">
+                <i class="bi bi-diagram-3"></i> Show structure
+            </button>
             <button id="btnShowNotes" class="btn btn-outline-secondary me-2" onclick="showNotesSection()">
                 <i class="bi bi-sticky"></i> {% if metadata.notes %}View Notes{% else %}Add Notes{% endif %}
             </button>
@@ -353,6 +358,24 @@ code[class*="language-"] {
         {% endif %}
     </div>
     {% endif %}
+
+    <!-- On-demand structure render (parse-only). Always present so "Show
+         structure" works even when this verification produced no diagram. -->
+    <div id="structureOnDemand" class="card mb-4" style="display: none;">
+        <div class="card-header bg-secondary text-white">
+            <i class="bi bi-diagram-3"></i> TaskNet Structure
+        </div>
+        <div class="card-body text-center">
+            <img id="structureImg" src=""
+                 class="border"
+                 alt="TaskNet structure: relations (left) and timeline interactions (right)"
+                 style="cursor: pointer; max-width: 100%; height: auto; display: none;"
+                 onclick="openImageModal(this.src)">
+            <p id="structurePlaceholder" class="text-muted mb-0">
+                <i class="bi bi-hourglass-split"></i> Rendering…
+            </p>
+        </div>
+    </div>
 
     <!-- Console Output Section (Collapsible) -->
     <div class="card mb-4">
@@ -1032,6 +1055,43 @@ function openImageModal(src) {
     document.getElementById('modalImage').src = src;
     const modal = new bootstrap.Modal(document.getElementById('imageModal'));
     modal.show();
+}
+
+// Parse-only structure render (no solve): POST /api/structure, then reveal the
+// diagram in place with a cache-busting query so the browser fetches it fresh.
+function renderStructure() {
+    const btn = document.getElementById('showStructureBtn');
+    const card = document.getElementById('structureOnDemand');
+    const img = document.getElementById('structureImg');
+    const placeholder = document.getElementById('structurePlaceholder');
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Rendering…';
+    card.style.display = '';
+    img.style.display = 'none';
+    placeholder.innerHTML = '<i class="bi bi-hourglass-split"></i> Rendering…';
+    placeholder.style.display = '';
+    card.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    fetch('/api/structure/{{ name }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({})
+    }).then(r => r.json()).then(d => {
+        btn.disabled = false;
+        btn.innerHTML = original;
+        if (d.status === 'success' && d.has_structure) {
+            img.src = '/static/report/{{ name }}/latest/structure.png?t=' + Date.now();
+            img.style.display = '';
+            placeholder.style.display = 'none';
+        } else {
+            placeholder.innerHTML = '<span class="text-danger">'
+                + (d.message || 'Structure render failed') + '</span>';
+        }
+    }).catch(e => {
+        btn.disabled = false;
+        btn.innerHTML = original;
+        placeholder.innerHTML = '<span class="text-danger">' + e + '</span>';
+    });
 }
 
 // Scale a chart image to a percentage of its container width.

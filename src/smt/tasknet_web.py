@@ -34,12 +34,16 @@ RUNNING_TASKS_LOCK = threading.Lock()
 
 
 def verifier_cmd(tn_path, mode, realizability=False, compositional=False,
-                 unsat_core=True, timeout=None):
+                 unsat_core=True, timeout=None, structure_only=False):
     """Build the tasknet_verifier.py command line."""
     # sys.executable, not 'python': the latter is absent on systems that ship
     # only 'python3', and it would ignore the interpreter this server runs under.
-    cmd = [sys.executable, str(TASKSAT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py'),
-           str(tn_path), '--mode', mode]
+    verifier = str(TASKSAT_ROOT / 'src' / 'smt' / 'tasknet_verifier.py')
+    # Structure-only is a parse-only render that ignores mode and every solve
+    # option, so return the minimal command without them.
+    if structure_only:
+        return [sys.executable, verifier, str(tn_path), '--structure-only']
+    cmd = [sys.executable, verifier, str(tn_path), '--mode', mode]
     if realizability:
         cmd.append('--realizability')
     if compositional:
@@ -670,6 +674,63 @@ def api_verify(name):
             'status': 'error',
             'message': f'Error running verification: {str(e)}'
         }), 500
+
+
+@app.route('/api/structure/<name>', methods=['POST'])
+def api_structure(name):
+    """Render just the static structure diagram (parse-only, no solve).
+
+    A fast way to see a tasknet's structure without paying for a full
+    verification. Runs the verifier with --structure-only, which writes
+    structure.png into .tasksat/schedules/<name>/latest/.
+    """
+    data = request.get_json(silent=True) or {}
+    task_id = data.get('task_id')
+
+    # Resolve the source .tn: prefer the recorded source_path, else search the
+    # usual spots (same order as api_verify / tasknet_detail).
+    tn_file = None
+    latest_dir = SCHEDULES_DIR / name / 'latest'
+    metadata_file = latest_dir / 'metadata.json'
+    if metadata_file.exists():
+        with open(metadata_file, 'r') as f:
+            source_path = Path(json.load(f).get('source_path', ''))
+        if source_path.exists():
+            tn_file = source_path
+    if not tn_file:
+        for candidate in [TASKSAT_ROOT / f"{name}.tn",
+                          TESTS_DIR / 'valid' / f"{name}.tn"]:
+            if candidate.exists():
+                tn_file = candidate
+                break
+    if not tn_file:
+        return jsonify({'status': 'error', 'message': 'TaskNet file not found'}), 404
+
+    try:
+        result = run_verifier(
+            verifier_cmd(tn_file, 'optimize', structure_only=True),
+            task_id=task_id,
+            timeout=60  # parse + Graphviz render only; generous backstop
+        )
+        if result['outcome'] == 'killed':
+            return jsonify({'status': 'cancelled', 'message': 'Cancelled'}), 499
+        if result['outcome'] == 'timeout':
+            return jsonify({'status': 'timeout', 'message': 'Structure render timed out'}), 408
+        if result['returncode'] == 0:
+            return jsonify({
+                'status': 'success',
+                'message': 'Structure diagram generated',
+                'has_structure': (latest_dir / 'structure.png').exists(),
+                'output': result['stdout'],
+                'duration': round(result['duration'], 2),
+            })
+        return jsonify({
+            'status': 'error',
+            'message': 'Structure render failed (parse error?)',
+            'output': result['stdout'] + '\n' + result['stderr'],
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Error rendering structure: {str(e)}'}), 500
 
 
 @app.route('/api/create', methods=['POST'])

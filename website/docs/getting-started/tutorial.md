@@ -1397,8 +1397,11 @@ share a single scale — a node box on the left is exactly the same size as one 
    (labeled with the gap range), `containedin` (labeled with start/end offsets),
    instance→taskdef ("of"), `mutex` (symmetric no-overlap), and `sequence` (ordering chain).
 2. **Task ↔ timeline interactions** (right panel): a bipartite graph with tasks in the left
-   column and timelines in the right; solid edges for `impacts` (writes, colored by timing —
-   pre=green, maint=blue, post=red) and dotted edges for `pre`/`inv`/`post` reads.
+   column and timelines in the right. Solid edges are `impacts` (**writes**, task→timeline,
+   colored by timing — pre=green, maint=blue, post=red); dotted edges are `pre`/`inv`/`post`
+   **reads**, drawn timeline→task to show information flowing *from* the timeline *into* the
+   task (labeled with the timing). Tasks that neither read nor write a timeline are omitted
+   from this panel.
 
 ### Basic Usage
 
@@ -1417,28 +1420,48 @@ Graphviz (`dot`) must be installed. If it is not available, the tool prints a wa
 exits without producing an image. (Compositing the two panels needs the Python `PIL`/Pillow
 package; without it, the two panels are written as separate `_relations`/`_timelines` PNGs.)
 
+Alternatively, the verifier itself can render **just** the structure diagram — parse-only,
+with no transforms and no solve — via `--structure-only`. This is a fast way to eyeball a
+spec's structure (it is meaningful even for tasknets that are UNSAT or slow to solve), and it
+writes the diagram to the normal run location (`.tasksat/schedules/<name>/latest/structure.png`)
+so the web UI picks it up:
+
+```bash
+python src/smt/tasknet_verifier.py tests/tasknet_files/examples/rover2.tn --structure-only
+```
+
 ### Node styling
 
 - **Tasks** are boxes colored **by taskdef family**, using the same palette as the Gantt and
   Timeline Evolution charts — so a task that is teal in the schedule chart is teal here too.
-  All instances of a taskdef (and the taskdef node itself) share one color. Task *kind* is
-  shown by border/label: taskdefs have a bold border and "(taskdef)"; optional/request tasks
-  have a dashed border and a "(optional)"/"(request)" label.
+  All instances of a taskdef (and the taskdef node itself) share one color. Fill color and
+  the def-vs-instance distinction are orthogonal: color says *family*, the border says *kind*.
+  A **definition (taskdef)** is a sharp box with a single **thick border**; an **instance** is
+  a **thin-bordered rounded** box; **optional/request** instances add a dashed border and an
+  "(optional)"/"(request)" label. (There is no "(taskdef)" text — the thick sharp border alone
+  marks a definition, and it renders identically on a plain node and on a session cluster.)
 - **Timelines** are shaped by type: state = yellow hexagon, atomic = plum diamond,
   rate = coral box, cumulative = light-cyan box, claimable = pink oval.
 - **Sessions** ([nested-subtask taskdefs](#sessions-grouping-subtasks)) render as a
-  **nested box (cluster) per session instance** — e.g. `drive1` and `drive2` each a
-  labeled box enclosing their `preheat`/`drive` subtasks, with the sibling
-  `after`/`containedin` edges drawn inside and session-to-session dependencies drawn
-  box-to-box. In the Gantt and Timeline Evolution charts the same subtasks are grouped
-  into a contiguous band per instance, share one color per session, and are labeled
-  `instance / subtask` (e.g. `drive1 / preheat`) rather than the flattened `drive1__preheat`.
+  **nested box (cluster) per session *taskdef*** — the definition's structure is drawn once,
+  in the template, not repeated per instance. The cluster carries the same thick-border,
+  family-color "definition" styling as a leaf-def node and encloses the session's child
+  templates (`preheat`, `drive`, …) with their sibling `after`/`containedin` edges drawn
+  inside. Each session **instance** (e.g. `drive1`, `drive2`) is a plain rounded box with an
+  "of" edge pointing into its session-taskdef cluster. In the Gantt and Timeline Evolution
+  charts the flattened subtasks are grouped into a contiguous band per instance, share one
+  color per session, and are labeled `instance / subtask` (e.g. `drive1 / preheat`) rather
+  than the flattened `drive1__preheat`.
 
 ### In the web UI
 
 When you verify a tasknet, the structure diagram is generated automatically and shown in the
-web interface: a **Structure** tab on the tasknet detail page (and a **TaskNet Structure**
-card in the verification report), alongside the existing Gantt and Timeline Evolution views.
+web interface: a collapsible **TaskNet Structure Visualization** card on the tasknet detail
+page (and in the verification report), alongside the existing Gantt and Timeline Evolution
+views. You do not have to run a full verification to see it, though — a **Show structure**
+button on the detail page renders (or refreshes) the diagram on its own (parse-only, no
+solve), so you can inspect structure while iterating on a spec, even one that is UNSAT or slow
+to solve.
 
 The Gantt and Timeline Evolution charts grow taller with the number of task rows so rows
 never overlap, and are shown in a scrollable, drag-to-resize panel (pan both axes; click to

@@ -27,6 +27,10 @@ python src/smt/tasknet_verifier.py tasknet.tn --mode satisfy
 # Generate transformed tasknet without verification (useful for inspecting auto-instantiation)
 python src/smt/tasknet_verifier.py tasknet.tn --transform-only
 
+# Render ONLY the static structure diagram (parse-only, no transforms/solve) — fast way to
+# eyeball task/taskdef/timeline structure; writes .tasksat/schedules/<name>/latest/structure.png
+python src/smt/tasknet_verifier.py tasknet.tn --structure-only
+
 # Bound the Phase-1 validity solve (seconds); stops with status "timeout" if exceeded
 python src/smt/tasknet_verifier.py tasknet.tn --timeout 10
 ```
@@ -56,6 +60,9 @@ python src/smt/tasknet_web.py
 # - Click tasknet name to view detailed report
 # - View Gantt charts, timelines, property verification results
 # - Compare error traces with valid schedules side-by-side
+# - "Show structure" button on a tasknet detail page renders just the static
+#   structure diagram (parse-only, no solve) via POST /api/structure/<name>
+
 ```
 
 ### Testing

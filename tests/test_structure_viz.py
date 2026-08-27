@@ -76,9 +76,11 @@ def test_instance_of_taskdef_edge():
     """)
     nodes, edges = build_task_relation_graph(tn)
     assert ("w1", "Work") in _edge_pairs(edges, label_contains="of")
-    # taskdef node present and labeled
-    labels = {n.id: n.label for n in nodes}
-    assert "Work" in labels and "taskdef" in labels["Work"]
+    # taskdef node present, rendered with the thick sharp border that marks a
+    # "definition" (the border conveys "taskdef" — no "(taskdef)" text suffix).
+    by_id = {n.id: n for n in nodes}
+    assert "Work" in by_id and by_id["Work"].penwidth == 2.0
+    assert by_id["Work"].shape == "box" and "rounded" not in by_id["Work"].style
 
 
 def test_mutex_within_group_pairs():
@@ -169,6 +171,8 @@ def test_impact_edges_tagged_by_when():
 
 
 def test_read_edges_from_pre():
+    # A read (pre/inv/post guard) draws information FROM the timeline INTO the
+    # task, so the edge points timeline -> task.
     tn = parse_tasknet("""
     tasknet T {
         end = 200;
@@ -180,7 +184,7 @@ def test_read_edges_from_pre():
     }
     """)
     nodes, edges = build_timeline_interaction_graph(tn)
-    assert ("go", "mode") in _edge_pairs(edges, label_contains="pre")
+    assert ("mode", "go") in _edge_pairs(edges, label_contains="pre")
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +205,28 @@ def test_generate_relations_dot():
     assert '"a"' in dot and '"b"' in dot
     # after edge
     assert '"b" -> "a"' in dot
+
+
+def test_taskdef_shape_distinct_from_instance():
+    # A taskdef renders as a sharp THICK-bordered "definition" box; its instance
+    # as a thin-bordered rounded box. Border encodes def-vs-instance; fill encodes
+    # family. "thick sharp border = definition" is the one consistent rule (leaf
+    # defs here, session-def clusters in generate_relations_dot).
+    tn = parse_tasknet("""
+    tasknet T {
+        end = 200;
+        taskdef Work { duration 10; }
+        task w1 : Work {}
+    }
+    """)
+    dot = generate_relations_dot(tn)
+    lines = {ln.split('"')[1]: ln for ln in dot.splitlines()
+             if ln.strip().startswith('"') and '->' not in ln}
+    # taskdef: thick border (penwidth) + sharp corners (not rounded)
+    assert "penwidth=" in lines["Work"]
+    assert "rounded" not in lines["Work"]
+    # instance: thin-bordered rounded box, no thick border
+    assert "rounded" in lines["w1"] and "penwidth=" not in lines["w1"]
 
 
 def test_generate_timeline_dot_is_bipartite():
