@@ -207,3 +207,6 @@ jpl/mexec/test/debug/
 
 # TaskSAT generated files
 .tasksat/
+
+# Papers etc
+hide/
