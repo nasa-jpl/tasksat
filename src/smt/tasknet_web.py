@@ -148,6 +148,35 @@ def api_kill():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+def resolve_tasknet_file(name):
+    """Locate the `.tn` source for `name`, or None.
+
+    Order: the `source_path` recorded in the latest verification metadata, then the
+    repo root, then anywhere under `tests/tasknet_files/`.
+
+    The recursive search matters: several routes used to check only
+    `tests/tasknet_files/valid/`, so a tasknet living in `examples/`, `benchmark/`,
+    `unsat/` or `stress/` was listed on the home page but 404'd on its own detail
+    page — which also broke the "Ask Claude" link, since that navigates to
+    `/tasknet/<name>?advise=1`.
+    """
+    latest_meta = SCHEDULES_DIR / name / 'latest' / 'metadata.json'
+    if latest_meta.exists():
+        try:
+            with open(latest_meta, 'r') as f:
+                recorded = Path(json.load(f).get('source_path', ''))
+            if recorded.exists():
+                return recorded
+        except (OSError, ValueError):
+            pass                      # unreadable/!json metadata: fall through
+    direct = TASKSAT_ROOT / f"{name}.tn"
+    if direct.exists():
+        return direct
+    for candidate in sorted(TESTS_DIR.rglob(f"{name}.tn")):
+        return candidate
+    return None
+
+
 @app.route('/')
 def index():
     """Home page - list verified tasknets only."""
@@ -198,16 +227,7 @@ def index():
 @app.route('/tasknet/<name>')
 def tasknet_detail(name):
     """Detail page for a specific tasknet."""
-    # Find the tasknet file
-    tn_file = None
-    for candidate in [
-        TASKSAT_ROOT / f"{name}.tn",
-        TESTS_DIR / 'valid' / f"{name}.tn"
-    ]:
-        if candidate.exists():
-            tn_file = candidate
-            break
-
+    tn_file = resolve_tasknet_file(name)
     if not tn_file:
         return "TaskNet not found", 404
 
@@ -283,7 +303,7 @@ def _find_tasknet_file(name):
                 return src
         except (OSError, ValueError):
             pass
-    for candidate in [TASKSAT_ROOT / f"{name}.tn", TESTS_DIR / 'valid' / f"{name}.tn"]:
+    for candidate in [resolve_tasknet_file(name)] if resolve_tasknet_file(name) else []:
         if candidate.exists():
             return candidate
     return None
@@ -608,15 +628,9 @@ def api_verify(name):
         if source_path.exists():
             tn_file = source_path
 
-    # Fallback to searching common locations if metadata doesn't exist
+    # Fallback: the shared resolver (repo root, then anywhere under tests/)
     if not tn_file:
-        for candidate in [
-            TASKSAT_ROOT / f"{name}.tn",
-            TESTS_DIR / 'valid' / f"{name}.tn"
-        ]:
-            if candidate.exists():
-                tn_file = candidate
-                break
+        tn_file = resolve_tasknet_file(name)
 
     if not tn_file:
         return jsonify({'status': 'error', 'message': 'TaskNet file not found'}), 404
@@ -689,20 +703,7 @@ def api_structure(name):
 
     # Resolve the source .tn: prefer the recorded source_path, else search the
     # usual spots (same order as api_verify / tasknet_detail).
-    tn_file = None
-    latest_dir = SCHEDULES_DIR / name / 'latest'
-    metadata_file = latest_dir / 'metadata.json'
-    if metadata_file.exists():
-        with open(metadata_file, 'r') as f:
-            source_path = Path(json.load(f).get('source_path', ''))
-        if source_path.exists():
-            tn_file = source_path
-    if not tn_file:
-        for candidate in [TASKSAT_ROOT / f"{name}.tn",
-                          TESTS_DIR / 'valid' / f"{name}.tn"]:
-            if candidate.exists():
-                tn_file = candidate
-                break
+    tn_file = resolve_tasknet_file(name)
     if not tn_file:
         return jsonify({'status': 'error', 'message': 'TaskNet file not found'}), 404
 

@@ -48,7 +48,12 @@ from tasknet_ast import (  # noqa: E402
 )
 
 
-DEFAULT_MODEL = "claude-opus-4-8"
+# Model id. Override with $ANTHROPIC_MODEL when the endpoint uses its own naming:
+# a gateway fronting the API (e.g. a GovCloud deployment selected via
+# $ANTHROPIC_BASE_URL) generally serves prefixed ids such as
+# `us-gov.anthropic.claude-opus-5`, and a bare id then fails with "model not found"
+# even though authentication succeeded.
+DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-opus-5"
 SEP = "=" * 70
 
 # The two rate-timeline modeling rules discovered while validating the
@@ -70,6 +75,47 @@ for all N via `invariant compositional { P }`):
    session only ever pumps a resource one way (drains or charges) with no return, no
    predicate P is preserved and the compositional check is correctly VIOLATED.
 """
+
+
+def _api_key_helper_token():
+    """Short-lived bearer token from the `apiKeyHelper` in ~/.claude/settings.json.
+
+    Some deployments (e.g. JPL's GenAI gateway) issue a token that expires after
+    ~30 minutes and mint it on demand via a helper script rather than exporting a
+    long-lived key. A separately launched process — such as the web UI — therefore
+    has no credential in its environment at all, and the advisor fails before it can
+    send anything. Calling the same helper the CLI uses makes it work without asking
+    anyone to paste a secret, and picks up a fresh token on every call.
+
+    Returns None when no helper is configured or it produces nothing, in which case
+    the SDK's own environment resolution applies unchanged.
+    """
+    cfg = Path.home() / ".claude" / "settings.json"
+    try:
+        helper = json.loads(cfg.read_text()).get("apiKeyHelper")
+    except Exception:                                        # noqa: BLE001
+        return None
+    if not helper or not Path(helper.split()[0]).exists():
+        return None
+    try:
+        out = subprocess.run(helper, shell=True, capture_output=True, text=True,
+                             timeout=60)
+    except Exception:                                        # noqa: BLE001
+        return None
+    tok = (out.stdout or "").strip()
+    return tok or None
+
+
+def _client_kwargs() -> dict:
+    """Constructor kwargs for `anthropic.Anthropic()`.
+
+    Empty when a credential is already in the environment — the SDK resolves it. When
+    there is none, fall back to the `apiKeyHelper` token (see above).
+    """
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        return {}
+    tok = _api_key_helper_token()
+    return {"auth_token": tok} if tok else {}
 
 
 def tasksat_root() -> Path:
@@ -288,7 +334,7 @@ def propose_rewrite(source, diagnostics, reference, goal, history, model=DEFAULT
     """
     import anthropic  # lazy: only needed for a real proposal
 
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+    client = anthropic.Anthropic(**_client_kwargs())
     system = (
         "You improve TaskSAT `.tn` scheduling specifications. You are given the "
         "language reference, the current spec, and verifier diagnostics. Propose ONE "
