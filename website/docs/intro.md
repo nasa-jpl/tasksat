@@ -10,6 +10,19 @@ TaskSAT is a domain-specific language and tool for modeling and verifying task s
 
 TaskSAT can be applied to scheduling problems in autonomous systems, such as spacecraft and rover operations.
 
+## What TaskSAT checks
+
+A specification says what the tasks are, what they need, and what they consume. TaskSAT
+answers four questions about it, differing only in how they quantify over initial states
+`i` and schedules `s`. Write `valid(i, s)` for "every constraint holds".
+
+| | question | formally |
+|---|---|---|
+| **Validity** (∃∃) | Is there any way to run this? This is the **planning problem** — a positive answer *is* the schedule. | `∃i ∃s . valid(i,s)` |
+| **Property verification** (∀∀) | Can it go wrong? Checked against *every* valid schedule, not just the one found above. Properties use LTL-style operators (`always`, `eventually`, `until`, `since`). | `∀i ∀s . valid(i,s) ⇒ sat(i,s,φ)` |
+| **Realizability** (∀∃) | Does a schedule exist for *every* initial state the spec allows? Validity only asks for one. | `∀i ∃s . valid(i,s)` |
+| **Compositional** | Does it hold for *any* number of repetitions of a repeating block `S`? You supply a predicate `P` on the state; TaskSAT verifies once that one repetition preserves it, at a cost independent of N. Needs both **property verification** and **realizability** over that `P`: the former alone is vacuously true wherever no schedule exists. | `{P} S {P} ⇒ ∀N . {P} Sᴺ {P}` |
+
 ## System Architecture
 
 TaskSAT's verification pipeline: a `.tn` spec is parsed into an AST, auto-instantiated and validated, then encoded as a Z3 SMT formula and solved for a schedule (or a proof of infeasibility).
