@@ -718,6 +718,9 @@ def api_structure(name):
         if result['outcome'] == 'timeout':
             return jsonify({'status': 'timeout', 'message': 'Structure render timed out'}), 408
         if result['returncode'] == 0:
+            # The verifier writes structure.png here; other handlers bind this
+            # per-request, and this one relied on a name it never defined.
+            latest_dir = SCHEDULES_DIR / name / 'latest'
             return jsonify({
                 'status': 'success',
                 'message': 'Structure diagram generated',

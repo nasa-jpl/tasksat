@@ -2134,6 +2134,18 @@ class TaskNetSMT:
             s = self.start_vars[t.id]
             e = self.end_vars[t.id]
 
+            # An excluded task imposes NOTHING, so pre/inv/post must be guarded by
+            # the inclusion flag for BOTH non-required kinds. Guarding only
+            # OPTIONAL made a REQUEST task's obligations unconditional, so a
+            # request whose `pre` cannot be met turned the whole network UNSAT
+            # instead of simply being left out of the schedule.
+            if t.kind == TaskKind.OPTIONAL:
+                included = self.optional_included[t.id]
+            elif t.kind == TaskKind.REQUEST:
+                included = self.request_included[t.id]
+            else:
+                included = None
+
             for j in range(Z):
                 pre_formula  = self._conds_holds_zone(t.pre, j) if t.pre else True
                 inv_formula  = self._conds_holds_zone(t.inv, j) if t.inv else True
@@ -2141,24 +2153,24 @@ class TaskNetSMT:
 
                 zj = z[j]
 
-                # Guard constraints for optional tasks
-                if t.kind == TaskKind.OPTIONAL:
+                # Guard constraints for optional / request tasks
+                if included is not None:
                     # Only enforce constraints if task is included
                     # PRE at start: either not included, or zone != start, or pre holds
                     if t.pre:  # Only track if pre condition exists
                         pre_desc = self._format_conditions(t.pre)
-                        self.add_tracked(Or(Not(self.optional_included[t.id]), zj != s, pre_formula),
+                        self.add_tracked(Or(Not(included), zj != s, pre_formula),
                                        f"precondition: task '{t.id}' requires {pre_desc} at start (zone {j})")
                     else:
-                        self.solver.add(Or(Not(self.optional_included[t.id]), zj != s, pre_formula))
+                        self.solver.add(Or(Not(included), zj != s, pre_formula))
 
                     # POST at end: either not included, or zone != end, or post holds
                     if t.post:  # Only track if post condition exists
                         post_desc = self._format_conditions(t.post)
-                        self.add_tracked(Or(Not(self.optional_included[t.id]), zj != e, post_formula),
+                        self.add_tracked(Or(Not(included), zj != e, post_formula),
                                        f"postcondition: task '{t.id}' requires {post_desc} at end (zone {j})")
                     else:
-                        self.solver.add(Or(Not(self.optional_included[t.id]), zj != e, post_formula))
+                        self.solver.add(Or(Not(included), zj != e, post_formula))
 
                     # INV whenever active: either not included, or zone outside (start, end], or inv holds
                     # NOTE: Invariant is checked at zones (s+1) through e, NOT including zone s
@@ -2167,7 +2179,7 @@ class TaskNetSMT:
                         inv_desc = self._format_conditions(t.inv)
                         self.add_tracked(
                             Or(
-                                Not(self.optional_included[t.id]),
+                                Not(included),
                                 zj <= s,
                                 zj > e,
                                 inv_formula
@@ -2177,7 +2189,7 @@ class TaskNetSMT:
                     else:
                         self.solver.add(
                             Or(
-                                Not(self.optional_included[t.id]),
+                                Not(included),
                                 zj <= s,
                                 zj > e,
                                 inv_formula
