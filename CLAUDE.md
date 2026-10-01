@@ -147,7 +147,54 @@ TaskSAT uses SMT-based scheduling:
 - `tasknet_ast.py` - AST node definitions
 - `tasknet_transforms.py` - **Critical**: AST transformation pipeline
 - `tasknet_wellformedness.py` - Semantic validation
+- `tasknet_lint.py` - Static lint pass (`--lint` / `--lint-only`), see below
 - `tasknet_smt.py` - SMT encoding (zone-based discretization)
+
+### Lint (on by default; `--no-lint` / `--lint-only`)
+
+Static checks that go **beyond** well-formedness, in `tasknet_lint.py`. Well-formedness
+is a type checker (names resolve, impacts suit their timelines) and aborts on failure.
+Lint is semantic, runs after it on **every verification**, and **never blocks a run** —
+the solver stays the authority. It is silent when there is nothing to report, so a clean
+network's output is unchanged; `--lint-only` forces the section and skips the solve.
+
+Findings carry one of two severities, and keeping them apart is the point:
+
+- **`Severity.PROVEN`** — no schedule exists, established from the AST alone and sound
+  under TaskSAT's semantics. The rule quantifies over the *whole* network, so no other
+  task can rescue it; no false positives.
+- **`Severity.ADVISORY`** — reasons about one taskdef at a time and may be wrong,
+  because another task may supply what it needs. May be deliberate.
+
+Rules:
+
+| rule | severity | |
+|---|---|---|
+| `unsatisfiable-initial` | PROVEN | no impact **anywhere** writes timeline `T`, so `T` holds its initial value for the whole plan, and that value fails some `pre`/`inv`/`post` on `T` |
+| `unsupported-transition` | ADVISORY | one taskdef's `pre` and `inv` on `T` admit disjoint values, with no impact of its own on `T` |
+| `unused-timeline` | ADVISORY | declared, never read or written |
+| `no-op-impact` | ADVISORY | an impact of `0` — changes nothing |
+
+**Why a separate pass rather than a wellformedness error.** A PROVEN finding still
+describes a network the user may legitimately want to run (a timeline nothing writes may
+be set outside the plan by ground command), so refusing to proceed would stop a modeller
+inspecting what else breaks. And the solver already returns UNSAT with the same cause —
+lint adds **speed and explanation**, not a new guarantee. That matters because it is
+O(AST): the 50-downlink MEXEC network lints in 0.17 s and does not solve in 240 s.
+
+Found the `opsci_enabled` defect in the MEXEC wp0-20 networks
+(`jpl/mexec/debug/WP0_20_FINDINGS.md` §4). The `unsupported-transition` rule reproduces
+`jpl/mexec/debug/debug1/find_missing_impacts.py` exactly — same 6 rows on the 09-25
+network, same 5 on 09-21.
+
+**Artifacts and web UI.** Findings are written to `lint.json` beside the run's other
+artifacts — including on the UNSAT path, which returns early from `main()` and is where
+lint matters most (a PROVEN finding is usually the reason for the UNSAT). The file is
+absent when there are no findings, so the UI treats missing as clean. The verification
+report page renders a **Lint** card above the UNSAT alert, PROVEN and ADVISORY grouped
+separately.
+
+Tests: [tests/test_lint.py](tests/test_lint.py).
 
 ### Repository Structure
 

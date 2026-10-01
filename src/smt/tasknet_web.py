@@ -510,11 +510,13 @@ def verification_report(name, timestamp='latest'):
     timeline_file = report_dir / 'timeline.json'
     properties_file = report_dir / 'properties.json'
     unsat_core_file = report_dir / 'unsat_core.json'
+    lint_file = report_dir / 'lint.json'
 
     schedule_data = None
     timeline_data = None
     properties_data = None
     unsat_core_data = None
+    lint_data = None
 
     if schedule_file.exists():
         with open(schedule_file, 'r') as f:
@@ -531,6 +533,12 @@ def verification_report(name, timestamp='latest'):
     if unsat_core_file.exists():
         with open(unsat_core_file, 'r') as f:
             unsat_core_data = json.load(f)
+
+    # Absent when the run was clean: tasknet_verifier only writes lint.json when
+    # there is something to report, so None here means "no findings", not "not run".
+    if lint_file.exists():
+        with open(lint_file, 'r') as f:
+            lint_data = json.load(f)
 
     # Check for visualization files
     has_gantt = (report_dir / 'gantt.png').exists()
@@ -584,6 +592,7 @@ def verification_report(name, timestamp='latest'):
         timeline=timeline_data,
         properties=properties_data,
         unsat_core=unsat_core_data,
+        lint=lint_data,
         has_gantt=has_gantt,
         has_timeline_viz=has_timeline_viz,
         has_structure=has_structure,

@@ -76,6 +76,22 @@ def save_console_output(run_dir, latest_dir):
         with open(latest_dir / 'console_output.txt', 'w') as f:
             f.write(output_text)
 
+def save_lint(run_dir, latest_dir, findings):
+    """Write `lint.json` next to the run's other artifacts, if there is anything.
+
+    Written even though lint has already printed to the console: the web UI reads
+    artifacts, not stdout, and a finding reads best beside the schedule — or the
+    UNSAT — it explains. Nothing is written when there are no findings, so the UI
+    can treat a missing file as "clean".
+    """
+    import json
+    if not findings:
+        return
+    for d in (run_dir, latest_dir):
+        with open(d / "lint.json", 'w') as f:
+            json.dump([x.to_dict() for x in findings], f, indent=2)
+
+
 def save_failed_verification(path: str, mode: str, start_time: float, error_message: str, error_type: str = "error"):
     """Save metadata for failed verification attempts.
 
@@ -254,7 +270,8 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
          compositional: bool = False, compositional_max_iters: int = 50,
          compositional_budget: float = 60.0, unsat_core: bool = True,
          timeout: Optional[float] = None,
-         property_timeout: Optional[float] = None):
+         property_timeout: Optional[float] = None,
+         run_lint: bool = True, lint_only: bool = False):
     """Verify one `.tn` file, writing every artifact of the run to disk.
 
     The stages are: parse, transform (keeping a pre-transform copy for the
@@ -297,6 +314,14 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
             Applied as a Z3 per-solver `timeout`; if the solve exceeds it the
             run stops with status `timeout` (recorded in `metadata.json`) rather
             than a schedule or UNSAT. None or 0 means no limit.
+        run_lint: Run the static lint pass (see `tasknet_lint`) after
+            well-formedness and report its findings. On by default — a linter
+            nobody invokes finds nothing, and it costs milliseconds. Never
+            blocks the run: even a PROVEN finding leaves the solve to proceed.
+            Set False (CLI `--no-lint`) to suppress the section entirely.
+        lint_only: Run the lint pass and stop, without solving. The reason this
+            exists separately: lint is O(AST) and answers on networks far too
+            large to encode, where the solver gives no verdict at all.
     """
     print('\n\n\n\n\n\n\n' + header('*** NEW SCHEDULE***') + '\n')
 
@@ -364,6 +389,19 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
         save_failed_verification(path, mode, start_time, "Wellformedness check failed", error_type="wellformedness_error")
         print(error("\n❌ WELLFORMEDNESS CHECK FAILED"))
         return  # Errors already printed by checker
+
+    # Lint. Separate from well-formedness on purpose: these are semantic findings,
+    # and a PROVEN one still describes a network the user may legitimately want to
+    # run (a timeline nothing writes may be set outside the plan). So it reports
+    # and continues — unlike the check above, which aborts.
+    lint_findings = []
+    if run_lint or lint_only:
+        from tasknet_lint import lint, report
+        lint_findings = lint(tn)
+        report(lint_findings, quiet_if_clean=not lint_only)
+        if lint_only:
+            print(success("✓ Lint complete. Exiting without verification."))
+            return
 
     use_optimization = (mode == 'optimize')
 
@@ -501,6 +539,10 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
                 with open(latest_dir / "unsat_core.json", 'w') as f:
                     json.dump(unsat_core_data, f, indent=2)
                 print(dim(f"📄 UNSAT core analysis saved to: {run_dir}/unsat_core.json"))
+
+            # Lint matters MOST here: a PROVEN finding is usually the reason for the
+            # UNSAT, stated in the spec's own terms rather than as a core.
+            save_lint(run_dir, latest_dir, lint_findings)
 
             # Save console output
             save_console_output(run_dir, latest_dir)
@@ -692,6 +734,8 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
     for d in (run_dir, latest_dir):
         with open(d / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
+
+    save_lint(run_dir, latest_dir, lint_findings)
 
     # Save property verification results (always, even in compositional mode)
     if property_results:
@@ -897,6 +941,10 @@ if __name__ == "__main__":
                         help='Solve Phase 1 on a single core, without the tracked twin that explains an UNSAT. Halves CPU and memory use, but gives up the conflicting-constraint core and can be several times slower on infeasible networks.')
     parser.add_argument('--timeout', type=float, default=None,
                         help='Wall-clock limit in seconds for the Phase-1 validity solve. If exceeded, the run stops with status "timeout" instead of a schedule or UNSAT. 0 or omitted means no limit.')
+    parser.add_argument('--no-lint', action='store_true',
+                        help='Suppress the static lint pass, which otherwise runs after well-formedness on every verification. Findings are split into PROVEN (unschedulable, established from the AST alone, no false positives) and ADVISORY (one taskdef at a time, may be deliberate). Lint never blocks a run, so this only removes the report.')
+    parser.add_argument('--lint-only', action='store_true',
+                        help='Run the static lint pass and exit without solving. Runs in milliseconds on networks far too large for the solver to decide.')
     parser.add_argument('--property-timeout', type=float, default=None,
                         help='Per-property Z3 timeout in seconds for the temporal-property / final-block (AA safety) checks. Default 10s. Raise it for heavy nonlinear ∀-schedule queries (e.g. many rate-timeline tasks) that would otherwise report UNKNOWN.')
     args = parser.parse_args()
@@ -917,7 +965,8 @@ if __name__ == "__main__":
              compositional_budget=args.compositional_budget,
              unsat_core=not args.no_unsat_core,
              timeout=args.timeout,
-             property_timeout=args.property_timeout)
+             property_timeout=args.property_timeout,
+             run_lint=not args.no_lint, lint_only=args.lint_only)
     finally:
         sys.stdout = old_stdout
 

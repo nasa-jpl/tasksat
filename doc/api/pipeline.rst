@@ -32,6 +32,11 @@ The modules that take a ``.tn`` specification from source text to a schedule
 
 .. automodule:: tasknet_wellformedness
 
+``tasknet_lint``
+----------------
+
+.. automodule:: tasknet_lint
+
 ``tasknet_smt``
 ---------------
 

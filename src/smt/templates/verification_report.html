@@ -447,6 +447,59 @@ code[class*="language-"] {
     </div>
     {% endif %}
 
+    <!-- Lint Section.
+         Placed ABOVE the UNSAT alert deliberately: a PROVEN finding usually IS the
+         reason for the UNSAT below it, and reading it first saves working through
+         the core. Absent entirely when the run was clean — tasknet_verifier only
+         writes lint.json when there is something to say. -->
+    {% if lint %}
+    {% set proven = lint | selectattr('severity', 'equalto', 'proven') | list %}
+    {% set advisory = lint | selectattr('severity', 'equalto', 'advisory') | list %}
+    <div class="card mb-4">
+        <div class="card-header d-flex align-items-center gap-2">
+            <span><i class="bi bi-clipboard-check"></i> Lint</span>
+            {% if proven %}<span class="badge bg-danger">{{ proven|length }} proven</span>{% endif %}
+            {% if advisory %}<span class="badge bg-warning text-dark">{{ advisory|length }} advisory</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if proven %}
+            <div class="alert alert-danger mb-3">
+                <h6 class="alert-heading"><i class="bi bi-x-octagon-fill"></i> Proven unschedulable</h6>
+                <p class="small mb-2 text-muted">
+                    Established from the spec alone, without the solver, and sound: no
+                    other task can supply what is missing. No false positives.
+                </p>
+                <ul class="mb-0">
+                    {% for f in proven %}
+                    <li><code>{{ f.rule }}</code> &mdash; {{ f.message }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            {% if advisory %}
+            <details {% if not proven %}open{% endif %}>
+                <summary style="cursor: pointer;">
+                    <span class="text-warning"><i class="bi bi-exclamation-triangle-fill"></i></span>
+                    {{ advisory|length }} advisory &mdash; may be deliberate
+                </summary>
+                <p class="small text-muted mt-2 mb-2">
+                    These rules look at one taskdef at a time and can be wrong, because
+                    another task may supply what it needs.
+                </p>
+                <ul class="mb-0">
+                    {% for f in advisory %}
+                    <li><code>{{ f.rule }}</code> &mdash; {{ f.message }}</li>
+                    {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
+            <p class="text-muted small mb-0 mt-2">
+                Lint never blocks a run; the solver remains the authority.
+            </p>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- UNSAT Alert Section -->
     {% if metadata.status == 'unsat' %}
     <div class="alert alert-danger" role="alert">
