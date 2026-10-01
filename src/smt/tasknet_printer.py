@@ -191,7 +191,11 @@ class TaskNetPrinter:
                     items.append(self.print_int_range(c.r))
                 elif isinstance(c, ConRealRange):
                     items.append(self.print_real_range(c.r))
-            self._writeln(out, f"{ind}{tl_name} in {', '.join(items)};")
+            # SPACE-separated: the grammar's `con_list` is juxtaposition
+            # (`con_list : con_list con_item`), so a comma is a syntax error and the
+            # printed file would not parse back — `health_status in HEALTHY, CND;`
+            # failed at the comma.
+            self._writeln(out, f"{ind}{tl_name} in {' '.join(items)};")
 
     # ===== Impacts =====
 

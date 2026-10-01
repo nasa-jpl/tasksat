@@ -277,6 +277,12 @@ class TestVerifier:
         ])
         # Verify T0 was NOT auto-instantiated (should only show 1 task, not 2)
         assert "T0_auto_0" not in output, "T0 should not be auto-instantiated (no cascade)"
+        # ...and that the unsatisfiable dependency is REFUSED, not scheduled around.
+        # The assertion above holds either way — T0 is uncreated whether we stop or
+        # shrug — so without this the test cannot see the behaviour it is named for.
+        assert "no instances of 'T0' exist" in output, (
+            "T1_auto_0's unsatisfied 'after T0' must be an error, not a warning")
+        assert "Valid schedule found" not in output
 
     def test_tasknet28_auto_instantiate_multiple(self):
         """Test multiple instantiation: two tasks depending on same taskdef create two instances"""

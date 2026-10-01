@@ -43,6 +43,22 @@ from tasknet_ast import *
 from tasknet_ast import TaskKind
 
 
+def _union_deps(a, b):
+    """Union two dependency lists, preserving order and dropping duplicates.
+
+    Returns None when both sides are empty, matching the `None`-means-absent convention
+    the rest of the AST uses. Dependency objects are dataclasses with structural
+    equality, so a dependency repeated on both the definition and the instance counts
+    once.
+    """
+    out = []
+    for xs in (a, b):
+        for x in (xs or []):
+            if x not in out:
+                out.append(x)
+    return out or None
+
+
 class TaskNetSMT:
     """
     Solver for TaskNet using Z3 SMT.
@@ -797,8 +813,23 @@ class TaskNetSMT:
         # Merge impacts: combine definition impacts with instance impacts
         merged_impacts = None
         if definition.impacts is not None and instance.impacts is not None:
-            # Both have impacts - merge them
-            merged_impacts = list(definition.impacts) + list(instance.impacts)
+            # Both have impacts - merge them, DROPPING duplicates.
+            #
+            # Concatenating blindly applies an impact TWICE whenever the instance repeats
+            # one the definition already has — and `instantiate_from_definitions()` copies
+            # the definition's impacts onto every auto-created instance, so every
+            # auto-instantiated task hit this. A `maint T += 1` became `+= 2`, overflowing
+            # an atomic timeline's [0,1] capacity, and the network came back UNSAT even
+            # though a valid schedule existed. Writing the same instances out by hand gave
+            # SAT, because an explicit instance with an empty body has no impacts to
+            # duplicate.
+            #
+            # Impact and its `how` variants are dataclasses with structural equality, so
+            # `in` compares (timeline, when, how) rather than identity. Genuinely distinct
+            # impacts on the same timeline — a different `when`, or a different value —
+            # still both apply.
+            merged_impacts = list(definition.impacts)
+            merged_impacts += [i for i in instance.impacts if i not in merged_impacts]
         elif definition.impacts is not None:
             # Only definition has impacts
             merged_impacts = definition.impacts
@@ -817,11 +848,24 @@ class TaskNetSMT:
             durrng=instance.durrng if instance.durrng is not None else definition.durrng,
             dur=instance.dur if instance.dur is not None else definition.dur,
             start=instance.start if instance.start is not None else definition.start,
-            # Type-level constraints from definition, instance-level from instance
-            after_instances=instance.after_instances,
-            after_definitions=definition.after_definitions,
-            containedin_instances=instance.containedin_instances,
-            containedin_definitions=definition.containedin_definitions,
+            # Dependencies come from BOTH sides, unioned.
+            #
+            # Taking each kind from only one side silently DROPPED any type-level
+            # dependency written on an instance: `task pt : PT { after PH; }` parses as
+            # `after_definitions = ['PH']`, auto-instantiation duly creates `PH_auto_0`,
+            # and then the merge discarded the dependency — leaving the helper task in the
+            # network with nothing depending on it, and no error.
+            #
+            # Deduplicated, since an auto instance's body repeats the definition's
+            # dependencies for the same reason it repeats its impacts.
+            after_instances=_union_deps(definition.after_instances,
+                                       instance.after_instances),
+            after_definitions=_union_deps(definition.after_definitions,
+                                          instance.after_definitions),
+            containedin_instances=_union_deps(definition.containedin_instances,
+                                              instance.containedin_instances),
+            containedin_definitions=_union_deps(definition.containedin_definitions,
+                                                instance.containedin_definitions),
             pre=instance.pre if instance.pre is not None else definition.pre,
             inv=instance.inv if instance.inv is not None else definition.inv,
             post=instance.post if instance.post is not None else definition.post,

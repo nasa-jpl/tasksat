@@ -1052,8 +1052,16 @@ def instantiate_from_definitions(tn: TaskNet) -> TaskNet:
     If user provided any instances (≥1), assume user is managing instances manually.
 
     This only instantiates DIRECT dependencies. If the auto-created instance
-    has its own type-level dependencies, those are NOT instantiated (no cascade).
-    The SMT encoder will error on unsatisfied dependencies of auto-created instances.
+    has its own type-level dependencies, those are NOT instantiated (no cascade),
+    and wellformedness then rejects the network because nothing can satisfy them:
+
+        taskdef C { }
+        taskdef B { after C; }
+        taskdef A { after B; }
+        task a : A;         -> B_auto_0 created; no C instance; ERROR
+
+    The error is the point. Scheduling `a` and `B_auto_0` with no `C` would be a
+    plan that ignores `B after C`, a constraint the model states.
 
     Example:
         taskdef preheat { ... }
@@ -1176,14 +1184,28 @@ def instantiate_from_definitions(tn: TaskNet) -> TaskNet:
                 # Copy instance-level constraints from taskdef
                 after_instances=taskdef.after_instances.copy() if taskdef.after_instances else None,
                 containedin_instances=taskdef.containedin_instances.copy() if taskdef.containedin_instances else None,
-                # DO NOT copy type-level constraints (no cascade)
+                # DO NOT copy type-level constraints (no cascade): a helper does not
+                # get helpers of its own.
+                #
+                # None, not an empty list. `_merge_task_with_definition()` inherits the
+                # definition's dependencies when the instance says nothing, so the
+                # helper's own `after`/`containedin` reappear at encoding time with no
+                # instance to satisfy them — and wellformedness rejects the network.
+                # That refusal is deliberate: no cascade means the dependency cannot be
+                # met, and emitting a schedule that ignores it would silently violate a
+                # requirement the model states. Write explicit instances to proceed.
                 after_definitions=None,
                 containedin_definitions=None,
-                # Copy conditions and impacts
-                pre=deep_copy_tlcons(taskdef.pre),
-                inv=deep_copy_tlcons(taskdef.inv),
-                post=deep_copy_tlcons(taskdef.post),
-                impacts=deep_copy_impacts(taskdef.impacts),
+                # Conditions and impacts are NOT copied: the instance keeps
+                # `definition=def_id`, and `_merge_task_with_definition()` inherits them
+                # at encoding time. Copying them as well gave two sources of truth for
+                # the same information, and the merge concatenated impacts rather than
+                # overriding them — so `maint T += 1` was applied twice, overflowing an
+                # atomic timeline and making satisfiable plans report UNSAT.
+                pre=None,
+                inv=None,
+                post=None,
+                impacts=None,
             )
 
             new_instances.append(new_instance)
