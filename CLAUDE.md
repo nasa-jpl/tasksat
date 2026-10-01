@@ -160,39 +160,46 @@ network's output is unchanged; `--lint-only` forces the section and skips the so
 
 Findings carry one of two severities, and keeping them apart is the point:
 
-- **`Severity.PROVEN`** — no schedule exists, established from the AST alone and sound
-  under TaskSAT's semantics. The rule quantifies over the *whole* network, so no other
-  task can rescue it; no false positives.
-- **`Severity.ADVISORY`** — reasons about one taskdef at a time and may be wrong,
-  because another task may supply what it needs. May be deliberate.
+- **`Severity.PROVEN`** — no schedule exists, and no reading of the spec makes that
+  acceptable. Sound under TaskSAT's semantics.
+- **`Severity.ADVISORY`** — something the spec cannot do, or does not say. May be
+  deliberate.
 
-Rules:
+**No rule currently emits PROVEN.** `unsatisfiable-initial` did, and was downgraded
+after the MEXEC review: a timeline nothing writes may be managed outside the plan (set
+by ground command), so the missing writer can be correct and deliberate. The analysis
+is still exact — nothing in the spec can schedule the task — but whether that is a
+*defect* depends on information the spec does not carry, and severity should not assert
+it on the user's behalf. The enum keeps PROVEN for a rule that can earn it; if TaskSAT
+grows a way to DECLARE a timeline externally managed, an undeclared one becomes a
+genuine error and this rule is promoted back.
 
-| rule | severity | |
-|---|---|---|
-| `unsatisfiable-initial` | PROVEN | no impact **anywhere** writes timeline `T`, so `T` holds its initial value for the whole plan, and that value fails some `pre`/`inv`/`post` on `T` |
-| `unsupported-transition` | ADVISORY | one taskdef's `pre` and `inv` on `T` admit disjoint values, with no impact of its own on `T` |
-| `unused-timeline` | ADVISORY | declared, never read or written |
-| `no-op-impact` | ADVISORY | an impact of `0` — changes nothing |
+Rules (all advisory today):
 
-**Why a separate pass rather than a wellformedness error.** A PROVEN finding still
-describes a network the user may legitimately want to run (a timeline nothing writes may
-be set outside the plan by ground command), so refusing to proceed would stop a modeller
-inspecting what else breaks. And the solver already returns UNSAT with the same cause —
-lint adds **speed and explanation**, not a new guarantee. That matters because it is
-O(AST): the 50-downlink MEXEC network lints in 0.17 s and does not solve in 240 s.
+| rule | |
+|---|---|
+| `unsatisfiable-initial` | no impact **anywhere** writes timeline `T`, so `T` holds its initial value for the whole plan, and that value fails some `pre`/`inv`/`post` on `T`. The only whole-network rule; the rest are per-taskdef |
+| `unsupported-transition` | one taskdef's `pre` and `inv` on `T` admit disjoint values, with no impact of its own on `T` |
+| `unused-timeline` | declared, never read or written |
+| `no-op-impact` | an impact of `0` — changes nothing |
 
-Found the `opsci_enabled` defect in the MEXEC wp0-20 networks
-(`jpl/mexec/debug/WP0_20_FINDINGS.md` §4). The `unsupported-transition` rule reproduces
+**Why a separate pass rather than a wellformedness error.** A finding still describes a
+network the user may legitimately want to run, so refusing to proceed would stop a
+modeller inspecting what else breaks. And the solver already returns UNSAT with the same
+cause — lint adds **speed and explanation**, not a new guarantee. That matters because
+it is O(AST): the 50-downlink MEXEC network lints in 0.17 s and does not solve in 240 s.
+
+Found the `opsci_enabled` finding in the MEXEC wp0-20 networks
+(`jpl/mexec/debug/WP0_20_FINDINGS.md` observation D — judged not a defect, which is why
+the rule is advisory). The `unsupported-transition` rule reproduces
 `jpl/mexec/debug/debug1/find_missing_impacts.py` exactly — same 6 rows on the 09-25
 network, same 5 on 09-21.
 
 **Artifacts and web UI.** Findings are written to `lint.json` beside the run's other
 artifacts — including on the UNSAT path, which returns early from `main()` and is where
-lint matters most (a PROVEN finding is usually the reason for the UNSAT). The file is
-absent when there are no findings, so the UI treats missing as clean. The verification
-report page renders a **Lint** card above the UNSAT alert, PROVEN and ADVISORY grouped
-separately.
+lint matters most (a finding is often the reason for the UNSAT). The file is absent when
+there are no findings, so the UI treats missing as clean. The verification report page
+renders a **Lint** card above the UNSAT alert, PROVEN and ADVISORY grouped separately.
 
 Tests: [tests/test_lint.py](tests/test_lint.py).
 

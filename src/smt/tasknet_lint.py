@@ -6,25 +6,26 @@ scheduled. The solver answers that — but only if it finishes, and on the MEXEC
 networks it does not: the 50-downlink `wp0-20` net exceeds a four-minute budget
 without a verdict. Everything here runs on the AST in milliseconds, whatever the size.
 
-Findings carry one of two severities, and the distinction is the point:
+Findings carry one of two severities, and keeping them apart is the point — a single
+undifferentiated stream is how a linter gets ignored:
 
 ``Severity.PROVEN``
-    No schedule exists. Established from the AST alone, without the solver, and
-    sound under TaskSAT's semantics — a timeline cannot change unless some impact
-    changes it. A PROVEN finding is not a matter of taste; the solver would
-    eventually return UNSAT with the same cause, given time.
+    No schedule exists, and no reading of the spec makes it acceptable. Established
+    from the AST alone and sound under TaskSAT's semantics.
 
 ``Severity.ADVISORY``
-    Suspicious, possibly deliberate. These rules reason about ONE taskdef in
-    isolation and can be wrong, because another task may supply what it needs.
+    Something the spec cannot do, or does not say. May be deliberate.
 
-Collapsing the two into one stream is how a linter gets ignored, so they are
-reported and counted separately.
+**No rule currently emits PROVEN.** The one that did — `unsatisfiable-initial` — was
+downgraded after the MEXEC review: a timeline that nothing writes may be managed
+outside the plan (set by ground command), so "no task impacts it" can be correct and
+deliberate rather than an omission. The analysis is still exact; what is uncertain is
+whether the user considers it a defect, and that is not something severity should
+assert on their behalf. ``PROVEN`` is kept for a rule that can — see
+``_unsatisfiable_initial`` for the declaration that would restore it here.
 
-Nothing here is fatal. A PROVEN finding still describes a network the user may want
-to run — `opsci_enabled` in the MEXEC nets may well be set by ground command outside
-the plan, and refusing to proceed would stop a modeller inspecting what else breaks.
-The solver remains the authority; this pass only arrives sooner and says why::
+Nothing here is fatal in any case. The solver remains the authority; this pass only
+arrives sooner and says why, in the spec's own terms::
 
     from tasknet_lint import lint
     findings = lint(tn)
@@ -240,14 +241,24 @@ class Linter:
     def _unsatisfiable_initial(self):
         """A timeline no impact writes, whose initial value fails a condition on it.
 
-        Sound: with no impact on `T`, every zone holds `T`'s initial value, so a
-        condition that value fails can never hold, and no (start, duration) for the
-        task satisfies it. Quantifying over the WHOLE network is what makes this a
-        proof rather than a guess — the per-taskdef rules below cannot rule out
-        another task supplying the value, and this one can, because nobody writes it.
+        With no impact on `T`, every zone holds `T`'s initial value, so a condition
+        that value fails can never hold and the task is unschedulable *as modelled*.
+        Unlike the per-taskdef rules this quantifies over the WHOLE network, so no
+        other task can be the missing writer.
 
-        Found `opsci_enabled` (required `= 1`, declared `0`, written by nothing) in
-        both MEXEC wp0-20 networks; see jpl/mexec/debug/WP0_20_FINDINGS.md §4.
+        ADVISORY nonetheless, and the reason is a real modelling pattern rather than a
+        gap in the analysis. A timeline may be managed OUTSIDE the plan — set by ground
+        command before execution — in which case having no task impact it is correct
+        and deliberate, and the spec is merely silent about who owns it. That is the
+        finding: not "this model is wrong" but "nothing in this model can make this
+        true". Which of the two it is depends on information the spec does not carry.
+
+        This is exactly what happened on the MEXEC wp0-20 networks: the rule found
+        `opsci_enabled` (required `= 1`, declared `0`, written by nothing), and the
+        answer was that the ground system owns it. See
+        jpl/mexec/debug/WP0_20_FINDINGS.md observation D, which proposes declaring such
+        timelines explicitly. If TaskSAT grows that declaration, an UNDECLARED
+        never-written timeline becomes a genuine error again and this can be promoted.
         """
         for tl_id, reads in sorted(self.readers.items()):
             tl = self.timelines.get(tl_id)
@@ -257,11 +268,12 @@ class Linter:
                 dom = tlcon_domain(tl, tlcon)
                 if initial_admitted(tl, dom) is False:
                     self._add(
-                        Severity.PROVEN, 'unsatisfiable-initial',
+                        Severity.ADVISORY, 'unsatisfiable-initial',
                         f"timeline '{tl_id}' is written by no impact anywhere, so it "
                         f"holds its initial value {tl.initial!r} for the whole plan — "
-                        f"but '{task_id}' requires {_show(dom)} in its {fld}. "
-                        f"Unschedulable in any plan.")
+                        f"but '{task_id}' requires {_show(dom)} in its {fld}. Nothing "
+                        f"in this spec can schedule '{task_id}'; if '{tl_id}' is set "
+                        f"outside the plan, the spec does not say so.")
 
     # ----- ADVISORY -----
 
@@ -357,8 +369,7 @@ def report(findings: List[LintFinding], quiet_if_clean: bool = True) -> int:
         for i, f in enumerate(proven, 1):
             print(error(f"  {i}. {f}"))
     if advisory:
-        print(warning(bold(f"\n{len(advisory)} advisory "
-                           f"(may be deliberate — one taskdef at a time):")))
+        print(warning(bold(f"\n{len(advisory)} advisory (may be deliberate):")))
         for i, f in enumerate(advisory, 1):
             print(warning(f"  {i}. {f}"))
     print(dim("\nLint never blocks a run; the solver remains the authority.\n"))

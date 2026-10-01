@@ -1336,20 +1336,20 @@ soundness and progress lemmas), see [cegis.md](../theory/cegis.md).
 
 ## Understanding UNSAT Diagnostics
 
-**Check the lint output first.** Every run prints a lint report before solving, and
-when it contains a *proven* finding, that finding is usually the reason for the UNSAT
-below it — stated in terms of your spec rather than as a list of constraint labels:
+**Check the lint output first.** Every run prints a lint report before solving, and a
+finding there is often the reason for the UNSAT below it — stated in terms of your spec
+rather than as a list of constraint labels:
 
 ```
-1 proven unschedulable (no solver needed, no false positives):
+1 advisory (may be deliberate):
   1. [unsatisfiable-initial] timeline 'mode' is written by no impact anywhere, so it
      holds its initial value 'off' for the whole plan — but 'A' requires = on in its
-     pre. Unschedulable in any plan.
+     pre. Nothing in this spec can schedule 'A'; if 'mode' is set outside the plan,
+     the spec does not say so.
 ```
 
 Lint is silent when it has nothing to report, so if you see no lint section the cause
-is not one it recognises. See [Lint](../reference/manual.md#lint) for the rules and
-the difference between *proven* and *advisory* findings.
+is not one it recognises. See [Lint](../reference/manual.md#lint) for the rules.
 
 When TaskSAT cannot find a valid schedule, it provides diagnostics showing which constraints conflict:
 

@@ -1,13 +1,13 @@
 """The static lint pass (`tasknet_lint`).
 
-Two severities, and the tests are organised around what separates them:
+`unsatisfiable-initial` quantifies over the WHOLE network — "no impact anywhere writes
+this timeline" — so unlike the per-taskdef rules there is no missing writer to find
+elsewhere, and both directions are pinned: it fires when nothing writes the timeline
+and stays silent as soon as something does.
 
-* PROVEN findings quantify over the WHOLE network — "no impact anywhere writes this
-  timeline" — so no other task can rescue the situation and there are no false
-  positives. The tests therefore pin both directions: it fires when nothing writes
-  the timeline, and stays silent as soon as something does.
-* ADVISORY findings reason about one taskdef at a time and may be wrong. Only the
-  firing direction is a contract; silence is not promised.
+It is nevertheless ADVISORY, which `test_severity_is_advisory` records along with the
+reason: a timeline nothing writes may be ground-managed, so the absence of a writer can
+be deliberate. The analysis is exact; whether it is a defect is not ours to assert.
 
 Lint must never block a run, so the CLI tests check it reports and carries on.
 """
@@ -37,15 +37,23 @@ def net(timelines: str, body: str) -> str:
 
 
 class TestUnsatisfiableInitial:
-    """PROVEN: a timeline no impact writes, whose initial value fails a condition."""
+    """A timeline no impact writes, whose initial value fails a condition."""
 
     def test_fires_when_nothing_writes_the_timeline(self):
         f = findings(net("mode : state(off, on) = off;",
                          "taskdef A { duration_range [1, 2]; pre { mode = on; } }\n"
                          "  task a : A;"), 'unsatisfiable-initial')
         assert len(f) == 1
-        assert f[0].severity is Severity.PROVEN
         assert "'mode'" in f[0].message and "'off'" in f[0].message
+
+    def test_severity_is_advisory(self):
+        """Advisory, not proven, even though the analysis is exact: a timeline nothing
+        writes may be ground-managed, in which case having no writer is deliberate and
+        the spec is merely silent about who owns it. See WP0_20_FINDINGS.md obs. D."""
+        f = findings(net("mode : state(off, on) = off;",
+                         "taskdef A { duration_range [1, 2]; pre { mode = on; } }\n"
+                         "  task a : A;"), 'unsatisfiable-initial')
+        assert f[0].severity is Severity.ADVISORY
 
     def test_silent_when_some_task_writes_it(self):
         """The whole-network quantification: one writer anywhere and the proof is off,
@@ -92,7 +100,8 @@ class TestUnsatisfiableInitial:
                         'unsatisfiable-initial') == []
 
     def test_the_finding_is_consistent_with_the_solver(self):
-        """A PROVEN finding claims no schedule exists. Check the solver agrees."""
+        """The finding claims nothing in the spec can schedule the task. Check the solver
+        agrees, so the rule and the encoding cannot drift apart."""
         src = net("mode : state(off, on) = off;",
                   "taskdef A { duration_range [1, 2]; pre { mode = on; } }\n  task a : A;")
         assert len(findings(src, 'unsatisfiable-initial')) == 1
@@ -163,16 +172,16 @@ class TestCLI:
 
     def test_lint_only_reports_and_skips_the_solve(self, tmp_path):
         out = self.run(tmp_path, '--lint-only')
-        assert 'proven unschedulable' in out
+        assert 'advisory' in out
         assert 'unsatisfiable-initial' in out
         assert 'Exiting without verification' in out
         assert 'Phase 1' not in out
 
     def test_runs_by_default_and_does_not_block(self, tmp_path):
-        """Even a PROVEN finding must leave the solve to proceed: the timeline may be
-        set outside the plan, and refusing would stop the modeller looking further."""
+        """A finding must leave the solve to proceed: the timeline may be set outside
+        the plan, and refusing would stop the modeller looking further."""
         out = self.run(tmp_path)
-        assert 'proven unschedulable' in out
+        assert 'unsatisfiable-initial' in out
         assert 'Phase 1' in out
 
     def test_no_lint_suppresses_it(self, tmp_path):
@@ -235,9 +244,8 @@ class TestArtifactAndWebUI:
         f = run_dir / 'lint.json'
         assert f.exists(), "lint.json must survive main()'s early return on UNSAT"
         data = json.loads(f.read_text())
-        assert {d['severity'] for d in data} == {'proven', 'advisory'}
-        proven = [d for d in data if d['severity'] == 'proven']
-        assert [d['rule'] for d in proven] == ['unsatisfiable-initial']
+        assert {d['severity'] for d in data} == {'advisory'}
+        assert 'unsatisfiable-initial' in {d['rule'] for d in data}
 
     def test_no_lint_json_when_clean(self, tmp_path):
         """A missing file is how the UI reads 'clean', so it must not be written empty."""

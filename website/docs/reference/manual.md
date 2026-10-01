@@ -1233,22 +1233,25 @@ python src/smt/tasknet_verifier.py tasknet.tn --no-lint    # suppress the report
 
 The distinction matters, and findings are reported and counted separately.
 
-**PROVEN** — no schedule exists, and that is established from the spec alone without
-the solver. The rule reasons about the *whole* network, so no other task can rescue
-the situation: there are no false positives. A PROVEN finding tells you in your own
-spec's terms what the solver would eventually report as an UNSAT core.
+**PROVEN** — no schedule exists, and no reading of the spec makes that acceptable.
 
-**ADVISORY** — suspicious, possibly deliberate. These rules look at one taskdef at a
-time and can be wrong, because another task may supply what the taskdef needs.
+**ADVISORY** — something the spec cannot do, or does not say. May be deliberate.
 
-| rule | severity | |
-|---|---|---|
-| `unsatisfiable-initial` | PROVEN | no impact **anywhere** writes timeline `T`, so `T` holds its initial value for the whole plan — and that value fails a `pre`/`inv`/`post` on `T` |
-| `unsupported-transition` | ADVISORY | one taskdef's `pre` and `inv` on `T` admit disjoint values, with no impact of its own on `T` |
-| `unused-timeline` | ADVISORY | declared, never read or written |
-| `no-op-impact` | ADVISORY | an impact of `0` — changes nothing |
+**Every rule is advisory today.** `unsatisfiable-initial` is exact — it quantifies over
+the whole spec, so there is no missing writer to find elsewhere — but being exact is not
+the same as being a defect. A timeline that nothing writes may be managed *outside* the
+plan, set before execution by an operator or a ground system, in which case having no
+task impact it is correct and deliberate. TaskSAT has no way to declare that today, so
+it cannot tell the two apart, and it does not presume.
 
-For example, this spec cannot be scheduled, and lint says so without solving:
+| rule | |
+|---|---|
+| `unsatisfiable-initial` | no impact **anywhere** writes timeline `T`, so `T` holds its initial value for the whole plan — and that value fails a `pre`/`inv`/`post` on `T`. The only whole-spec rule |
+| `unsupported-transition` | one taskdef's `pre` and `inv` on `T` admit disjoint values, with no impact of its own on `T` |
+| `unused-timeline` | declared, never read or written |
+| `no-op-impact` | an impact of `0` — changes nothing |
+
+For example, nothing in this spec can schedule `A`, and lint says so without solving:
 
 ```tasknet
 tasknet Example {
@@ -1260,20 +1263,20 @@ tasknet Example {
 ```
 
 ```
-1 proven unschedulable (no solver needed, no false positives):
+1 advisory (may be deliberate):
   1. [unsatisfiable-initial] timeline 'mode' is written by no impact anywhere, so it
      holds its initial value 'off' for the whole plan — but 'A' requires = on in its
-     pre. Unschedulable in any plan.
+     pre. Nothing in this spec can schedule 'A'; if 'mode' is set outside the plan,
+     the spec does not say so.
 ```
 
 #### Why it does not abort
 
-Two reasons. A PROVEN finding may still describe a spec you want to run — a timeline
-nothing writes may be set outside the plan — and refusing to proceed would stop you
-seeing what else breaks. And the check adds no *guarantee* the solver does not
-already give: it adds **speed and explanation**. That matters most where the solver
-cannot help, since lint is linear in the size of the spec and decides networks far
-too large to encode.
+Two reasons. A finding may still describe a spec you want to run — the `mode` above may
+genuinely be set outside the plan — and refusing to proceed would stop you seeing what
+else breaks. And the check adds no *guarantee* the solver does not already give: it adds
+**speed and explanation**. That matters most where the solver cannot help, since lint is
+linear in the size of the spec and decides networks far too large to encode.
 
 Findings also appear in the web UI, as a **Lint** card on the verification report
 above the UNSAT section, and are written to `lint.json` beside the run's other
