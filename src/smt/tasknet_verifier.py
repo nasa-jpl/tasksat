@@ -786,10 +786,11 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
             from tasknet_gantt import create_gantt_from_schedule
             gantt_path = run_dir / "gantt.png"
             create_gantt_from_schedule(schedule, str(gantt_path), f"Schedule: {tn.id}", tasknet=tn)
-            # Copy to latest/
+            # Copy to latest/ (a tasknet with no scheduled tasks yields no chart)
             import shutil
-            shutil.copy(str(gantt_path), str(latest_dir / "gantt.png"))
-            print(f"\n📊 Gantt chart saved to: {gantt_path}")
+            if gantt_path.exists():
+                shutil.copy(str(gantt_path), str(latest_dir / "gantt.png"))
+                print(f"\n📊 Gantt chart saved to: {gantt_path}")
     except ImportError:
             print("⚠️  Gantt chart generation skipped (matplotlib not installed)")
 
@@ -798,10 +799,11 @@ def main(path: str, mode: str = 'optimize', transform_only: bool = False,
             from tasknet_timeline_viz import create_timeline_evolution_plot
             timeline_path = run_dir / "timeline.png"
             create_timeline_evolution_plot(schedule, evolution, str(timeline_path), f"Schedule: {tn.id}", tasknet=tn)
-            # Copy to latest/
+            # Copy to latest/ (skipped when no chart was produced)
             import shutil
-            shutil.copy(str(timeline_path), str(latest_dir / "timeline.png"))
-            print(f"📈 Timeline evolution saved to: {timeline_path}")
+            if timeline_path.exists():
+                shutil.copy(str(timeline_path), str(latest_dir / "timeline.png"))
+                print(f"📈 Timeline evolution saved to: {timeline_path}")
     except ImportError:
             print("⚠️  Timeline evolution chart skipped (matplotlib not installed)")
 

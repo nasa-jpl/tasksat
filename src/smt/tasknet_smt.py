@@ -24,7 +24,7 @@ import threading
 from typing import List, Optional, Dict, Union, Literal, Tuple
 
 from z3 import (
-    Solver, Optimize, Int, Real, Bool,
+    Solver, Optimize, Int, Real, Bool, is_expr,
     And, Or, Not, If,
     sat, unsat, unknown, Sum,
     Context, main_ctx,
@@ -130,8 +130,13 @@ class TaskNetSMT:
         for t in self.request_tasks:
             self.request_included[t.id] = Bool(f"included_{t.id}")
 
-        # Use Optimize if we have optional or request tasks and optimization is enabled, otherwise use Solver
-        if (self.optional_tasks or self.request_tasks) and use_optimization:
+        # Use Optimize when optimization is enabled AND there is something to
+        # optimize: optional/request tasks, priorities, or preferred start times /
+        # durations. Otherwise a plain Solver (which also supports unsat cores).
+        has_objectives = bool(self.optional_tasks or self.request_tasks) or any(
+            t.priority is not None or t.start is not None or t.dur is not None
+            for t in self.all_scheduled_tasks)
+        if has_objectives and use_optimization:
             self.solver = Optimize()
         else:
             self.solver = Solver()
@@ -2436,7 +2441,10 @@ class TaskNetSMT:
                         # For required tasks, always count
                         priority_terms.append(t.priority)
 
-            if priority_terms:
+            # Only required tasks with priorities make every term a plain int: the
+            # objective is then a constant (nothing to trade off) and z3's Sum of
+            # Python ints is not an expression, so skip it.
+            if priority_terms and any(is_expr(x) for x in priority_terms):
                 objective_priority = Sum(priority_terms)
                 self.solver.maximize(objective_priority)
 

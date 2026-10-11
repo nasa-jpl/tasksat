@@ -38,11 +38,21 @@ Both comment styles can be used interchangeably in the same file. C-style `//` c
 
 ## Parameters
 
-TaskSAT supports **parameters** to define reusable constants and avoid magic numbers in specifications. Parameters can be declared at three scopes:
+TaskSAT supports **parameters**: named constants that can be declared at three scopes:
 
 1. **TaskNet-level (global)**: Available everywhere in the specification
 2. **TaskDef-level**: Inherited by all task instances of that definition
 3. **Task-level**: Override parameters for specific task instances
+
+### Where Parameters Can Be Used
+
+A parameter name is accepted in these positions:
+
+- the preferred duration and start time, and the priority: `duration PARAM;`, `start PARAM;`, `priority PARAM;`
+- a whole range, when the parameter holds a range: `param DR = [30, 40];` then `duration_range DR;`, `start_range DR;`, `end_range DR;`
+- the value of another parameter in a `param { ... }` block: `param { DURATION = GLOBAL_DURATION; }`
+
+Parameters are **not** accepted inside range brackets (`[LO, HI]`), in timeline declarations, in impact values, in `pre`/`inv`/`post`/`initial`/`final` conditions, in temporal formulas, or as `id`. A parameter name in any of those positions is a syntax error. Parameter values must be literal integers, reals or ranges; arithmetic in parameter definitions (`BASE * 2`) is not supported.
 
 ### Syntax
 
@@ -50,9 +60,7 @@ TaskSAT supports **parameters** to define reusable constants and avoid magic num
 ```tasknet
 tasknet Example {
   param DRIVE_DURATION = 600;
-  param SAFE_BATTERY = 20.0;
-  param CHARGE_RATE = 0.5;
-  
+
   task drive {
     duration DRIVE_DURATION;  // Reference global param
   }
@@ -64,25 +72,19 @@ tasknet Example {
 taskdef work_def {
   param {
     DURATION = 10;
-    RATE = 0.5;
   }
-  
+
   duration DURATION;
-  
-  impacts {
-    maint { battery +~ RATE; }
-  }
 }
 
-task work1 : work_def {}  // Uses DURATION=10, RATE=0.5
+task work1 : work_def {}  // Uses DURATION=10
 ```
 
 **Task-level parameter overrides:**
 ```tasknet
 task work2 : work_def {
   param {
-    DURATION = 20;  // Override to 20
-    RATE = 1.0;     // Override to 1.0
+    DURATION = 20;  // Override to 20: work2 inherits `duration DURATION;` resolved to 20
   }
 }
 ```
@@ -95,22 +97,11 @@ When a parameter is referenced, TaskSAT resolves it using the following priority
 2. **TaskDef-level** params (if the task was instantiated from a taskdef)
 3. **TaskNet-level** params (global scope)
 
-If a parameter is not found in any scope, it is treated as a state name in constraint formulas.
+A taskdef's parameterised fields are resolved once with the taskdef's own parameters (this is what auto-instantiated instances get) and re-resolved for every explicit instance with that instance's parameters, so an instance-level override of `DURATION` changes the duration the instance inherits from its definition.
 
-### Parameter References
-
-Parameters can be referenced in:
-- Task durations: `duration PARAM_NAME;`
-- Task start times: `start PARAM_NAME;`
-- Time ranges: `start in [PARAM_MIN, PARAM_MAX];`
-- Timeline ranges: `battery : rate [0.0, CAPACITY] = INITIAL;`
-- Impact values: `battery += CHARGE_AMOUNT;`
-- Constraint formulas: `battery >= SAFE_LEVEL`
-
-Parameters can also reference other parameters:
+Parameters can reference other parameters inside `param` blocks:
 ```tasknet
 param BASE_DURATION = 10;
-param LONG_DURATION = BASE_DURATION * 2;  // Not yet supported - use explicit values
 
 taskdef work {
   param {
@@ -120,55 +111,52 @@ taskdef work {
 }
 ```
 
-**Note:** Currently, parameter values must be literal constants (integers or reals). Arithmetic expressions in parameter definitions will be supported in a future version.
-
-### Example: Parameterized Battery Constraints
+### Example: Parameterized Durations
 
 ```tasknet
 tasknet RoverWithParams {
   end = 2000;
-  
-  param SAFE_BATTERY = 20.0;
-  param CRITICAL_BATTERY = 10.0;
-  param CHARGE_RATE = 0.5;
-  param DISCHARGE_RATE = -0.3;
-  
+
+  param DRIVE_DURATION = 600;
+  param CHARGE_DURATION = 300;
+
   timelines {
     battery : rate [0.0, 100.0] = 50.0;
   }
-  
+
   taskdef drive_def {
-    param { DURATION = 600; }
+    param { DURATION = DRIVE_DURATION; }
     duration DURATION;
-    impacts { maint { battery +~ DISCHARGE_RATE; } }
+    impacts { maint { battery +~ -0.3; } }
   }
-  
+
   taskdef charge_def {
-    param { DURATION = 300; }
+    param { DURATION = CHARGE_DURATION; }
     duration DURATION;
-    impacts { maint { battery +~ CHARGE_RATE; } }
+    impacts { maint { battery +~ 0.5; } }
   }
-  
-  task drive1 : drive_def {}  // Uses default DURATION=600
-  
+
+  task drive1 : drive_def {}  // Uses DURATION=600
+
   task drive2 : drive_def {
     param { DURATION = 800; }  // Override to 800
   }
-  
+
   task charge : charge_def {}
-  
+
   constraints {
-    always (battery >= SAFE_BATTERY);  // Global safety constraint
+    always (battery >= 20.0);
   }
 }
 ```
+
+Note that `duration` is a *preference* (see [Task Kinds](#task-kinds-required-optional-and-request)), honoured in optimize mode (the default). A hard duration constraint is written with `duration_range`, which accepts a range-valued parameter: `param DRIVE = [600, 600];` then `duration_range DRIVE;`.
 
 ### Benefits of Parameters
 
 - **Avoid magic numbers**: Makes specifications more readable and maintainable
 - **Single source of truth**: Change a value in one place, affects all references
 - **Reusable definitions**: TaskDefs with configurable defaults
-- **Type safety**: Parameters are resolved at parse time, errors caught early
 - **Documentation**: Parameter names serve as inline documentation
 
 ## TaskNet Structure
@@ -324,7 +312,6 @@ There are five kinds of timelines, shown here in schematic form:
 
 ```
 name : state(value1, value2, ...) = initial_value;
-name : bool = true/false;           # Syntactic sugar for state(true, false)
 name : atomic = 0/1;
 name : claim [min, max] = initial_value;
 name : cumulative [min_rate, max_rate] bounds [min, max] = initial_value;
@@ -332,7 +319,7 @@ name : rate [min_rate, max_rate] bounds [min, max] = initial_value initial_rate 
 ```
 
 The state timeline is an enumerate type of a finite number of values, which
-can be names or numbers. The **bool timeline** is syntactic sugar for `state(true, false)` - a TaskSAT-specific convenience feature (MEXEC uses explicit STATE_TIMELINE). The atomic timeline is an integer [0,1] timeline with cumulative-only semantics for mutual exclusion patterns (0 = unclaimed, 1 = claimed). The three other timelines denote floating point numbers and allow different kinds of operations. They each have an optional range of values that a schdule must stay within. In addition, the cumulative and rate timelines have an optional minimal and maximal bound, and any value computed during the execution of a schedule will be clamped to stay in that interval. It is effectively the type of the timeline, whereas the first interval is a subtype of that.
+can be names or numbers. A Boolean flag is modelled as a state timeline with two values, e.g. `state(true, false)`; there is no separate `bool` type. The atomic timelineis an integer [0,1] timeline with cumulative-only semantics for mutual exclusion patterns (0 = unclaimed, 1 = claimed). The three other timelines denote floating point numbers and allow different kinds of operations. They each have an optional range of values that a schdule must stay within. In addition, the cumulative and rate timelines have an optional minimal and maximal bound, and any value computed during the execution of a schedule will be clamped to stay in that interval. It is effectively the type of the timeline, whereas the first interval is a subtype of that.
 
 **Rate Timelines with Initial Rate:**
 
@@ -434,7 +421,7 @@ invariant compositional { mode = idle; }   // also runs the --compositional chec
 
 ## A Word on Constraints
 
-The constraints shown above for initializing timelines represent the general form of constraints, also used in pre, inv, and post conditions introduced below.
+The constraints shown above for initializing timelines represent the general form of constraints, also used in `pre`, `inv`, `post`, `final` and `invariant` blocks introduced below. A constraint is either an equality `timeline = value` or a membership `timeline in v1, [lo1, hi1], ...` (a disjunction of values and closed intervals). The comparison operators `<`, `<=`, `>`, `>=` are available in temporal formulas only, not in these blocks.
 
 ## Impact Operations
 
@@ -587,7 +574,7 @@ When a task has type-level dependencies (references to `taskdef` names in `after
 ```tasknet
 taskdef preheat {
   duration_range [50, 100];
-  impacts { maint { battery +~ -0.2; temperature +~ 0.5; } }
+  impacts { maint { battery +~ -0.2; temperature +~ 0.3; } }
 }
 
 taskdef maintainheat {
@@ -733,7 +720,7 @@ Tasks can also be defined directly without using definitions:
 ```tasknet
 task drive {
   duration 30;
-  pre { battery >= 50.0; }
+  pre { battery in [50.0, 100.0]; }
   impacts {
     maint { battery -~ 1.5; }  // Cumulative: subtracts 1.5 from current rate during task
   }
@@ -751,15 +738,15 @@ All task fields are optional unless marked as required.
 - Example: `id` 1;
 
 **duration**
-- Preferred duration
+- Preferred duration (soft; honoured in optimize mode only, see Task Kinds below)
 - Example: `duration` 10;
 
 **duration_range**
 - Duration range which is enforced
 - Example:`duration_range` [10, 50];
 
-**start** 
-- Preferred start time: 
+**start**
+- Preferred start time (soft; honoured in optimize mode only, see Task Kinds below)
 - Example: `start` 100;
 
 **start_range** / **end_range**
@@ -893,6 +880,8 @@ request task bonus_objective {
 
 Priority values further refine the optimization among optional and request tasks (higher priority = more important).
 
+**Note**: In optimize mode Z3's Optimize solver is engaged whenever there is something to optimize: optional or request tasks, priorities, or preferred `start`/`duration` values. A tasknet with none of these is solved with the plain solver (which also provides UNSAT cores).
+
 ### Instance Range Syntax
 
 TaskSAT supports compact syntax for creating multiple task instances with a mix of required and optional/request instances.
@@ -983,7 +972,7 @@ temporal operators.
 - `timeline < value`
 - `timeline > value`
 
-Where value can be a name (for state timelines), a Boolean (for atomic timelines), or an integer or float.
+Where value can be a name (for state timelines), `0` or `1` (for atomic timelines), or an integer or float.
 
 **Note:** For rate/cumulative timelines, `timeline = number` is interpreted as state equality (for compatibility with state timelines that have numeric state names). For numeric equality on rate timelines, use: `timeline >= value` combined with `timeline <= value`, or `timeline in [value, value]`.
 
@@ -1607,18 +1596,23 @@ cat .tasksat/transformed/input_transformed.tn
 
 ### Schedule Output
 
-The LLM-based scheduler (for large tasknets) writes schedules and visualizations to `.tasksat/schedules/`:
+Every verification run writes its artifacts to a timestamped directory, with `latest` pointing at the most recent run:
 
 ```bash
-python jpl/tools/llm_scheduler.py tasknet.tn
-# Generates:
-#   .tasksat/schedules/tasknet_schedule.json
-#   .tasksat/schedules/tasknet_schedule.png
+python src/smt/tasknet_verifier.py tasknet.tn
+# Generates, under .tasksat/schedules/<tasknet>/<timestamp>/ (and .../latest/):
+#   metadata.json      run status and timing
+#   schedule.json      the schedule found
+#   properties.json    per-property results
+#   gantt.png          Gantt chart
+#   timeline.png       timeline evolution
+#   structure.png      static structure diagram
+#   errors/            counterexample traces for violated properties
 ```
 
 All TaskSAT-generated artifacts are organized under `.tasksat/`:
 - `.tasksat/transformed/` - Transformed tasknets with auto-instantiated tasks
-- `.tasksat/schedules/` - Generated schedules and visualizations
+- `.tasksat/schedules/` - Generated schedules, property results and visualizations
 
 ### Example: Adding Scheduling Hints
 
@@ -1646,10 +1640,16 @@ constraints {
   # Task grouping: cluster thermal operations early
   prop thermal_early:
     always (active(preheat_auto_0) -> preheat_auto_0.start < 500);
-    
-  # Resource management: spread battery-heavy operations
-  prop spread_downlinks:
-    active(downlink_0) -> (downlink_1.start - downlink_0.end > 200);
+}
+```
+
+Boundary comparisons do not support arithmetic, so a minimum gap between two tasks is
+expressed with a timed `after` dependency in the task body instead of a formula:
+
+```tasknet
+task downlink_1 : downlink {
+  start_range [500, 700];
+  after downlink_0 [200, 400];   # start 200-400 time units after downlink_0 ends
 }
 ```
 
@@ -1666,8 +1666,9 @@ prop early_start: active(task) -> task.start < 1000;
 
 **Task Grouping**:
 ```tasknet
-# Cluster tasks within time window
-prop cluster: active(A) -> (B.start - A.end < 100);
+# Cluster tasks within a time window: B starts at most 100 after A ends
+# (boundary comparisons do not support arithmetic, so use a timed dependency)
+task B : B_def { after A [0, 100]; }
 ```
 
 **Mutual Exclusion**:

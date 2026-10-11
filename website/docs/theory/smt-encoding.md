@@ -30,7 +30,7 @@ A **TaskNet** is a scheduling problem specification consisting of tasks that exe
 Each task $t \in T$ represents an activity to be scheduled within the horizon. A task is characterized by:
 
 - **Identifier**: Unique name for the task
-- **Kind**: $k_t \in \{\mathtt{required}, \mathtt{optional}\}$ indicating whether the task must be scheduled
+- **Kind**: $k_t \in \{\mathtt{required}, \mathtt{optional}, \mathtt{request}\}$: required tasks must be scheduled; optional tasks are scheduled only if needed; request tasks are scheduled if possible
 - **Temporal bounds**: Optional constraints on start time, end time, and duration
   - Start range: $[s_{\min}, s_{\max}]$
   - End range: $[e_{\min}, e_{\max}]$
@@ -45,7 +45,7 @@ Each task $t \in T$ represents an activity to be scheduled within the horizon. A
   - Invariants $\mathtt{inv}_t$: must hold throughout task execution
   - Postconditions $\mathtt{post}_t$: must hold when task completes
 
-We partition tasks as $T = T_{\mathtt{req}} \cup T_{\mathtt{opt}}$ where $T_{\mathtt{req}}$ are required tasks and $T_{\mathtt{opt}}$ are optional tasks.
+We partition tasks as $T = T_{\mathtt{req}} \cup T_{\mathtt{opt}} \cup T_{\mathtt{rq}}$ where $T_{\mathtt{req}}$ are required tasks, $T_{\mathtt{opt}}$ are optional tasks and $T_{\mathtt{rq}}$ are request tasks. Optional and request tasks differ only in the optimization objective (Section 8); for satisfiability they are treated alike.
 
 ### 2.2 Timelines
 
@@ -130,7 +130,7 @@ such that:
 
 **Property Verification:** Given a valid schedule, check whether each temporal property $\psi \in \Psi$, and the final state conditions $F$, hold universally.
 
-**Optimization:** If multiple schedules exist, prefer schedules that minimize: (1) number of optional tasks, (2) priority-weighted cost, (3) deviation from preferred start times and durations.
+**Optimization:** If multiple schedules exist and the Optimize solver is engaged (optimize mode, and something to optimize: optional/request tasks, priorities or preferred times), preferschedules that (1) minimize the number of optional tasks and maximize the number of request tasks, (2) maximize the priority-weighted benefit of the scheduled tasks, (3) minimize deviation from preferred start times, and (4) minimize deviation from preferred durations (Section 8).
 
 ## 3. Zone Abstraction
 
@@ -157,6 +157,8 @@ $$\bigwedge_{j=1}^{Z-2} \bigvee_{t \in T} (s_t = z_j \lor e_t = z_j)$$
 **Distinctness:** All task boundaries are pairwise distinct:
 
 $$\bigwedge_{t_i, t_j \in T, i \neq j} (s_{t_i} \neq s_{t_j}) \land (e_{t_i} \neq e_{t_j}) \land (s_{t_i} \neq e_{t_j}) \land (e_{t_i} \neq s_{t_j})$$
+
+For a pair involving an optional or request task the conjunct is guarded by the tasks' inclusion variables (Section 8.1): $\iota_{t_i} \land \iota_{t_j} \rightarrow (\ldots)$, so unscheduled tasks impose no distinctness.
 
 ## 4. Timeline Encoding
 
@@ -291,7 +293,7 @@ With the s+1 design: pre-condition checks `battery[s] = 100` ✓, and the impact
 
 ### 6.3 State and Atomic Timelines
 
-For state timeline $\ell$ and atomic timeline $\alpha$, only assignments are permitted at boundaries (no maint assignments).
+For a state timeline $\ell$ only assignments are permitted, and only at boundaries ($\mathtt{pre}$ or $\mathtt{post}$; no maint assignments).
 
 The transition from zone $i$ to zone $i+1$ follows the s+1 design: impacts check zone $i$'s time but write to zone $i+1$:
 
@@ -302,6 +304,12 @@ v & \text{if } \exists t : z_i = e_t \land (t, \ell, \mathtt{post}, =, v) \in I 
 \end{cases}$$
 
 where $I$ denotes the set of all impacts. Note that when $z_i = s_t$ (zone $i$ equals task start time), the pre-impact writes to $\sigma^{\ell}[i+1]$, not $\sigma^{\ell}[i]$. This implements the s+1 design: pre-conditions can check $\sigma^{\ell}[s]$ before the pre-impact modifies $\sigma^{\ell}[s+1]$. Multiple assignments to the same timeline at the same time are disallowed.
+
+An atomic timeline $\alpha$ admits only delta impacts ($\pm 1$, at $\mathtt{pre}$, $\mathtt{maint}$ or $\mathtt{post}$); assignments are rejected by well-formedness. Its transition is the delta accumulation of Section 6.4 without clamping,
+
+$$\alpha^{\ell}[i+1] = \alpha^{\ell}[i] + \Delta^{\ell}[i],$$
+
+and the range constraint $0 \leq \alpha^{\ell}[j] \leq 1$ at every zone (Section 4.1) is what enforces mutual exclusion: two overlapping $\mathtt{maint}$ claims would drive the value to 2.
 
 ### 6.4 Numeric Timelines: Delta Accumulation
 
@@ -334,30 +342,37 @@ Note: When $z_i = s_t$, the delta is accumulated and applied to $\nu^{\ell}[i+1]
 
 ### 6.5 Numeric Timelines: Rate Integration
 
-**Note:** The formulas below describe a simplified model where rate impacts directly affect value evolution. The actual implementation uses **dual tracking**: rate timelines maintain separate RATE and VALUE variables. 
+Rate timelines use **dual tracking**: each rate timeline $\ell$ has, besides its value variables $\nu^{\ell}[j]$, a second real variable per zone for the rate in effect during that zone, $\rho^{\ell}[j]$. The rate is modified by cumulative rate impacts ($+\sim$, $-\sim$) and rate assignments ($=\sim$); the value evolves as the integral of the rate plus the delta impacts of Section 6.4 and value assignments.
 
-- **RATE variable** is modified by cumulative rate impacts ($+\sim$, $-\sim$) and rate assignments ($=\sim$)
-- **VALUE variable** evolves as the integral of RATE over time plus cumulative value impacts ($+=$, $-=$) and value assignments ($=$)
+**Initial rate.** $\rho^{\ell}[0] = r_0$ if the timeline declares `initial_rate = r_0`, else $\rho^{\ell}[0] = 0$.
 
-**Important timing distinction:**
-- **Rate impacts** (`+~`, `-~`, `=~`) check $z_{i+1} = s_t$ and write to `rate[i+1]`, which equals `rate[s]` (exception to s+1 design)
-- **Value impacts** (`+=`, `-=`, `=`) check $z_i = s_t$ and write to `value[i+1]`, which equals `value[s+1]` (follows s+1 design)
+**Rate transition.** Rate impacts are keyed on the *end* of zone $i$, i.e. on $z_{i+1}$, so that a task starting at $z_{i+1} = s_t$ already has its rate in effect in zone $i+1$, the first zone it executes in (this is the exception to the s+1 design: a rate impact at $s$ writes to $\rho[s]$, where $s$ is the zone index with $z_s = s_t$). Let
 
-This asymmetry is necessary: rate evolution needs `rate[s]` to compute value over interval $(z_s, z_{s+1}]$. If rate impacts wrote to $s+1$, the first interval would use the old rate.
+$$\delta\rho^{\ell}[i] = \sum_{(t,\ell,w,\sim,r) \in I_R} \mathtt{rate\_fire}(t, w, i) \cdot r,
+\qquad
+\mathtt{rate\_fire}(t, w, i) = \begin{cases}
+1 & w = \mathtt{pre} \land z_{i+1} = s_t \\
+1 & w = \mathtt{maint} \land z_{i+1} = s_t \\
+-1 & w = \mathtt{maint} \land z_{i+1} = e_t \\
+1 & w = \mathtt{post} \land z_{i+1} = e_t \\
+0 & \text{otherwise}
+\end{cases}$$
 
-Cumulative rate impacts on MAINT automatically restore (e.g., $+r$ at task start, $-r$ at task end). Rate assignments ($=\sim$) are only permitted on PRE and POST (not MAINT) due to restoration complexity.
+so a $\mathtt{maint}$ rate impact is added at the start and removed at the end, while $\mathtt{pre}$ and $\mathtt{post}$ rate impacts persist. Rate assignments override the accumulated rate:
 
-For rate timeline $\nu^{\ell}$ over zone $i$ with duration $\Delta t_i = z_{i+1} - z_i$, define the rate contribution:
+$$\rho^{\ell}[i+1] = \begin{cases}
+r & \text{if } \exists t : z_{i+1} = s_t \land (t, \ell, \mathtt{pre}, =\!\sim, r) \in I \\
+r & \text{if } \exists t : z_{i+1} = e_t \land (t, \ell, \mathtt{post}, =\!\sim, r) \in I \\
+\rho^{\ell}[i] + \delta\rho^{\ell}[i] & \text{otherwise}
+\end{cases}$$
 
-$$R^{\ell}[i] = \sum_{(t,\ell,w,\sim,r) \in I_R} \mathtt{rate\_active}(t, w, i) \cdot r \cdot \Delta t_i$$
+Rate assignments at $\mathtt{maint}$ are rejected by well-formedness (they could not be restored at the end of the task).
 
-where:
+**Value transition.** The rate contribution over zone $i$, of duration $\Delta t_i = z_{i+1} - z_i$, is the integral of the rate in effect during that zone:
 
-$$\mathtt{rate\_active}(t, \mathtt{pre}, i) = \begin{cases} 1 & \text{if } z_i \geq s_t \\ 0 & \text{otherwise} \end{cases}$$
+$$R^{\ell}[i] = \rho^{\ell}[i] \cdot \Delta t_i$$
 
-$$\mathtt{rate\_active}(t, \mathtt{maint}, i) = \begin{cases} 1 & \text{if } s_t \leq z_i < e_t \\ 0 & \text{otherwise} \end{cases}$$
-
-$$\mathtt{rate\_active}(t, \mathtt{post}, i) = \begin{cases} 1 & \text{if } z_i \geq e_t \\ 0 & \text{otherwise} \end{cases}$$
+This is the only nonlinear term in the encoding (a product of two variables). The value transition is then as in Section 6.6, with $\Delta^{\ell}[i]$ the delta impacts of Section 6.4 (which follow the s+1 design, keyed on $z_i$). For a task with a `maint` rate impact $r$ running over zones $s, \ldots, e-1$ this yields a total contribution of $r \cdot (e_t - s_t)$, as intended. For excluded optional/request tasks every impact term is guarded by the task's inclusion variable.
 
 ### 6.6 Zone Transition for Numeric Timelines
 
@@ -570,21 +585,23 @@ progress lemmas) is in [cegis.md](cegis.md).
 
 ### 8.1 Optional Task Inclusion
 
-For each optional task $t \in T_{\mathtt{opt}}$, introduce a Boolean variable $\iota_t$ indicating inclusion. All constraints for task $t$ are guarded by $\iota_t$:
+For each optional or request task $t \in T_{\mathtt{opt}} \cup T_{\mathtt{rq}}$, introduce a Boolean variable $\iota_t$ indicating inclusion. All constraints for task $t$ are guarded by $\iota_t$:
 
 $$\iota_t \rightarrow (\text{task } t \text{ constraints})$$
+
+The objectives below are only added when the Optimize solver is used, which is the case in optimize mode when there is something to optimize: at least one optional or request task, a priority, or a preferred start time or duration. Otherwise a plain Solver is used.
 
 ### 8.2 Multi-Objective Optimization
 
 The encoding supports lexicographic optimization with the following objective hierarchy:
 
-**Primary Objective:** Minimize the number of included optional tasks:
+**Primary Objectives:** Minimize the number of included optional tasks, then maximize the number of included request tasks:
 
-$$\mathtt{minimize} \sum_{t \in T_{\mathtt{opt}}} [\iota_t]$$
+$$\mathtt{minimize} \sum_{t \in T_{\mathtt{opt}}} [\iota_t] \qquad \mathtt{maximize} \sum_{t \in T_{\mathtt{rq}}} [\iota_t]$$
 
-**Secondary Objective:** Minimize priority-weighted cost:
+**Secondary Objective:** Maximize the priority-weighted benefit of the scheduled tasks (higher priority value = more important):
 
-$$\mathtt{minimize} \sum_{t \in T} \mathtt{priority}(t) \cdot [\iota_t \lor t \in T_{\mathtt{req}}]$$
+$$\mathtt{maximize} \sum_{t \in T} \mathtt{priority}(t) \cdot [\iota_t \lor t \in T_{\mathtt{req}}]$$
 
 **Tertiary Objective:** Minimize deviation from preferred start times:
 
@@ -596,9 +613,11 @@ $$\mathtt{minimize} \sum_{t \in T : \mathtt{dur}_t^{\mathtt{pref}} \text{ specif
 
 ## 9. Soundness and Completeness
 
-**Theorem (Soundness):** If the SMT encoding produces a satisfying model $M$, then the extracted schedule and timeline trace satisfy all TaskNet constraints.
+The encoding is intended to be sound and complete with respect to the TaskNet semantics. No formal proof has been carried out; the statements below are the intended properties, validated by the test suite.
 
-**Theorem (Completeness):** If there exists a valid schedule and timeline trace for a TaskNet, then the SMT encoding is satisfiable.
+**Soundness (intended):** If the SMT encoding produces a satisfying model $M$, then the extracted schedule and timeline trace satisfy all TaskNet constraints.
+
+**Completeness (intended):** If there exists a valid schedule and timeline trace for a TaskNet, then the SMT encoding is satisfiable.
 
 ## 10. Complexity
 

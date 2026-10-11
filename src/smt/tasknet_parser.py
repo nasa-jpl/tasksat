@@ -1102,8 +1102,11 @@ def p_task_id(p):
 
 
 def p_task_priority(p):
-    "task_priority : PRIORITY NUMBER SEMI"
-    p[0] = int(p[2])
+    "task_priority : PRIORITY value SEMI"
+    # value is an IntVal or a ParamRef; a ParamRef is resolved by the
+    # resolve_parameters transform.
+    val = p[2]
+    p[0] = val.v if isinstance(val, IntVal) else val
 
 
 def p_task_start_range(p):
@@ -1112,16 +1115,34 @@ def p_task_start_range(p):
     p[0] = IntRange(int(lo), int(hi))
 
 
+def p_task_start_range_param(p):
+    "task_start_range : START_RANGE NAME SEMI"
+    # A range-valued parameter (`param R = [a, b];`), resolved by resolve_parameters
+    p[0] = ParamRef(name=p[2])
+
+
 def p_task_end_range(p):
     "task_end_range : END_RANGE range SEMI"
     lo, hi = p[2]
     p[0] = IntRange(int(lo), int(hi))
 
 
+def p_task_end_range_param(p):
+    "task_end_range : END_RANGE NAME SEMI"
+    # A range-valued parameter (`param R = [a, b];`), resolved by resolve_parameters
+    p[0] = ParamRef(name=p[2])
+
+
 def p_task_duration_range(p):
     "task_duration_range : DURATION_RANGE range SEMI"
     lo, hi = p[2]
     p[0] = IntRange(int(lo), int(hi))
+
+
+def p_task_duration_range_param(p):
+    "task_duration_range : DURATION_RANGE NAME SEMI"
+    # A range-valued parameter (`param R = [a, b];`), resolved by resolve_parameters
+    p[0] = ParamRef(name=p[2])
 
 
 def p_task_duration(p):
@@ -1136,8 +1157,10 @@ def p_task_duration(p):
 
 
 def p_task_start_opt_some(p):
-    "task_start_opt : START_KW NUMBER SEMI"
-    p[0] = int(p[2])
+    "task_start_opt : START_KW value SEMI"
+    # value is an IntVal or a ParamRef (resolved by resolve_parameters)
+    val = p[2]
+    p[0] = val.v if isinstance(val, IntVal) else val
 
 
 def p_task_start_opt_empty(p):
@@ -1894,9 +1917,9 @@ def p_param_value_range(p):
 
     # Determine if int or real range
     if min_num.is_integer() and max_num.is_integer():
-        p[0] = IntRange(min=IntVal(int(min_num)), max=IntVal(int(max_num)))
+        p[0] = IntRange(low=int(min_num), high=int(max_num))
     else:
-        p[0] = RealRange(min=RealVal(min_num), max=RealVal(max_num))
+        p[0] = RealRange(low=min_num, high=max_num)
 
 
 # ------------ error ------------

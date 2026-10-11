@@ -12,7 +12,7 @@ This guide will get you up and running with TaskSAT in a few minutes.
 
 ### Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - pip package manager
 
 ### Quick Setup
@@ -87,7 +87,7 @@ tasknet Rover1 {
 }
 ```
 
-It specifies a tasknet of a rover that is supposed to drive to a target, but the driving engine needs to be heated first. It defines 
+It specifies a tasknet of a rover that is supposed to drive to a target, but the battery needs to be charged first.It defines 
 two timelines (global variables that tasks can update) and two tasks.
 The `battery` time line is bound to be within 0 to 100 (its type) but a constraint is that it stays within 10 to 100 in a schedule. Its initial value is 10. The `location` timeline is an enumerated type representing the rover's location. 
 
@@ -110,47 +110,55 @@ If you see a schedule output like the one below, you're ready to go!
 ```
 *** NEW SCHEDULE***
 
+
+=== Phase 1: Validity Check (EE - ∃∃) ===
 Schedule for TaskNet `Rover1`:
-  charge        : start =    1, end =   41
-  drive         : start =   42, end =   82
+  charge        : start =    4, end =   44
+  drive         : start =   69, end =   99
 
 Zone boundaries (z_i):
   z_ 0 = 0
-  z_ 1 = 1
-  z_ 2 = 41
-  z_ 3 = 42
-  z_ 4 = 82
+  z_ 1 = 4
+  z_ 2 = 44
+  z_ 3 = 69
+  z_ 4 = 99
   z_ 5 = 100
 
 Values in each zone:
 
-  -- zone 0: (0, 1] --
+  -- zone 0: (0, 4] --
     active tasks : (none)
-    battery        = 10 -> 10
+    battery        = 10 -> 10 (rate: 0)
     location       = home
 
-  -- zone 1: (1, 41] --
+  -- zone 1: (4, 44] --
     active tasks : charge
-    battery        = 10 -> 90
+    battery        = 10 -> 90 (rate: 2)
     location       = home
 
-  -- zone 2: (41, 42] --
+  -- zone 2: (44, 69] --
     active tasks : (none)
-    battery        = 90 -> 90
+    battery        = 90 -> 90 (rate: 0)
     location       = home
 
-  -- zone 3: (42, 82] --
+  -- zone 3: (69, 99] --
     active tasks : drive
-    battery        = 90 -> 30
+    battery        = 90 -> 45 (rate: -1.5)
     location       = home
 
-  -- zone 4: (82, 100] --
+  -- zone 4: (99, 100] --
     active tasks : (none)
-    battery        = 30 -> 30
+    battery        = 45 -> 45 (rate: 0)
     location       = target
 
+=== Phase 2: Property Verification (AA - ∀∀) ===
+
+
 Checking 1 temporal properties:
-PROPERTY 'target_reached' HOLDS
+[1/1] Checking property 'target_reached'...
+  → HOLDS ✓
+
+Summary: 1 hold, 0 violated, 0 unknown
 ```
 
 It shows
@@ -162,9 +170,11 @@ It shows
 
 Specifically it shows that
 
-- The rover charged for 40 time units: battery: 50 → 90
-- The rover drove for 40 time units: battery: 90 → 30
+- The rover charged for 40 time units: battery: 10 → 90
+- The rover drove for 30 time units: battery: 90 → 45
 - The temporal property is satisfied: ✓
+
+The exact schedule may differ between versions of TaskSAT and Z3; any schedule satisfying the constraints is a correct answer.
 
 ## Explore the Web UI
 

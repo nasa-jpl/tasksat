@@ -411,17 +411,37 @@ tasknet Example {
 2. TaskDef-level params (for tasks instantiated from taskdefs)
 3. TaskNet-level params
 
+**Where a parameter reference is accepted (parser):**
+- `duration PARAM;`, `start PARAM;`, `priority PARAM;`
+- `duration_range R;` / `start_range R;` / `end_range R;` where `R` is a range-valued
+  parameter (`param R = [a, b];`)
+- the right-hand side of a `param { X = PARAM; }` entry
+
+Not accepted (syntax error): a parameter name inside range brackets, in timeline
+declarations, impact values, `pre`/`inv`/`post` conditions, temporal formulas, or `id`.
+The `range` production and those value positions take `NUMBER` only.
+
+**Semantics (fixed 2026-10-11, see `tests/test_params.py`):**
+- A taskdef's parameterised fields (`dur`, `start`, `priority`, the three ranges) are
+  resolved with the taskdef's own environment AND re-resolved per explicit instance /
+  instance range in the instance's environment (`resolve_parameters` copies the raw
+  `ParamRef` onto instances that do not set the field), so `param { X = 45; }` on an
+  instance changes the inherited `duration X;`. Auto-instantiated instances get the
+  taskdef's own resolution.
+- `TaskRange` declarations are resolved like tasks (previously skipped).
+- A tasknet with no tasks resolves its timelines against the global environment
+  (previously `UnboundLocalError`).
+- `duration`/`start`/`priority` are preferences handled by Z3 `Optimize`, which is
+  constructed in optimize mode whenever there is something to optimize: optional /
+  request tasks, a priority, or a preferred start/duration (`has_objectives` in
+  `TaskNetSMT.__init__`). Previously only optional/request tasks triggered it.
+- Pre-transform consumers (`tasknet_printer.py`, `tasknet_structure_viz.py`) render a
+  `ParamRef` by name; the temporal visualiser receives the transformed AST.
+
 **Implementation:**
 - Parsed as `ParamDecl` and `ParamRef` AST nodes (tasknet_parser.py)
 - Resolved in `resolve_parameters()` transform (tasknet_transforms.py)
 - Resolution happens FIRST, before all other transforms
-- Unresolved parameter references in constraint formulas are treated as state names
-
-**Use cases:**
-- Avoid magic numbers: `param SAFE_BATTERY = 20.0;` instead of hardcoded values
-- Reusable task definitions with configurable defaults
-- Global constants for duration, capacity, thresholds
-- Overriding defaults per task instance
 
 ## Working with Branches
 

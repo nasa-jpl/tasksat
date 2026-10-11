@@ -85,20 +85,17 @@ tasknet Rover2 {
     pre {
       location = target;
       battery in [60.0, 100.0];
-      arm = false;
+      arm = 0;
     }
 
     impacts {
-      pre {
-        arm = true; 
-      }
       maint {
-        battery -~ 0.5;   
+        arm += 1;         // claim the arm for the duration of collect (auto-released)
+        battery -~ 0.5;
         temperature -~ 0.2;
       }
       post {
-        data += 40.0;  
-        arm = false;  
+        data += 40.0;
       }
     }
   }
@@ -119,7 +116,7 @@ tasknet Rover2 {
 ```
 
 The tasknet defines five time lines (global variables) and four tasks that operate on these:
-a battery charging task, a driving task driving from home to a target, a heating task heating up a movable arm, and a sample collection task. The objective is to drive to the target and collect a sample.
+a battery charging task, a driving task driving from home to a target, a heating task raising the temperature, and a sample collection task. The objective is to drive to the target and collect a sample.
 
 ### Stepwise Explanation
 
@@ -239,31 +236,28 @@ This task is also optional
   
 #### The collect Task Instance
 
-The `collect` task shows some new concepts. It has a pre-condition containing a couple of equalities: the `location` be at the `target` and the arm must not aleady be deployed. We also now see a pre-impact, executed at the beginning of the task exection, namely that the `arm` is deployed (becoming true). At the end of the execution, the `data` timelines is augmented with 40.
+The `collect` task shows some new concepts. It has a pre-condition containing a couple of equalities: the `location` must be `target` and the arm must not already be in use (`arm = 0`). The impacts include a maintenance impact on the atomic `arm` timeline: `arm += 1` claims the arm when the task starts and releases it again when the task ends. Since an atomic timeline must stay within `[0, 1]`, no other task can claim the arm while `collect` is running. At the end of the execution, the `data` timeline is augmented with 40.
 
-**Important note on impact timing:** Pre-impacts take effect *during* task execution, not before the pre-condition is checked. In this example, the pre-condition checks `arm = false` before the pre-impact sets `arm = true`. This allows the pre-condition to verify the "input state" (arm not deployed) before the task modifies it. The task then executes with `arm = true` (the modified state). Similarly, post-impacts take effect *after* the post-condition is checked, so the next task sees the modified state.
+**Important note on impact timing:** Impacts never change the values that the task's own pre-condition sees. The pre-condition checks the "input state" (`arm = 0`, the arm is free), and only then does the `maint` impact take effect, so the task executes with `arm = 1`. Similarly, post-impacts take effect *after* the post-condition is checked, so it is the next task that sees the modified state (`data = 40`).
 
-```  
+```
   task collect {
     duration_range  [20, 30];
 
     pre {
       location = target;
       battery in [60.0, 100.0];
-      arm = false;           // Checks BEFORE pre-impact modifies it
+      arm = 0;               // Checks that the arm is free BEFORE the claim
     }
 
     impacts {
-      pre {
-        arm = true;          // Takes effect during execution
-      }
       maint {
-        battery -~ 0.5;  
+        arm += 1;            // Claimed during execution, released at the end
+        battery -~ 0.5;
         temperature -~ 0.2;
       }
       post {
-        data += 40.0;  
-        arm = false;         // Takes effect after task completes
+        data += 40.0;        // Takes effect after the task completes
       }
     }
   }
@@ -271,128 +265,133 @@ The `collect` task shows some new concepts. It has a pre-condition containing a 
 
 #### Finding a Schedule for the So Far Shown Model
 
-If we comment out the constaints and properties at the bottom of the tasknet, and apply the tasknet explorer on it as follows:
+If we comment out the constraints and properties at the bottom of the tasknet, and apply the tasknet explorer on it as follows:
 
 ```bash
 python src/smt/tasknet_verifier.py tests/tasknet_files/examples/rover2.tn
 ```
 
-We get an output looking like this:
+We get an output looking like this (the exact schedule may differ between versions of TaskSAT and Z3; any schedule satisfying the constraints is a correct answer):
 
 ```
 *** NEW SCHEDULE***
 
+
+=== Phase 1: Validity Check (EE - ∃∃) ===
 Schedule for TaskNet `Rover2`:
-  charge        : start =   46, end =  106
-  drive         : start =  100, end =  130
-  collect       : start =  173, end =  198
+  drive         : start =  120, end =  150
+  collect       : start =  151, end =  171
+  charge        : start =  109, end =  172
   heating       : [OPTIONAL - NOT INCLUDED]
 
 Zone boundaries (z_i):
   z_ 0 = 0
-  z_ 1 = 46
-  z_ 2 = 100
-  z_ 3 = 105
-  z_ 4 = 106
-  z_ 5 = 114
-  z_ 6 = 130
-  z_ 7 = 173
-  z_ 8 = 198
+  z_ 1 = 101
+  z_ 2 = 109
+  z_ 3 = 111
+  z_ 4 = 120
+  z_ 5 = 150
+  z_ 6 = 151
+  z_ 7 = 171
+  z_ 8 = 172
   z_ 9 = 400
 
 Values in each zone:
 
-  -- zone 0: (0, 46] --
+  -- zone 0: (0, 101] --
     active tasks : (none)
-    arm            = False
+    arm            = 0
     location       = home
     data           = 0
-    battery        = 60 -> 60
-    temperature    = 10 -> 10
+    battery        = 60 -> 60 (rate: 0)
+    temperature    = 10 -> 10 (rate: 0)
 
-  -- zone 1: (46, 100] --
+  -- zone 1: (101, 109] --
+    active tasks : (none)
+    arm            = 0
+    location       = home
+    data           = 0
+    battery        = 60 -> 60 (rate: 0)
+    temperature    = 10 -> 10 (rate: 0)
+
+  -- zone 2: (109, 111] --
     active tasks : charge
-    arm            = False
+    arm            = 0
     location       = home
     data           = 0
-    battery        = 60 -> 100
-    temperature    = 10 -> 10
+    battery        = 60 -> 64 (rate: 2)
+    temperature    = 10 -> 10 (rate: 0)
 
-  -- zone 2: (100, 105] --
+  -- zone 3: (111, 120] --
+    active tasks : charge
+    arm            = 0
+    location       = home
+    data           = 0
+    battery        = 64 -> 82 (rate: 2)
+    temperature    = 10 -> 10 (rate: 0)
+
+  -- zone 4: (120, 150] --
     active tasks : drive, charge
-    arm            = False
+    arm            = 0
     location       = home
     data           = 0
-    battery        = 100 -> 100
-    temperature    = 10 -> 10
+    battery        = 82 -> 97 (rate: 0.5)
+    temperature    = 10 -> 10 (rate: 0)
 
-  -- zone 3: (105, 106] --
-    active tasks : drive, charge
-    arm            = False
-    location       = home
-    data           = 0
-    battery        = 100 -> 100
-    temperature    = 10 -> 10
-
-  -- zone 4: (106, 114] --
-    active tasks : drive
-    arm            = False
-    location       = home
-    data           = 0
-    battery        = 100 -> 88
-    temperature    = 10 -> 10
-
-  -- zone 5: (114, 130] --
-    active tasks : drive
-    arm            = False
-    location       = home
-    data           = 0
-    battery        = 88 -> 64
-    temperature    = 10 -> 10
-
-  -- zone 6: (130, 173] --
-    active tasks : (none)
-    arm            = False
+  -- zone 5: (150, 151] --
+    active tasks : charge
+    arm            = 0
     location       = target
     data           = 0
-    battery        = 64 -> 64
-    temperature    = 10 -> 10
+    battery        = 97 -> 99 (rate: 2)
+    temperature    = 10 -> 10 (rate: 0)
 
-  -- zone 7: (173, 198] --
-    active tasks : collect
-    arm            = True
+  -- zone 6: (151, 171] --
+    active tasks : collect, charge
+    arm            = 1
     location       = target
     data           = 0
-    battery        = 64 -> 51.5
-    temperature    = 10 -> 5
+    battery        = 99 -> 100 (rate: 1.5)
+    temperature    = 10 -> 6 (rate: -0.2)
 
-  -- zone 8: (198, 400] --
-    active tasks : (none)
-    arm            = False
+  -- zone 7: (171, 172] --
+    active tasks : charge
+    arm            = 0
     location       = target
     data           = 40
-    battery        = 51.5 -> 51.5
-    temperature    = 5 -> 5
+    battery        = 100 -> 100 (rate: 2)
+    temperature    = 6 -> 6 (rate: 0)
+
+  -- zone 8: (172, 400] --
+    active tasks : (none)
+    arm            = 0
+    location       = target
+    data           = 40
+    battery        = 100 -> 100 (rate: 0)
+    temperature    = 6 -> 6 (rate: 0)
+
+=== Phase 2: Property Verification (AA - ∀∀) ===
 
 
 No temporal properties attached to this TaskNet.
 ```
 
-It shows the schedule: for each task it shows the start time and the end time. It also shows which optional tasks that have not been schedule since it was not necessary, in this case the `heating` task was not scheduled.
+It shows the schedule: for each task it shows the start time and the end time. It also shows which optional tasks have not been scheduled since they were not necessary, in this case the `heating` task was not scheduled.
 
 The zone boundaries are the time points that TaskSAT has calculated with to generate the schedule.
-Note that TaskSAT does not examine every single time step. Instead, it divides the timeline into zones to reduce the state space. This part is not important for the user to examine. 
+Note that TaskSAT does not examine every single time step. Instead, it divides the timeline into zones to reduce the state space. This part is not important for the user to examine.
 
-Then follows the values of timelines at the end of each zone. For example:
+Then follows the values of timelines at the end of each zone. For rate timelines the value at the beginning and at the end of the zone is shown, together with the rate in effect during the zone. For example:
 
-- zone 0 - time 0-46: no tasks are active.
-- zone 1 - time 46-100: the `charge` task is active, and changes the `battery` from 60 to 100.
-- zone 2 - time 100-105: both the `drive` task and the `charge` task are active, where the `battery` compensates for the use by the `drive` task.
+- zone 0 - time 0-101: no tasks are active.
+- zones 2 and 3 - time 109-120: the `charge` task is active, and raises the `battery` from 60 to 82 at rate 2.
+- zone 4 - time 120-150: both the `drive` task and the `charge` task are active; the net rate is 2 - 1.5 = 0.5, so charging more than compensates for the drive.
+- zone 6 - time 151-171: `collect` runs while `charge` is still active; the arm is claimed (`arm = 1`) and the temperature drops to 6.
 - etc.
 
 #### The ordering of charge and drive
 
-As can be seen, the `drive` and `charge` tasks overlap. If we want to avoid this, we can add a constraint to the tasknet:
+As can be seen, `charge` overlaps with both `drive` and `collect`. If we want to avoid the first of these, we can add a constraint to the tasknet:
 
 ```
   constraints {
@@ -404,16 +403,16 @@ That yields the following schedule:
 
 ```
 Schedule for TaskNet `Rover2`:
-  drive         : start =  120, end =  150
-  charge        : start =  318, end =  378
-  collect       : start =  379, end =  399
+  drive         : start =  114, end =  144
+  collect       : start =  207, end =  232
+  charge        : start =  145, end =  205
   heating       : [OPTIONAL - NOT INCLUDED]
 ```
 
 One would expect charging to happen first, but it has to come after the drive task.
-The reason is as follows. Suppose we start by charging. `charge` lasts 60-70 time units, adding 2.0 per time unit. If it starts right away at 60, we reach 100% after 20 time units. That means that at least 40 time units have no charging effect and are wasted.  Suppose instead we start by driving. 
-The battery is initially 60 which satisfies the pre-condition of driving. Driving lasts 30-40 time units, 
-charging 1.5 per time unit, brining the battery to 15 to 0. 
+The reason is as follows. Suppose we start by charging. `charge` lasts 60-70 time units, adding 2.0 per time unit. If it starts right away at 60, we reach 100% after 20 time units. That means that at least 40 time units have no charging effect and are wasted.  Suppose instead we start by driving.
+The battery is initially 60 which satisfies the pre-condition of driving. Driving lasts 30-40 time units,
+draining 1.5 per time unit, bringing the battery down to 15 (after 30 time units).
 At this point charging can start, lasts 60-70 time units, adding 2.0 per time unit, giving a resulting charge of 100. This is then enough for the collection task to execute.
 
 We can show that `charge` cannot start before `drive` by adding an after-constraint to the `drive` task:
@@ -428,14 +427,16 @@ We can show that `charge` cannot start before `drive` by adding an after-constra
   }
 ```
 
-This the results in no solution found:
+This then results in no solution found:
 
 ```
-*** NEW SCHEDULE***
-
+=== Phase 1: Validity Check (EE - ∃∃) ===
 TaskNet constraints (schedule + zone trace): unsat
-UNSAT: No valid schedule found!
+
+⚠️  UNSAT: No valid schedule found!
 ```
+
+In satisfy mode (`--mode satisfy`) TaskSAT additionally prints an *UNSAT core*: the set of conflicting constraints, with an explanation and suggestions (see [Understanding UNSAT Diagnostics](#understanding-unsat-diagnostics)).
 
 #### Let us Add Some Properties
 
@@ -449,132 +450,138 @@ The TaskSAT language allows us to add temporal logic formulas to be proven about
   }
 ```
 
-The result is a schedule but now also a results of verifying the properties:
+The result is a schedule as before, followed by the results of verifying the properties. Note that the properties are verified for *all* valid schedules, not just the one shown in Phase 1:
 
 ```
+=== Phase 2: Property Verification (AA - ∀∀) ===
+
 Checking 3 temporal properties:
-PROPERTY 'target_reached' HOLDS
-PROPERTY 'drive_charge' HOLDS
-PROPERTY 'temperature' VIOLATED!
-```
-
-The first two properties hold but the last one concerning the temperature is violated. We also get an error trace:
-
-```
+[1/3] Checking property 'target_reached'...
+  → HOLDS ✓
+[2/3] Checking property 'drive_charge'...
+  → HOLDS ✓
+[3/3] Checking property 'temperature'...
+  → VIOLATED!
 Counterexample:
+```
 
+The first two properties hold but the last one concerning the temperature is violated. We also get an error trace, which is a valid schedule (not necessarily the one found in Phase 1) under which the property is violated:
+
+```
 Schedule for TaskNet `Rover2`:
-  drive         : start =  120, end =  153
-  collect       : start =  377, end =  398
-  charge        : start =  316, end =  376
+  drive         : start =  102, end =  133
+  collect       : start =  179, end =  202
+  charge        : start =  135, end =  195
   heating       : [OPTIONAL - NOT INCLUDED]
 
 Zone boundaries (z_i):
   z_ 0 = 0
-  z_ 1 = 120
-  z_ 2 = 153
-  z_ 3 = 315
-  z_ 4 = 316
-  z_ 5 = 376
-  z_ 6 = 377
-  z_ 7 = 398
+  z_ 1 = 102
+  z_ 2 = 133
+  z_ 3 = 134
+  z_ 4 = 135
+  z_ 5 = 179
+  z_ 6 = 195
+  z_ 7 = 202
   z_ 8 = 399
   z_ 9 = 400
 
 Values in each zone:
 
-  -- zone 0: (0, 120] --
+  -- zone 0: (0, 102] --
     active tasks : (none)
-    arm            = False
+    arm            = 0
     location       = home
     data           = 0
-    battery        = 60 -> 60
-    temperature    = 10 -> 10
-    __drive_active = False
-    __charge_active = False
+    battery        = 60 -> 60 (rate: 0)
+    temperature    = 10 -> 10 (rate: 0)
+    __drive_active = 0
+    __charge_active = 0
 
-  -- zone 1: (120, 153] --
+  -- zone 1: (102, 133] --
     active tasks : drive
-    arm            = False
+    arm            = 0
     location       = home
     data           = 0
-    battery        = 60 -> 10.5
-    temperature    = 10 -> 10
-    __drive_active = True
-    __charge_active = False
+    battery        = 60 -> 13.5 (rate: -1.5)
+    temperature    = 10 -> 10 (rate: 0)
+    __drive_active = 1
+    __charge_active = 0
 
-  -- zone 2: (153, 315] --
+  -- zone 2: (133, 134] --
     active tasks : (none)
-    arm            = False
+    arm            = 0
     location       = target
     data           = 0
-    battery        = 10.5 -> 10.5
-    temperature    = 10 -> 10
-    __drive_active = False
-    __charge_active = False
+    battery        = 13.5 -> 13.5 (rate: 0)
+    temperature    = 10 -> 10 (rate: 0)
+    __drive_active = 0
+    __charge_active = 0
 
-  -- zone 3: (315, 316] --
+  -- zone 3: (134, 135] --
     active tasks : (none)
-    arm            = False
+    arm            = 0
     location       = target
     data           = 0
-    battery        = 10.5 -> 10.5
-    temperature    = 10 -> 10
-    __drive_active = False
-    __charge_active = False
+    battery        = 13.5 -> 13.5 (rate: 0)
+    temperature    = 10 -> 10 (rate: 0)
+    __drive_active = 0
+    __charge_active = 0
 
-  -- zone 4: (316, 376] --
+  -- zone 4: (135, 179] --
     active tasks : charge
-    arm            = False
+    arm            = 0
     location       = target
     data           = 0
-    battery        = 10.5 -> 100
-    temperature    = 10 -> 10
-    __drive_active = False
-    __charge_active = True
+    battery        = 13.5 -> 100 (rate: 2)
+    temperature    = 10 -> 10 (rate: 0)
+    __drive_active = 0
+    __charge_active = 1
 
-  -- zone 5: (376, 377] --
-    active tasks : (none)
-    arm            = False
+  -- zone 5: (179, 195] --
+    active tasks : collect, charge
+    arm            = 1
     location       = target
     data           = 0
-    battery        = 100 -> 100
-    temperature    = 10 -> 10
-    __drive_active = False
-    __charge_active = False
+    battery        = 100 -> 100 (rate: 1.5)
+    temperature    = 10 -> 6.8 (rate: -0.2)
+    __drive_active = 0
+    __charge_active = 1
 
-  -- zone 6: (377, 398] --
+  -- zone 6: (195, 202] --
     active tasks : collect
-    arm            = True
+    arm            = 1
     location       = target
     data           = 0
-    battery        = 100 -> 89.5
-    temperature    = 10 -> 5.8
-    __drive_active = False
-    __charge_active = False
+    battery        = 100 -> 96.5 (rate: -0.5)
+    temperature    = 6.8 -> 5.4 (rate: -0.2)
+    __drive_active = 0
+    __charge_active = 0
 
-  -- zone 7: (398, 399] --
+  -- zone 7: (202, 399] --
     active tasks : (none)
-    arm            = False
+    arm            = 0
     location       = target
     data           = 40
-    battery        = 89.5 -> 89.5
-    temperature    = 5.8 -> 5.8
-    __drive_active = False
-    __charge_active = False
+    battery        = 96.5 -> 96.5 (rate: 0)
+    temperature    = 5.4 -> 5.4 (rate: 0)
+    __drive_active = 0
+    __charge_active = 0
 
   -- zone 8: (399, 400] --
     active tasks : (none)
-    arm            = False
+    arm            = 0
     location       = target
     data           = 40
-    battery        = 89.5 -> 89.5
-    temperature    = 5.8 -> 5.8
-    __drive_active = False
-    __charge_active = False
+    battery        = 96.5 -> 96.5 (rate: 0)
+    temperature    = 5.4 -> 5.4 (rate: 0)
+    __drive_active = 0
+    __charge_active = 0
+
+Summary: 2 hold, 1 violated, 0 unknown
 ```
 
-We see in zone 6 that during the `collect` task the temperature dips down under 10 to 5.8.
+We see in zones 5 and 6 that during the `collect` task the temperature dips down under 10, to 6.8 and then 5.4.
 So how do we fix this? We need to force the optional `heating` task to take place.
 We could do that by changing the permitted range for the `temperature` timeline to:
 
@@ -591,17 +598,17 @@ However, we can also do it with an additional constraint:
   }
 ```
 
-Now all the properties are satisfied but we get a scedule
+Now all the properties are satisfied but we get a schedule
 
 ```
 Schedule for TaskNet `Rover2`:
-  drive         : start =  120, end =  150
-  heating       : start =  151, end =  161
-  charge        : start =  163, end =  223
-  collect       : start =  209, end =  238
+  drive         : start =  100, end =  130
+  collect       : start =  161, end =  191
+  charge        : start =  131, end =  192
+  heating       : start =  101, end =  111
 ```
 
-where `charge` overlaps with `collect`. To avoid this we add an additional constraint:
+where `heating` is now scheduled (during the drive, raising the temperature to 30), but `charge` overlaps with `collect`. To avoid this we add an additional constraint:
 
 ```
   constraints {
@@ -616,13 +623,13 @@ Now all the properties hold and we get a schedule where there is no overlap betw
 
 ```
 Schedule for TaskNet `Rover2`:
-  drive         : start =  118, end =  148
-  heating       : start =  137, end =  147
-  charge        : start =  149, end =  209
-  collect       : start =  210, end =  233
+  drive         : start =  115, end =  147
+  collect       : start =  215, end =  235
+  charge        : start =  154, end =  214
+  heating       : start =  206, end =  216
 ```
 
-However, `heating` overlaps with `drive`. If we do not want that we must add a further constraint. 
+However, `heating` overlaps with `charge` and `collect`. If we do not want that we must add a further constraint, for example `mutex [heating, charge, collect];`.
 
 #### Initial Values
 
@@ -684,66 +691,13 @@ end in a state satisfying exactly the initial conditions.
 
 ## Using Parameters
 
-Parameters allow you to define reusable constants and avoid magic numbers in your TaskSAT specifications. This makes your models more readable, maintainable, and easier to tune.
+Parameters let you name a constant once and refer to it by name instead of repeating a magic number. Parameters are accepted in these positions:
 
-### Why Use Parameters?
+- a task's preferred `duration`, preferred `start`, and `priority` (`duration DRIVE_DURATION;`),
+- a whole range, when the parameter holds a range (`param WINDOW = [100, 300];` then `start_range WINDOW;`, likewise `end_range` and `duration_range`), and
+- the value of another parameter inside a `param { ... }` block of a taskdef or task.
 
-Consider this specification without parameters:
-
-```tasknet
-task drive {
-  duration 600;
-  impacts { maint { battery +~ -0.3; } }
-}
-
-task charge {
-  duration 300;
-  impacts { maint { battery +~ 0.5; } }
-}
-
-constraints {
-  always (battery >= 20.0);
-}
-```
-
-The values `600`, `300`, `-0.3`, `0.5`, and `20.0` are "magic numbers" - their meaning isn't clear, and if you want to change them, you have to find every occurrence.
-
-### Parameterized Version
-
-Here's the same specification using parameters:
-
-```tasknet
-tasknet RoverWithParams {
-  end = 2000;
-  
-  # Global parameters make the model more readable
-  param DRIVE_DURATION = 600;
-  param CHARGE_DURATION = 300;
-  param DRIVE_RATE = -0.3;
-  param CHARGE_RATE = 0.5;
-  param SAFE_BATTERY = 20.0;
-  
-  timelines {
-    battery : rate [0.0, 100.0] = 50.0;
-  }
-  
-  task drive {
-    duration DRIVE_DURATION;
-    impacts { maint { battery +~ DRIVE_RATE; } }
-  }
-  
-  task charge {
-    duration CHARGE_DURATION;
-    impacts { maint { battery +~ CHARGE_RATE; } }
-  }
-  
-  constraints {
-    always (battery >= SAFE_BATTERY);
-  }
-}
-```
-
-Now the model is self-documenting, and you can easily experiment with different values by changing the parameter declarations.
+Parameters are **not** accepted inside range brackets (`[LO, HI]`), in timeline declarations, in impact values, in `pre`/`inv`/`post` conditions, in temporal formulas, or as `id`. A parameter name in any of those positions is a syntax error. Parameter values must be literal numbers or ranges; arithmetic such as `BASE * 2` is not supported.
 
 ### Parameter Scopes
 
@@ -753,7 +707,7 @@ Parameters can be declared at three levels:
 ```tasknet
 tasknet Example {
   param GLOBAL_DURATION = 10;
-  
+
   task t1 { duration GLOBAL_DURATION; }
   task t2 { duration GLOBAL_DURATION; }
 }
@@ -764,22 +718,19 @@ tasknet Example {
 taskdef science_def {
   param {
     DURATION = 30;
-    DATA_RATE = 2.0;
   }
-  
+
   duration DURATION;
-  impacts { maint { data += DATA_RATE; } }
 }
 
-task science1 : science_def {}  // Uses defaults
+task science1 : science_def {}  // Uses the default, DURATION = 30
 ```
 
 **3. Task-level (Instance overrides):**
 ```tasknet
 task science2 : science_def {
   param {
-    DURATION = 45;  // Override: longer duration
-    DATA_RATE = 3.0;  // Override: faster data collection
+    DURATION = 45;  // Override: science2 inherits `duration DURATION;` resolved to 45
   }
 }
 ```
@@ -792,73 +743,59 @@ When TaskSAT resolves a parameter reference, it uses the following priority (hig
 2. **TaskDef-level** parameter (if the task is an instance of a taskdef)
 3. **TaskNet-level** parameter (global scope)
 
-This allows you to:
-- Set sensible defaults at the taskdef level
-- Override specific instances as needed
-- Share common constants globally
+A taskdef's parameterised fields are re-resolved for each explicit instance with that instance's parameters, so an instance-level `param { DURATION = 45; }` changes the duration the instance inherits, as in the example above.
 
 ### Complete Example with All Scopes
 
 ```tasknet
 tasknet ParamExample {
   end = 500;
-  
-  # Global parameters
+
+  # Global parameter
   param STANDARD_DURATION = 30;
-  param HIGH_PRIORITY = 10;
-  
+
   timelines {
     data : cumulative [0.0, 100.0] = 0.0;
   }
-  
-  # TaskDef with parameter defaults
+
+  # TaskDef with a parameter default
   taskdef science_def {
     param {
       DURATION = STANDARD_DURATION;  // Reference global
-      RATE = 1.0;
     }
-    
+
     duration DURATION;
-    priority HIGH_PRIORITY;
-    
+
     impacts {
-      maint { data += RATE; }
+      post { data += 10.0; }
     }
   }
-  
-  # Instance 1: Uses all defaults
+
+  # Instance 1: uses the default
   task science1 : science_def {}
-  
-  # Instance 2: Override duration only
+
+  # Instance 2: overrides the duration
   task science2 : science_def {
     param { DURATION = 45; }
   }
-  
-  # Instance 3: Override both parameters
-  task science3 : science_def {
-    param {
-      DURATION = 60;
-      RATE = 2.0;
+
+  # Instance 3: a standalone task referencing the global directly
+  task science3 {
+    duration STANDARD_DURATION;
+    impacts {
+      post { data += 10.0; }
     }
   }
+
 }
 ```
 
-When this model runs:
-- `science1` has `DURATION=30` and `RATE=1.0` (taskdef defaults)
-- `science2` has `DURATION=45` and `RATE=1.0` (duration overridden)
-- `science3` has `DURATION=60` and `RATE=2.0` (both overridden)
+When this model runs (default optimize mode):
+- `science1` runs for 30 time units (taskdef default)
+- `science2` runs for 45 time units (overridden)
+- `science3` runs for 30 time units (global)
 
-### Where Parameters Can Be Used
-
-Parameters can be referenced in:
-- Task durations: `duration PARAM;`
-- Task start/end times: `start PARAM;`
-- Time ranges: `start_range [MIN_PARAM, MAX_PARAM];`
-- Timeline declarations: `battery : rate [0.0, CAPACITY] = INITIAL;`
-- Impact values: `battery += CHARGE_AMOUNT;`
-- Constraint formulas: `battery >= SAFE_LEVEL`
-- Priority values: `priority PRIORITY_PARAM;`
+Remember that `duration` is a *preference*, honoured in optimize mode (the default; see Solver Modes below). A hard duration constraint is written with `duration_range`, which accepts a range-valued parameter: `param FIXED = [30, 30];` then `duration_range FIXED;`.
 
 ### Best Practices
 
@@ -874,11 +811,9 @@ Parameters make it easy to experiment with different scenarios:
 
 ```tasknet
 # Conservative scenario
-param SAFE_BATTERY = 30.0;
 param DRIVE_DURATION = 400;  # Slower driving
 
 # Aggressive scenario
-# param SAFE_BATTERY = 15.0;
 # param DRIVE_DURATION = 600;  # Faster driving
 ```
 
@@ -966,12 +901,12 @@ tasknet SatelliteDownlink {
   
   timelines {
     temperature : rate [0.0, 60.0] = 20.0;
-    battery : rate [0.0, 100.0] = 80.0;
+    battery : rate [0.0, 100.0] = 100.0;
   }
   
   taskdef preheat {
     duration_range [50, 100];
-    impacts { maint { temperature +~ 0.5; battery +~ -0.2; } }
+    impacts { maint { temperature +~ 0.3; battery +~ -0.2; } }
   }
   
   taskdef maintainheat {
@@ -1158,7 +1093,7 @@ tasknet ObservationWindow {
     containedin warmup [100, 200] [100, 200];  
     // Start 100-200 after warmup starts
     // End 100-200 before warmup ends
-    duration_range [500, 500];
+    duration_range [600, 800];
   }
   
   task warmup1 : warmup {}
@@ -1169,6 +1104,8 @@ tasknet ObservationWindow {
 If `warmup1` runs from 1000 to 2000:
 - `science1.start ∈ [1100, 1200]` (warmup start + [100, 200])
 - `science1.end ∈ [1800, 1900]` (warmup end - [200, 100])
+
+so `science1` lasts between 600 and 800 time units, which is why its `duration_range` must admit such a value (a fixed duration of 500 would make the tasknet unsatisfiable).
 
 **Syntax variants:**
 - `containedin A [s_min, s_max] [e_min, e_max];` - Full ranges for start and end offsets
@@ -1255,10 +1192,12 @@ This verification capability goes beyond what traditional planners can do.
 #### The difference between modes:
 
 - Optimize mode: Finds the optimal minimal schedule in Step 1. The minimization is wrt.
-  * number of optional tasks instantiated: they are only scheduled if needed, and according to priority: higher priority number means higher priority.
-  * start times: an attempt is made to start the tasks according to start time preference.
-    It minimizes distance between desired start times and realized start times.
+  * number of optional tasks instantiated (minimized: they are only scheduled if needed) and number of request tasks instantiated (maximized: scheduled if possible),
+  * priority: higher priority number means higher priority (the priority-weighted sum of scheduled tasks is maximized),
+  * start times and durations: an attempt is made to schedule the tasks according to their preferred `start` and `duration`.
+    It minimizes the distance between the preferred and the realized values.
 - Satisfy mode: Finds any valid schedule in Step 1
+- **Note**: Z3's Optimize solver is engaged whenever there is something to optimize: optional or request tasks, priorities, or preferred `start`/`duration` values. A tasknet with none of these is solved with the plain solver in both modes.
 - **Important**: The mode flag only controls Step 1 (main schedule generation). Step 2 (property verification) always uses Solver mode for faster counterexample finding, regardless of the `--mode` flag. This is an optimization since counterexamples don't need to be optimal.
 
 #### Step 3 (opt-in) - Realizability (forall-exists):
@@ -1384,7 +1323,7 @@ Please add the missing task instances or remove the dependencies.
 ```
 Fix by either: (a) adding instances of the required task definitions, or (b) removing the invalid dependencies from the task definition.
 
-**Atomic capacity violations**: Multiple tasks need exclusive access to the same resource at overlapping times. Fix by adding temporal ordering constraints (`after`/`before`) or widening time windows.
+**Atomic capacity violations**: Multiple tasks need exclusive access to the same resource at overlapping times. Fix by adding ordering constraints (`after`, `sequence [...]`, or `mutex [...]`) or widening time windows.
 
 **Impossible preconditions**: Task requires timeline values outside the valid range. Fix by adjusting the precondition range or increasing the timeline range.
 

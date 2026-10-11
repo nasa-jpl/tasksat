@@ -30,16 +30,14 @@ tasknet <identifier> {
 
 ```
 <name> : state(<state1>, <state2>, ...) = <initial_state>;
-<name> : bool = <true|false>;                                            # Syntactic sugar for state(true, false)
-<name> : atomic = <0|1>;                                                 # Mutex enforcement via [0,1] integer bounds
+<name> : atomic = <0|1>;# Mutex enforcement via [0,1] integer bounds
 <name> : cumulative [<min>, <max>] bounds [<min>, <max>] = <initial>;
 <name> : rate [<min_rate>, <max_rate>] bounds [<min>, <max>] = <initial> initial_rate = <rate>;
 <name> : claimable [<min>, <max>] = <initial>;
 ```
 
 **Timeline types:**
-- **state**: Discrete values (named or numeric)
-- **bool**: Boolean state (syntactic sugar for `state(true, false)`)
+- **state**: Discrete values (named or numeric); a Boolean flag is `state(true, false)`
 - **atomic**: Integer [0,1] for mutual exclusion (only cumulative impacts `+= 1`, `-= 1` allowed)
 - **cumulative**: Continuous resource with range and bounds
 - **rate**: Continuous resource that changes at a rate over time
@@ -76,12 +74,14 @@ task <name> : <taskdef> {
 3. TaskNet-level params
 
 **Parameter references can be used in:**
-- Task durations: `duration <PARAM>;`
-- Task start/end times: `start <PARAM>;`
-- Time ranges: `start_range [<MIN_PARAM>, <MAX_PARAM>];`
-- Timeline bounds: `battery : rate [0.0, <CAPACITY>] = <INITIAL>;`
-- Impact values: `battery += <CHARGE_AMOUNT>;`
-- Constraint formulas: `battery >= <SAFE_LEVEL>`
+- Preferred duration / start and priority: `duration <PARAM>;`, `start <PARAM>;`, `priority <PARAM>;`
+- Whole ranges, with a range-valued parameter: `param R = [<min>, <max>];` then
+  `duration_range R;`, `start_range R;`, `end_range R;`
+- Other parameter declarations: `param { <NAME> = <PARAM>; }`
+
+They are **not** accepted inside range brackets, in timeline declarations, impact
+values, conditions, temporal formulas, or as `id` (syntax error). Parameter values
+are literal numbers or ranges.
 
 ## Tasks
 
@@ -89,11 +89,12 @@ task <name> : <taskdef> {
 taskdef <name> {
   param { <PARAM_NAME> = <value>; }
   id <number>;
-  priority <number>;
+  priority <number | PARAM_NAME>;
   duration <number | PARAM_NAME>;
-  duration_range [<min>, <max>];
+  duration_range [<min>, <max>] | <RANGE_PARAM>;
   start <number | PARAM_NAME>;
-  start_range [<min>, <max>];
+  start_range [<min>, <max>] | <RANGE_PARAM>;
+  end_range [<min>, <max>] | <RANGE_PARAM>;
   after <after_item>, ...;
   containedin <containedin_item>, ...;
   pre { <constraints> }
@@ -193,16 +194,18 @@ containedin observation 50;                    # 50 time unit margins on both si
 containedin parent 10 [20, 30];                # Mixed: shorthand start (0-10), full range end (20-30)
 ```
 
-## Constraints
+## Conditions
+
+Used in `pre`, `inv`, `post`, `initial`, `final` and `invariant` blocks:
 
 ```
 <timeline> = <value>
 <timeline> in [<min>, <max>]
-<timeline> < <number>
-<timeline> <= <number>
-<timeline> > <number>
-<timeline> >= <number>
+<timeline> in <value>, [<min>, <max>], ...    # disjunction of alternatives
 ```
+
+The comparison operators `<`, `<=`, `>`, `>=` are only available in temporal
+formulas (see below), not in condition blocks.
 
 ## Impacts
 
@@ -366,7 +369,7 @@ Assumes γ = 0 (no inter-session gap drift) in this first cut. Run with:
 ## Keywords
 
 ```
-tasknet, end, param, timelines, state, bool, atomic, cumulative, claimable, rate, bounds,
+tasknet, end, param, timelines, state, atomic, cumulative, claimable, rate, bounds,
 initial_rate, taskdef, task, optional, request, id, priority, duration,
 duration_range, start, start_range, end_range, after, containedin, pre, inv, post,
 impacts, maint, initial, final, within, invariant, compositional, constraints,
@@ -417,9 +420,8 @@ Both comment styles can be used interchangeably. C-style `//` comments are usefu
 tasknet RoverMission {
   end = 1000;
 
-  # Global parameters
-  param SAFE_BATTERY = 20.0;
-  param DRIVE_RATE = -0.5;
+  # Global parameter (usable as a task duration)
+  param DRIVE_DURATION = 30;
 
   timelines {
     battery : rate [0.0, 100.0] bounds [0.0, 100.0] = 50.0 initial_rate = 0.01;
@@ -429,22 +431,22 @@ tasknet RoverMission {
 
   taskdef drive {
     param {
-      MIN_DURATION = 10;
-      MAX_DURATION = 50;
+      DURATION = DRIVE_DURATION;
     }
 
-    duration_range [MIN_DURATION, MAX_DURATION];
+    duration DURATION;
+    duration_range [10, 50];
     pre {
-      battery >= 30.0;
+      battery in [30.0, 100.0];
       rover_active = 0;
     }
     inv {
-      battery >= SAFE_BATTERY;
+      battery in [20.0, 100.0];
       rover_active = 1;
     }
     impacts {
       maint {
-        battery +~ DRIVE_RATE;
+        battery +~ -0.5;
         rover_active += 1;
       }
     }
@@ -452,7 +454,7 @@ tasknet RoverMission {
 
   task drive_to_a : drive {
     param {
-      MAX_DURATION = 40;  # Override: shorter max duration
+      DURATION = 40;  # Override: prefer a longer drive
     }
     start_range [0, 100];
     impacts {
@@ -464,7 +466,7 @@ tasknet RoverMission {
 
   properties {
     prop battery_safety:
-      always (rover_active = true -> battery >= SAFE_BATTERY);
+      always (rover_active = 1 -> battery >= 20.0);
 
     prop mission_completion:
       eventually (location = site_a);

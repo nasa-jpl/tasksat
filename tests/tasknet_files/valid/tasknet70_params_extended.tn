@@ -1,0 +1,30 @@
+// Parameters in every position the parser accepts: duration, start, priority,
+// the three range statements (range-valued parameters), param-block chains,
+// instance-level overrides of a taskdef's parameterised fields (without the
+// instance repeating the statement), and an instance range.
+
+tasknet ParamsExtended {
+  end = 300;
+
+  param D = 20;
+  param P = 7;
+  param S = 100;
+  param DR = [30, 30];
+  param SR = [10, 50];
+
+  timelines {
+    b : rate [0.0, 100.0] = 50.0;
+  }
+
+  taskdef work {
+    param { X = D; }
+    duration X;        // preferred duration, resolved per instance
+    priority P;
+  }
+
+  task t1 : work {}                       // X = 20 (taskdef default)
+  task t2 : work { param { X = 45; } }    // X = 45 (instance override, no restatement)
+  task t3 { duration_range DR; start_range SR; }   // range-valued parameters
+  task t4 { start S; duration_range [5, 5]; }      // preferred start from a parameter
+  task sci[2] : work {}                   // instance range inherits the parameterised duration
+}

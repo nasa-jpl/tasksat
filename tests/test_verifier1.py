@@ -60,16 +60,16 @@ class TestVerifier:
     def test_tasknet4_containedin(self):
         """Simplest possible test."""
         verify_out('tasknet4_containedin.tn')(
-            "parent_task   : start =    1, end =    4",
-            "child_task    : start =    2, end =    3",
+            "parent_task   : start =    1, end =  101",
+            "child_task    : start =    2, end =   42",
             "No temporal properties attached to this TaskNet."
         )
 
     def test_tasknet5_containedin(self):
         """..."""
         verify_out('tasknet5_containedin.tn')(
-            "power_session : start =    1, end =    4",
-            "sensor_reading: start =    2, end =    3",
+            "power_session : start =   20, end =  120",
+            "sensor_reading: start =   50, end =   90",
             "No temporal properties attached to this TaskNet."
         )
 
@@ -179,8 +179,8 @@ class TestVerifier:
         """Test __T_active syntax"""
         verify_out('tasknet13_task_active.tn')(
             "*** NEW SCHEDULE***",
-            "T1            : start =    1, end =    2",
-            "T2            : start =    3, end =    4",
+            "T1            : start =   10, end =   30",
+            "T2            : start =   50, end =   65",
             "[1/5] Checking property 'p1'...",
             "  → HOLDS",
             "[2/5] Checking property 'p2'...",
@@ -198,8 +198,8 @@ class TestVerifier:
         """Test state timeline with numeric states"""
         verify_out('tasknet14_active_syntax.tn')(
             "*** NEW SCHEDULE***",
-            "T1            : start =    1, end =    2",
-            "T2            : start =    3, end =    4",
+            "T1            : start =   10, end =   30",
+            "T2            : start =   50, end =   65",
             "[1/5] Checking property 'p1'...",
             "  → HOLDS",
             "[2/5] Checking property 'p2'...",

@@ -219,14 +219,18 @@ def _task_node(task: Task, color_map: dict) -> Node:
     """
     label = task.id
 
-    # Add range information if available
+    # Add range information if available. The diagram is drawn from the
+    # pre-transform AST, so a range may still be an unresolved parameter name.
+    def _fmt_range(r):
+        return getattr(r, 'name', None) or f"[{r.low}, {r.high}]"
+
     range_info = []
     if task.startrng:
-        range_info.append(f"start: [{task.startrng.low}, {task.startrng.high}]")
+        range_info.append(f"start: {_fmt_range(task.startrng)}")
     if task.endrng:
-        range_info.append(f"end: [{task.endrng.low}, {task.endrng.high}]")
+        range_info.append(f"end: {_fmt_range(task.endrng)}")
     if task.durrng:
-        range_info.append(f"dur: [{task.durrng.low}, {task.durrng.high}]")
+        range_info.append(f"dur: {_fmt_range(task.durrng)}")
 
     if range_info:
         label += "\n" + "\n".join(range_info)

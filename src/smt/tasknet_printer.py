@@ -66,13 +66,23 @@ class TaskNetPrinter:
         else:
             return self.print_value(v)
 
-    def print_int_range(self, r: IntRange) -> str:
-        """Render an integer range as `[low, high]`."""
+    def print_int_range(self, r) -> str:
+        """Render an integer range as `[low, high]`, or a range-valued parameter
+        reference (pre-transform AST) by its name."""
+        if isinstance(r, ParamRef):
+            return r.name
         return f"[{r.low}, {r.high}]"
 
-    def print_real_range(self, r: RealRange) -> str:
-        """Render a real range as `[low, high]`."""
+    def print_real_range(self, r) -> str:
+        """Render a real range as `[low, high]` (or a parameter name)."""
+        if isinstance(r, ParamRef):
+            return r.name
         return f"[{r.low}, {r.high}]"
+
+    def print_scalar(self, v) -> str:
+        """Render `priority`/`start`/`duration`: an int, or a parameter name
+        when printing a pre-transform AST."""
+        return v.name if isinstance(v, ParamRef) else str(v)
 
     # ===== Dependencies =====
 
@@ -275,11 +285,11 @@ class TaskNetPrinter:
         if task_range.ident is not None and task_range.ident != 0:
             self._writeln(out, f"{ind}id {task_range.ident};")
         if task_range.priority is not None:
-            self._writeln(out, f"{ind}priority {task_range.priority};")
+            self._writeln(out, f"{ind}priority {self.print_scalar(task_range.priority)};")
         if task_range.start is not None:
-            self._writeln(out, f"{ind}start {task_range.start};")
+            self._writeln(out, f"{ind}start {self.print_scalar(task_range.start)};")
         if task_range.dur is not None:
-            self._writeln(out, f"{ind}duration {task_range.dur};")
+            self._writeln(out, f"{ind}duration {self.print_scalar(task_range.dur)};")
         if task_range.startrng:
             self._writeln(out, f"{ind}start_range {self.print_int_range(task_range.startrng)};")
         if task_range.endrng:
@@ -350,7 +360,7 @@ class TaskNetPrinter:
 
         # Priority
         if task.priority is not None:
-            self._writeln(out, f"{ind}priority {task.priority};")
+            self._writeln(out, f"{ind}priority {self.print_scalar(task.priority)};")
 
         # Parameters
         if task.params:
@@ -364,9 +374,9 @@ class TaskNetPrinter:
 
         # Timing
         if task.start is not None:
-            self._writeln(out, f"{ind}start {task.start};")
+            self._writeln(out, f"{ind}start {self.print_scalar(task.start)};")
         if task.dur is not None:
-            self._writeln(out, f"{ind}duration {task.dur};")
+            self._writeln(out, f"{ind}duration {self.print_scalar(task.dur)};")
         if task.startrng:
             self._writeln(out, f"{ind}start_range {self.print_int_range(task.startrng)};")
         if task.endrng:

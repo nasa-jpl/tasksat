@@ -1,0 +1,10 @@
+// A tasknet with timelines but no tasks must verify (trivially) rather than
+// crash in parameter resolution.
+
+tasknet NoTasks {
+  end = 100;
+
+  timelines {
+    battery : rate [0.0, 100.0] = 50.0;
+  }
+}

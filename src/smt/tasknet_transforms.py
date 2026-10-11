@@ -30,66 +30,64 @@ def resolve_parameters(tn: TaskNet) -> TaskNet:
     Replaces all ParamRef nodes with their resolved values.
     After resolution, ParamRef nodes that weren't found in any environment
     are converted to StrVal (assumed to be state names).
+
+    Parameter references accepted by the parser: `duration`, `start`,
+    `priority`, `start_range`/`end_range`/`duration_range` (a range-valued
+    parameter), and the right-hand side of a `param { ... }` entry.
+
+    A taskdef's own fields are resolved with the taskdef's environment, and
+    additionally re-resolved for every instance of it with the instance's
+    environment, so that an instance-level `param { DURATION = 45; }` takes
+    effect on the definition's `duration DURATION;` even when the instance body
+    does not repeat the statement.
     """
     # Build global param environment from tasknet-level params
     global_env: Dict[str, Union[Value, IntRange, RealRange]] = {}
     for p in tn.params:
         global_env[p.name] = p.value
 
-    # Build taskdef-level param environments
+    # Build taskdef-level param environments, and remember each taskdef's raw
+    # (unresolved) parameterised fields so they can be re-resolved per instance.
     taskdef_envs: Dict[str, Dict[str, Union[Value, IntRange, RealRange]]] = {}
+    taskdef_raw: Dict[str, Dict[str, object]] = {}
     for task in tn.tasks:
-        # Skip TaskRange objects - they get expanded later
         if isinstance(task, TaskRange):
             continue
         if task.kind == TaskKind.DEFINITION:
             taskdef_envs[task.id] = {}
             for p in task.params:
                 taskdef_envs[task.id][p.name] = p.value
+            taskdef_raw[task.id] = {f: getattr(task, f) for f in _PARAM_FIELDS
+                                    if isinstance(getattr(task, f), ParamRef)}
 
-    # Resolve params for each task
-    for task in tn.tasks:
-        # Skip TaskRange objects - they get expanded later
-        if isinstance(task, TaskRange):
-            continue
-        # Build task-specific environment (layered)
+    def env_for(task) -> Dict[str, Union[Value, IntRange, RealRange]]:
         env = global_env.copy()
-
-        # Add taskdef params if this is an instance
         if task.definition and task.definition in taskdef_envs:
             env.update(taskdef_envs[task.definition])
-
-        # Add task-level params (highest priority)
         for p in task.params:
             env[p.name] = p.value
+        return env
 
-        # Resolve all ParamRef in task fields
-        if task.dur is not None:
-            task.dur = _resolve_value_to_int(task.dur, env)
-        if task.start is not None:
-            task.start = _resolve_value_to_int(task.start, env)
-        task.startrng = _resolve_range(task.startrng, env)
-        task.endrng = _resolve_range(task.endrng, env)
-        task.durrng = _resolve_range(task.durrng, env)
+    # Resolve params for each task (Task and TaskRange alike)
+    for task in tn.tasks:
+        env = env_for(task)
 
-        # Resolve in constraints (pre/inv/post)
-        for tlcon in (task.pre or []) + (task.inv or []) + (task.post or []):
-            for con in tlcon.cons:
-                if hasattr(con, 'v'):
-                    con.v = _resolve_value(con.v, env)
+        # An instance (or instance range) inherits the definition's parameterised
+        # fields it does not set itself, resolved in the INSTANCE's environment so
+        # that instance-level overrides take effect.
+        if isinstance(task, TaskRange) or task.kind != TaskKind.DEFINITION:
+            for f, raw in taskdef_raw.get(task.definition or '', {}).items():
+                if getattr(task, f) is None:
+                    setattr(task, f, raw)
 
-        # Resolve in impacts
-        if task.impacts:
-            for impact in task.impacts:
-                if hasattr(impact.how, 'v'):
-                    impact.how.v = _resolve_value(impact.how.v, env)
+        _resolve_task_fields(task, env)
 
-    # Resolve timeline initial values and ranges
+    # Resolve timeline initial values and ranges (tasknet scope)
     for timeline in tn.timelines:
         if hasattr(timeline, 'initial') and timeline.initial is not None:
-            timeline.initial = _resolve_value(timeline.initial, env)
+            timeline.initial = _resolve_value(timeline.initial, global_env)
         if hasattr(timeline, 'initial_rate') and timeline.initial_rate is not None:
-            timeline.initial_rate = _resolve_value(timeline.initial_rate, env)
+            timeline.initial_rate = _resolve_value(timeline.initial_rate, global_env)
         if hasattr(timeline, 'range') and timeline.range is not None:
             timeline.range = _resolve_range(timeline.range, global_env)
         if hasattr(timeline, 'bounds') and timeline.bounds is not None:
@@ -104,6 +102,35 @@ def resolve_parameters(tn: TaskNet) -> TaskNet:
                 con.v = _resolve_value(con.v, global_env)
 
     return tn
+
+
+# Task / TaskRange fields that may hold a ParamRef straight from the parser.
+_PARAM_FIELDS = ('dur', 'start', 'priority', 'startrng', 'endrng', 'durrng')
+
+
+def _resolve_task_fields(task, env: Dict[str, Union[Value, IntRange, RealRange]]) -> None:
+    """Resolve every ParamRef in one Task or TaskRange, in place."""
+    if task.dur is not None:
+        task.dur = _resolve_value_to_int(task.dur, env)
+    if task.start is not None:
+        task.start = _resolve_value_to_int(task.start, env)
+    if task.priority is not None:
+        task.priority = _resolve_value_to_int(task.priority, env)
+    task.startrng = _resolve_range(task.startrng, env)
+    task.endrng = _resolve_range(task.endrng, env)
+    task.durrng = _resolve_range(task.durrng, env)
+
+    # Resolve in constraints (pre/inv/post)
+    for tlcon in (task.pre or []) + (task.inv or []) + (task.post or []):
+        for con in tlcon.cons:
+            if hasattr(con, 'v'):
+                con.v = _resolve_value(con.v, env)
+
+    # Resolve in impacts
+    if task.impacts:
+        for impact in task.impacts:
+            if hasattr(impact.how, 'v'):
+                impact.how.v = _resolve_value(impact.how.v, env)
 
 
 def _resolve_value(val: Value, env: Dict[str, Union[Value, IntRange, RealRange]]) -> Value:
