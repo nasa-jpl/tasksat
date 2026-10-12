@@ -55,11 +55,13 @@ def parse_output(stdout: str, stderr: str) -> dict:
         'error_msg': None
     }
 
-    # Determine result type
-    if "*** NEW SCHEDULE***" in stdout:
-        data['result'] = 'SAT'
-    elif "UNSAT" in stdout:
+    # Determine result type. The "*** NEW SCHEDULE***" banner is printed at the
+    # start of EVERY run, so it cannot distinguish SAT from UNSAT; test for the
+    # UNSAT marker first and for an actual schedule second.
+    if "UNSAT" in stdout or "): unsat" in stdout:
         data['result'] = 'UNSAT'
+    elif "Schedule for TaskNet" in stdout:
+        data['result'] = 'SAT'
     elif stderr:
         data['result'] = 'ERROR'
         data['error_msg'] = stderr[:500]  # First 500 chars of error

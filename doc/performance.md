@@ -157,13 +157,18 @@ networks the untracked form went from 1.1x to 6.7x slower as instances went from
 second core and roughly 10% overhead, and gets close to the better of the two
 every time.
 
-**Determinism:** only refutation is raced. A returned schedule always comes from
-the untracked solver even if the twin finds one first, so verifying the same
-spec twice always yields the same schedule.
+**Both outcomes are raced.** The schedule comes from whichever solver finds one
+first (the twin's model is translated back into the main context). Two runs of
+the same spec can therefore report different valid schedules when the race is
+close. Until 2026-10-11 a model from the twin was discarded, on the assumption
+that the untracked solver is always faster at finding models; on the paper's
+`seq`/`seqforce` benchmarks the tracked solver is 10x faster (1 s vs 13 s on
+`seq_5`), and discarding its model made Phase 1 30x slower than before the
+portfolio existed.
 
-**`--no-unsat-core`** drops the twin and solves on one core. It halves CPU and
-memory use, at the price of the unsat core and, on infeasible networks, several
-times the wall-clock time.
+**`--no-unsat-core`** runs only the plain (unlabelled) solver on one core. It halves
+CPU and memory use, at the price of the unsat core, and is faster only where the
+plain solver is the fast one; on `seq`/`seqforce`-style networks it is 10x slower.
 
 ## Complexity Guidelines
 

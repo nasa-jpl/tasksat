@@ -135,15 +135,17 @@ class TestVerifier:
         # model; the inclusion decision, violation and summary below are unchanged.
         verify_out('tasknet10_verify.tn', mode='satisfy')(
             "*** NEW SCHEDULE***",
-            "T1            : start =    5, end =    6",
-            "T2            : start =    1, end =    4",
+            # exact times depend on which solver wins the Phase-1 race (2026-10-11)
+            "T1            : start =",
+            "T2            : start =",
             "T3            : [OPTIONAL - NOT INCLUDED]",
             "[1/1] Checking property 'p1'...",
             "  → VIOLATED!",
             "Counterexample:",
-            "T1            : start =    1, end =    4",
-            "T2            : start =    2, end =    3",
-            "T3            : start =    5, end =    6",
+            # the counterexample is one of several violating schedules; names only
+            "T1            : start =",
+            "T2            : start =",
+            "T3            : start =",
             "Summary: 0 hold, 1 violated, 0 unknown"
         )
 
@@ -218,13 +220,13 @@ class TestVerifier:
         # Note: Timing changed after fixing rate timeline value impact zone assignment
         # (battery = 60.0 now correctly writes to zone s+1 instead of zone s)
         # The new schedule is valid and satisfies all constraints/properties
-        # Note: Timing changed again when Phase 1 moved to an untracked first solve
-        # (assert_and_track was costing ~5x). Z3 returns a different, equally valid
-        # model; the property verdict and summary below are unchanged.
+        # Note: since 2026-10-11 Phase 1 takes the schedule from whichever of the
+        # tracked/untracked solvers finishes first, so the exact times depend on the
+        # race; only the task names are checked. The verdicts below are unchanged.
         verify_out('tasknet15_numeric_states.tn')(
             "*** NEW SCHEDULE***",
-            "heating       : start =    1, end =    2",
-            "driving       : start =    3, end =    4",
+            "heating       : start =",
+            "driving       : start =",
             "[1/1] Checking property 'p1'...",
             "  → HOLDS",
             "Summary: 1 hold, 0 violated, 0 unknown"

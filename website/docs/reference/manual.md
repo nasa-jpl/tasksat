@@ -1299,18 +1299,24 @@ usable answer. One copy is solved plainly; the other has every constraint
 labelled, which is what makes the UNSAT core — the list of conflicting
 constraints reported when no schedule exists — possible.
 
-This is worth a core because neither form is reliably faster. Labelling costs
-time when a schedule exists — up to 5x on satisfiable networks — but can *save*
-several times that when proving a network infeasible, and the gap grows with the
-number of task instances. Nothing in a spec reveals which case it is beforehand,
-so TaskSAT runs both rather than guessing.
+This is worth a core because neither form is reliably faster, in either
+direction. On translated MEXEC networks the plain solver found schedules up to 5x
+faster while the labelled one refuted infeasible networks several times faster;
+on the sequential-chain benchmarks the labelled solver finds schedules 10x faster
+than the plain one. Nothing in a spec reveals which case it is beforehand, so
+TaskSAT runs both and takes whichever answer arrives first, for schedules and
+refutations alike.
 
-Verifying the same spec twice always produces the same schedule: only the
-infeasibility proof is raced, never the choice of schedule.
+A consequence is that two runs of the same spec can report different, equally
+valid, schedules when the race is close. (Before 2026-10-11 a schedule found by
+the labelled solver was discarded to keep runs deterministic, which made Phase 1
+up to 30x slower on networks where that solver is the fast one.)
 
-Pass `--no-unsat-core` to solve on a single core instead. That halves CPU and
-memory use, but gives up the core that explains an UNSAT, and can take several
-times longer on infeasible networks:
+Pass `--no-unsat-core` to run only the plain (unlabelled) solver on one core.
+That halves CPU and memory use and gives up the core that explains an UNSAT. It is
+faster only on networks where the plain solver is the fast one (the MEXEC-style
+networks above); on networks like the sequential-chain benchmarks the labelled
+solver is 10x faster, and this option makes them much slower:
 
 ```bash
 python src/smt/tasknet_verifier.py tasknet.tn --no-unsat-core

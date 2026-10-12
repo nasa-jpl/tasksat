@@ -24,6 +24,7 @@ import threading
 from typing import List, Optional, Dict, Union, Literal, Tuple
 
 from z3 import (
+    Z3Exception,
     Solver, Optimize, Int, Real, Bool, is_expr,
     And, Or, Not, If,
     sat, unsat, unknown, Sum,
@@ -103,7 +104,12 @@ class TaskNetSMT:
         # stores Implies(tracker, c) forms, unusable as a formula template).
         # The portfolio needs exactly that form to clone into the twin's context.
         self.portfolio = portfolio
-        self.track = track and not portfolio
+        # In portfolio mode the main solver is the TRACKED one (built directly,
+        # with assert_and_track); the untracked racer is a translated clone.
+        # Translating into a fresh context costs ~2x on nonlinear problems, and
+        # the tracked side is the fast one on the sequential-chain benchmarks,
+        # so it must not be the copy (2026-10-11).
+        self.track = track or portfolio
         # Per-solver Z3 timeout for the Phase-1 validity solve (ms). When set and
         # the solve exceeds it, `check()` returns `unknown` and `solve()` raises
         # SolverTimeout. None (default) means no limit.
@@ -253,13 +259,15 @@ class TaskNetSMT:
 
     def add_tracked(self, constraint, label: str):
         """Add a constraint with tracking for unsat core analysis."""
-        if isinstance(self.solver, Solver) and self.portfolio:
-            # Untracked here (the twin does the tracking), but remember the label
-            # so _build_tracked_twin can re-attach it to this exact constraint.
+        if False:
             self.constraint_map[label] = constraint
         if isinstance(self.solver, Solver) and self.track:
             # Use assert_and_track for Solver (supports unsat cores)
-            self.solver.assert_and_track(constraint, label)
+            tracker = Bool(label)
+            self.solver.assert_and_track(constraint, tracker)
+            if not hasattr(self, '_tracker_bools'):
+                self._tracker_bools = []
+            self._tracker_bools.append(tracker)
             # Store the mapping from label to raw Z3 constraint for debugging
             self.constraint_map[label] = constraint
             if not hasattr(self, '_tracked_count'):
@@ -2286,35 +2294,26 @@ class TaskNetSMT:
     # Solving + pretty-printing
     # ------------------------------
 
-    def _build_tracked_twin(self):
-        """Clone this solver into a second Z3 context, with labels re-attached.
+    def _build_untracked_twin(self):
+        """Clone this (tracked) solver into a second Z3 context WITHOUT labels.
 
-        `self.solver.assertions()` is the ground truth for what was encoded —
-        using it means constraints added by a direct `solver.add` (there are many)
-        cannot be missed, which matters because a twin missing constraints would
-        be a weaker problem and could disagree about satisfiability. Each
-        assertion is matched back to its label by AST id, so the twin asserts
-        exactly the same set, tracked wherever a label is known.
-
-        Returns `(ctx, solver)` — the twin lives in its own context so it can be
-        checked concurrently with, and interrupted independently of, this one.
+        `self.solver.assertions()` is the ground truth for what was encoded. A
+        tracked assertion is stored as `Implies(tracker, c)`; the clone asserts the
+        bare `c`, so it is the same problem with the trackers dropped, which lets
+        Z3 preprocess freely (the form that found models fastest on translated
+        MEXEC networks). Returns `(ctx, solver)`.
         """
         ctx = Context()
         twin = Solver(ctx=ctx)
         if self.timeout_ms is not None:
             twin.set("timeout", int(self.timeout_ms))
-        id_to_label = {c.get_id(): label for label, c in self.constraint_map.items()}
-        used_labels = set()
+        trackers = {b.get_id() for b in getattr(self, '_tracker_bools', [])}
         for assertion in self.solver.assertions():
-            label = id_to_label.get(assertion.get_id())
-            cloned = assertion.translate(ctx)
-            # A duplicate label would make Z3 reject the tracker as non-fresh, so
-            # only the first constraint carrying a given label is tracked.
-            if label is not None and label not in used_labels:
-                used_labels.add(label)
-                twin.assert_and_track(cloned, Bool(label, ctx))
-            else:
-                twin.add(cloned)
+            c = assertion
+            if (c.decl().name() == '=>' and c.num_args() == 2
+                    and c.arg(0).get_id() in trackers):
+                c = c.arg(1)
+            twin.add(c.translate(ctx))
         return ctx, twin
 
     def _check_portfolio(self):
@@ -2326,60 +2325,91 @@ class TaskNetSMT:
         wins is not predictable from the spec, so both run and the first usable
         answer is taken.
 
-        The loser is stopped via its context's interrupt flag, which makes its
-        `check()` return `unknown` promptly without disturbing the other context.
+        The loser is stopped via its context's interrupt flag and NOT waited for:
+        Z3 polls that flag only at certain points of its search, and in nonlinear
+        arithmetic the losing `check()` can run on for minutes before returning.
+        The abandoned thread is a daemon and dies with the process.
 
-        Only refutation is actually raced. A returned *schedule* always comes from
-        the untracked solver, even if the twin finds one first, because a race
-        winner varies between runs and the same spec must not yield a different
-        schedule each time it is verified. Since the untracked form is the faster
-        one at finding models, conceding that case costs nothing in practice.
-        UNSAT stays deterministic either way: there is no model to disagree about,
-        and the core always comes from the twin.
+        Both outcomes are raced. The schedule comes from whichever solver finds one
+        first; a model found by the twin is translated back into the main context.
+        (Until 2026-10-11 a model found by the twin was discarded and the untracked
+        solver awaited, on the assumption that untracked is faster at finding
+        models. On the paper's sequential-chain benchmarks the opposite holds by
+        an order of magnitude, 1 s tracked vs 13 s untracked, which made Phase 1
+        30x slower than before the portfolio existed.) The price is that two runs
+        of the same spec may report different, equally valid, schedules when the
+        race is close. UNSAT is unaffected: the core always comes from the twin.
 
         Returns `(result, model, twin)` where `model` is None unless satisfiable
         and `twin` is None unless it holds a completed UNSAT (i.e. has a core).
         """
-        twin_ctx, twin = self._build_tracked_twin()
+        plain_ctx, plain = self._build_untracked_twin()
+        tracked = self.solver          # main context, labelled
+
         state = {}
-        lock = threading.Lock()
+        cond = threading.Condition()
 
-        def run_untracked():
-            result = self.solver.check()
-            with lock:
-                state['untracked'] = result
-                # A model makes the twin redundant; an UNSAT still needs its core.
-                if result == sat and 'tracked' not in state:
-                    twin_ctx.interrupt()
+        def run(key, solver):
+            # A racer must ALWAYS record a result, or the main thread waits
+            # forever. Fetching the model can fail if this side finished just as
+            # the other side's win interrupted our context ("no current model");
+            # that is reported as `unknown`, i.e. this side lost.
+            result, model = unknown, None
+            try:
+                result = solver.check()
+                if result == sat:
+                    try:
+                        model = solver.model()
+                    except Z3Exception:
+                        result = unknown
+            except Z3Exception:
+                result = unknown
+            finally:
+                with cond:
+                    state[key] = result
+                    if model is not None:
+                        state[key + '_model'] = model
+                    cond.notify_all()
 
-        def run_tracked():
-            result = twin.check()
-            with lock:
-                state['tracked'] = result
-                # Only a refutation pre-empts the untracked solve. A model found
-                # here is discarded (see above), so there is no reason to stop the
-                # other side for one.
-                if result == unsat and 'untracked' not in state:
-                    main_ctx().interrupt()
+        threading.Thread(target=run, args=('untracked', plain), daemon=True).start()
+        threading.Thread(target=run, args=('tracked', tracked), daemon=True).start()
 
-        threads = [threading.Thread(target=run_untracked, daemon=True),
-                   threading.Thread(target=run_tracked, daemon=True)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        # Wait for the first USABLE answer: a model from either side, UNSAT from
+        # the tracked side (it holds the core), UNSAT from the plain side once
+        # the tracked side has also finished, or both finished without answer.
+        def usable():
+            if state.get('untracked') == sat or state.get('tracked') in (sat, unsat):
+                return True
+            return 'untracked' in state and 'tracked' in state
 
-        untracked_result = state.get('untracked')
-        tracked_result = state.get('tracked')
+        with cond:
+            while not usable():
+                cond.wait()
+            untracked_result = state.get('untracked')
+            tracked_result = state.get('tracked')
+            untracked_model = state.get('untracked_model')
+            tracked_model = state.get('tracked_model')
 
-        # The model always comes from the untracked solver, in the main context,
-        # so nothing downstream has to be translated.
-        if untracked_result == sat:
-            return sat, self.solver.model(), None
-        # Whichever side refuted first, the twin is the one holding a core: it is
-        # never interrupted while the untracked side is still running.
+        if tracked_result == sat:
+            # The main solver won: its model needs no translation. The plain
+            # clone, if still running, is interrupted and abandoned (daemon).
+            if 'untracked' not in state:
+                plain_ctx.interrupt()
+            return sat, tracked_model, None
         if tracked_result == unsat:
-            return unsat, None, twin
+            if 'untracked' not in state:
+                plain_ctx.interrupt()
+            return unsat, None, tracked
+        if untracked_result == sat:
+            # The clone won. Its model must be translated into the main context,
+            # which is only safe once the tracked solver has stopped using it:
+            # interrupt it and wait (Z3 notices the interrupt at its next poll).
+            if 'tracked' not in state:
+                main_ctx().interrupt()
+                with cond:
+                    while 'tracked' not in state:
+                        cond.wait()
+            return sat, untracked_model.translate(main_ctx()), None
         if untracked_result == unsat:
             return unsat, None, None
         return untracked_result or tracked_result, None, None
@@ -2501,7 +2531,7 @@ class TaskNetSMT:
         if self.portfolio and isinstance(self.solver, Solver):
             res, portfolio_model, twin = self._check_portfolio()
             if twin is not None:
-                core_solver = twin
+                core_solver = twin  # the tracked main solver
         else:
             res = self.solver.check()
 

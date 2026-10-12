@@ -183,6 +183,25 @@ Rules (all advisory today):
 | `unused-timeline` | declared, never read or written |
 | `no-op-impact` | an impact of `0` — changes nothing |
 
+### Phase 1 portfolio (restructured 2026-10-11)
+
+- The **main solver is the tracked one** (built directly with `assert_and_track` in the
+  main context); the **untracked racer is a translated clone** (`_build_untracked_twin`
+  strips the `Implies(tracker, c)` wrappers). Reason: `translate` into a fresh context
+  costs ~2x on these nonlinear problems (seq_10: 115 s in main ctx vs 240 s translated),
+  and the tracked side is the fast one on the `seq`/`seqforce` benchmarks. Before, the
+  tracked side was the clone and a tracked SAT was discarded: seq_5 30 s, now 1 s;
+  seq_10 3022 s / 256 s, now ~100 s.
+- `_check_portfolio` returns on the **first usable answer** and abandons the loser
+  (daemon thread): Z3 polls the interrupt flag only at some points and a losing
+  nonlinear `check()` can run for minutes. Exception: if the untracked clone wins, its
+  model must be translated into the main context, which requires the tracked solver to
+  have stopped, so that path interrupts and waits.
+- Schedules may differ between runs when the race is close. UNSAT cores come from the
+  main (tracked) solver. `--no-unsat-core` = tracked single solve, no race.
+- Remaining known cost: labelling every constraint (Apr 2026) makes the tracked solve
+  ~4x slower than March's (seq_10: 22 s → 84 s). Coarser tracking would recover most.
+
 **Why a separate pass rather than a wellformedness error.** A finding still describes a
 network the user may legitimately want to run, so refusing to proceed would stop a
 modeller inspecting what else breaks. And the solver already returns UNSAT with the same
