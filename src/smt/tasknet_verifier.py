@@ -940,7 +940,7 @@ if __name__ == "__main__":
     parser.add_argument('--compositional-budget', type=float, default=60.0,
                         help='Wall-clock budget in seconds for the compositional AE check (default: 60)')
     parser.add_argument('--no-unsat-core', action='store_true',
-                        help='Solve Phase 1 with the plain (unlabelled) solver only, on one core. Halves CPU and memory use, but gives up the conflicting-constraint core, and is faster only on networks where the plain solver is the fast one; on sequential-chain networks the labelled solver is 10x faster.')
+                        help='Solve Phase 1 with the plain (unlabelled) solver only, on one core. Halves CPU and memory use, but gives up the conflicting-constraint core, and is faster only on networks where the plain solver is the fast one. The labelled solver can be much faster at refuting resource-contended networks, and on networks with a single feasible task order.')
     parser.add_argument('--timeout', type=float, default=None,
                         help='Wall-clock limit in seconds for the Phase-1 validity solve. If exceeded, the run stops with status "timeout" instead of a schedule or UNSAT. 0 or omitted means no limit.')
     parser.add_argument('--no-lint', action='store_true',
