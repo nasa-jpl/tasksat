@@ -105,10 +105,12 @@ class TaskNetSMT:
         # The portfolio needs exactly that form to clone into the twin's context.
         self.portfolio = portfolio
         # In portfolio mode the main solver is the TRACKED one (built directly,
-        # with assert_and_track); the untracked racer is a translated clone.
-        # Translating into a fresh context costs ~2x on nonlinear problems, and
-        # the tracked side is the fast one on the sequential-chain benchmarks,
-        # so it must not be the copy (2026-10-11).
+        # with assert_and_track). Both racers are clones in contexts of their
+        # own (`_check_portfolio`): racing the main solver itself meant
+        # interrupting a running check in the main context, which damaged later
+        # solves there (2026-10-13). The price is the translation: on
+        # unsat_10_temporal the tracked clone takes ~123 s against ~100 s for
+        # the main solver; satisfiable benchmarks were unaffected.
         self.track = track or portfolio
         # Per-solver Z3 timeout for the Phase-1 validity solve (ms). When set and
         # the solve exceeds it, `check()` returns `unknown` and `solve()` raises
@@ -1101,12 +1103,13 @@ class TaskNetSMT:
                     else:
                         if dep.gap is None:
                             # Original: A.start >= B.end
-                            add_constraint(self.end_vars[dep.task_id] <= s,
+                            add_constraint(self._included(dep.task_id), self.end_vars[dep.task_id] <= s,
                                          label=f"dependency_after: '{t.id}' after '{dep.task_id}'")
                         else:
                             # With gap: B.end + gap.low <= A.start <= B.end + gap.high
                             b_end = self.end_vars[dep.task_id]
                             add_constraint(
+                                self._included(dep.task_id),
                                 b_end + dep.gap.low <= s,
                                 s <= b_end + dep.gap.high,
                                 label=f"dependency_after: '{t.id}' starts [{dep.gap.low},{dep.gap.high}] after '{dep.task_id}' ends"
@@ -1121,11 +1124,12 @@ class TaskNetSMT:
                         # Use the specific auto-instance created for this task
                         auto_id = self.auto_instance_map[auto_key]
                         if dep.gap is None:
-                            add_constraint(self.end_vars[auto_id] <= s,
+                            add_constraint(self._included(auto_id), self.end_vars[auto_id] <= s,
                                          label=f"dependency_after: '{t.id}' after '{auto_id}'")
                         else:
                             b_end = self.end_vars[auto_id]
                             add_constraint(
+                                self._included(auto_id),
                                 b_end + dep.gap.low <= s,
                                 s <= b_end + dep.gap.high,
                                 label=f"dependency_after: '{t.id}' starts [{dep.gap.low},{dep.gap.high}] after '{auto_id}' ends"
@@ -1144,11 +1148,12 @@ class TaskNetSMT:
                         else:
                             # At least one instance must complete before this task starts (OR semantics)
                             if dep.gap is None:
-                                constraints = [self.end_vars[inst.id] <= s for inst in def_instances]
+                                constraints = [And(self._included(inst.id), self.end_vars[inst.id] <= s) for inst in def_instances]
                                 add_constraint(Or(*constraints), label=f"dependency_after: task '{t.id}' must start after some instance of '{dep.task_id}'")
                             else:
                                 # With gap: OR over all instances with gap constraints
-                                constraints = [And(self.end_vars[inst.id] + dep.gap.low <= s,
+                                constraints = [And(self._included(inst.id),
+                                                   self.end_vars[inst.id] + dep.gap.low <= s,
                                                    s <= self.end_vars[inst.id] + dep.gap.high)
                                              for inst in def_instances]
                                 add_constraint(Or(*constraints), label=f"dependency_after: task '{t.id}' must start [{dep.gap.low},{dep.gap.high}] after some instance of '{dep.task_id}'")
@@ -1165,7 +1170,7 @@ class TaskNetSMT:
 
                         if dep.start_offset is None and dep.end_offset is None:
                             # Original: parent.start <= child.start AND child.end <= parent.end
-                            add_constraint(p_start <= s, e <= p_end,
+                            add_constraint(self._included(dep.task_id), p_start <= s, e <= p_end,
                                          label=f"dependency_containedin: '{t.id}' within '{dep.task_id}'")
                         else:
                             constraints = []
@@ -1188,7 +1193,7 @@ class TaskNetSMT:
                             else:
                                 constraints.append(e <= p_end)
 
-                            add_constraint(*constraints,
+                            add_constraint(self._included(dep.task_id), *constraints,
                                          label=f"dependency_containedin: '{t.id}' within '{dep.task_id}' with offsets")
 
             # Type-level containedin dependencies (definition IDs)
@@ -1203,7 +1208,7 @@ class TaskNetSMT:
                         p_end = self.end_vars[auto_id]
 
                         if dep.start_offset is None and dep.end_offset is None:
-                            add_constraint(p_start <= s, e <= p_end,
+                            add_constraint(self._included(auto_id), p_start <= s, e <= p_end,
                                          label=f"dependency_containedin: '{t.id}' within '{auto_id}'")
                         else:
                             constraints = []
@@ -1224,7 +1229,7 @@ class TaskNetSMT:
                             else:
                                 constraints.append(e <= p_end)
 
-                            add_constraint(*constraints,
+                            add_constraint(self._included(auto_id), *constraints,
                                          label=f"dependency_containedin: '{t.id}' within '{auto_id}' with offsets")
                     else:
                         # No auto-instance: use OR semantics over all available instances
@@ -1241,7 +1246,7 @@ class TaskNetSMT:
                             # Must be contained within at least one instance (OR semantics)
                             if dep.start_offset is None and dep.end_offset is None:
                                 # Encoding: (parent1.start <= s AND e <= parent1.end) OR (parent2.start <= s AND e <= parent2.end) OR ...
-                                constraints = [And(self.start_vars[inst.id] <= s, e <= self.end_vars[inst.id])
+                                constraints = [And(self._included(inst.id), self.start_vars[inst.id] <= s, e <= self.end_vars[inst.id])
                                               for inst in def_instances]
                                 add_constraint(Or(*constraints), label=f"dependency_containedin: task '{t.id}' must be contained within some instance of '{dep.task_id}'")
                             else:
@@ -1268,7 +1273,7 @@ class TaskNetSMT:
                                     else:
                                         inst_constraints.append(e <= p_end)
 
-                                    or_constraints.append(And(*inst_constraints))
+                                    or_constraints.append(And(self._included(inst.id), *inst_constraints))
 
                                 add_constraint(Or(*or_constraints), label=f"dependency_containedin: task '{t.id}' must be contained within some instance of '{dep.task_id}' with offsets")
 
@@ -1303,6 +1308,16 @@ class TaskNetSMT:
                     # Both required - always distinct
                     self.add_tracked(And(si != sj, ei != ej, si != ej, ei != sj),
                                    f"task_distinctness: tasks '{ti.id}' and '{tj.id}' must have distinct boundaries")
+
+    def _included(self, task_id):
+        """Inclusion condition of a task: its inclusion flag for an optional or
+        request task, True for a required one. A dependency on a task requires
+        that task to be scheduled, so dependency constraints conjoin this."""
+        if task_id in self.optional_included:
+            return self.optional_included[task_id]
+        if task_id in self.request_included:
+            return self.request_included[task_id]
+        return True
 
     def _encode_no_simultaneous_assignments(self):
         """
@@ -2316,6 +2331,28 @@ class TaskNetSMT:
             twin.add(c.translate(ctx))
         return ctx, twin
 
+    def _build_tracked_twin(self):
+        """Clone this tracked solver into its own Z3 context, keeping the labels.
+
+        `self.solver.assertions()` holds a tracked assertion as
+        `Implies(tracker, c)`; the clone asserts the same implications and the
+        trackers are passed to `check()` as assumptions, so its unsat core is the
+        set of failed trackers, whose names are the labels. (`Solver.translate`
+        drops the tracking.) Racing this clone instead of `self.solver` keeps the
+        main context out of the race: interrupting a check that is running in
+        the main context leaves it damaged, and later solves in it (the property
+        checks) can return incomplete models. Returns `(ctx, solver, assumptions)`.
+        """
+        ctx = Context()
+        twin = Solver(ctx=ctx)
+        twin.set(unsat_core=True)
+        if self.timeout_ms is not None:
+            twin.set("timeout", int(self.timeout_ms))
+        for assertion in self.solver.assertions():
+            twin.add(assertion.translate(ctx))
+        assumptions = [b.translate(ctx) for b in getattr(self, '_tracker_bools', [])]
+        return ctx, twin, assumptions
+
     def _check_portfolio(self):
         """Race the untracked encoding against a tracked twin, on two cores.
 
@@ -2325,13 +2362,16 @@ class TaskNetSMT:
         wins is not predictable from the spec, so both run and the first usable
         answer is taken.
 
-        The loser is stopped via its context's interrupt flag and NOT waited for:
+        Both racers run in contexts of their own, so the main context is never
+        interrupted (interrupting a running check there damaged later solves in
+        it, 2026-10-13). The loser is stopped via its context's interrupt flag and
+        NOT waited for:
         Z3 polls that flag only at certain points of its search, and in nonlinear
         arithmetic the losing `check()` can run on for minutes before returning.
         The abandoned thread is a daemon and dies with the process.
 
         Both outcomes are raced. The schedule comes from whichever solver finds one
-        first; a model found by the twin is translated back into the main context.
+        first; its model is translated back into the main context.
         (Until 2026-10-11 a model found by the twin was discarded and the untracked
         solver awaited, on the assumption that untracked is faster at finding
         models. On the paper's sequential-chain benchmarks the opposite holds by
@@ -2344,19 +2384,19 @@ class TaskNetSMT:
         and `twin` is None unless it holds a completed UNSAT (i.e. has a core).
         """
         plain_ctx, plain = self._build_untracked_twin()
-        tracked = self.solver          # main context, labelled
+        tracked_ctx, tracked, assumptions = self._build_tracked_twin()
 
         state = {}
         cond = threading.Condition()
 
-        def run(key, solver):
+        def run(key, solver, assumptions=()):
             # A racer must ALWAYS record a result, or the main thread waits
             # forever. Fetching the model can fail if this side finished just as
             # the other side's win interrupted our context ("no current model");
             # that is reported as `unknown`, i.e. this side lost.
             result, model = unknown, None
             try:
-                result = solver.check()
+                result = solver.check(*assumptions)
                 if result == sat:
                     try:
                         model = solver.model()
@@ -2372,7 +2412,7 @@ class TaskNetSMT:
                     cond.notify_all()
 
         threading.Thread(target=run, args=('untracked', plain), daemon=True).start()
-        threading.Thread(target=run, args=('tracked', tracked), daemon=True).start()
+        threading.Thread(target=run, args=('tracked', tracked, assumptions), daemon=True).start()
 
         # Wait for the first USABLE answer: a model from either side, UNSAT from
         # the tracked side (it holds the core), UNSAT from the plain side once
@@ -2391,24 +2431,20 @@ class TaskNetSMT:
             tracked_model = state.get('tracked_model')
 
         if tracked_result == sat:
-            # The main solver won: its model needs no translation. The plain
-            # clone, if still running, is interrupted and abandoned (daemon).
+            # The tracked clone won. The plain clone, if still running, is
+            # interrupted and abandoned (daemon).
             if 'untracked' not in state:
                 plain_ctx.interrupt()
-            return sat, tracked_model, None
+            return sat, tracked_model.translate(main_ctx()), None
         if tracked_result == unsat:
             if 'untracked' not in state:
                 plain_ctx.interrupt()
             return unsat, None, tracked
         if untracked_result == sat:
-            # The clone won. Its model must be translated into the main context,
-            # which is only safe once the tracked solver has stopped using it:
-            # interrupt it and wait (Z3 notices the interrupt at its next poll).
+            # The plain clone won. The tracked clone, if still running, is
+            # interrupted and abandoned (daemon); its context is its own.
             if 'tracked' not in state:
-                main_ctx().interrupt()
-                with cond:
-                    while 'tracked' not in state:
-                        cond.wait()
+                tracked_ctx.interrupt()
             return sat, untracked_model.translate(main_ctx()), None
         if untracked_result == unsat:
             return unsat, None, None
@@ -2531,7 +2567,7 @@ class TaskNetSMT:
         if self.portfolio and isinstance(self.solver, Solver):
             res, portfolio_model, twin = self._check_portfolio()
             if twin is not None:
-                core_solver = twin  # the tracked main solver
+                core_solver = twin  # the tracked clone, which holds the core
         else:
             res = self.solver.check()
 
@@ -2910,6 +2946,23 @@ class TaskNetTL(TaskNetSMT):
         # Atomic
         if isinstance(f, TLNumCmp):
             kind, expr = self._tl_value_at_zone(f.tl, j)
+            if kind == "state":
+                # State timeline with numeric state names, e.g. state(0, 1, 2):
+                # the comparison holds in exactly the states whose name, read
+                # as a number, satisfies it (wellformedness admits this case).
+                _, s2i, _, _ = self.state_tl_zone[f.tl]
+                ops = {"<": lambda a, b: a < b, "<=": lambda a, b: a <= b,
+                       "=": lambda a, b: a == b, ">": lambda a, b: a > b,
+                       ">=": lambda a, b: a >= b}
+                matching = []
+                for name, idx in s2i.items():
+                    try:
+                        value = float(name)
+                    except ValueError:
+                        continue
+                    if ops[f.op](value, f.bound):
+                        matching.append(expr == idx)
+                return Or(*matching) if matching else False
             if kind not in ("real", "atomic"):
                 self.solver.add(False)
                 return False
