@@ -56,6 +56,7 @@ class WellFormednessChecker:
         self._check_task_definitions_exist()
         self._check_task_dependencies_exist()
         self._check_impact_types()
+        self._check_duplicate_assignments()
         self._check_condition_types()
         self._check_timeline_references()
         self._check_property_names_unique()
@@ -184,6 +185,33 @@ class WellFormednessChecker:
 
                 # Check impact type matches timeline type
                 self._check_impact_timeline_compatibility(t.id, imp, tl)
+
+    def _check_duplicate_assignments(self):
+        """A task assigns a timeline at most once at each boundary.
+
+        Two assignments (`=`, or rate assignments `=~`) to the same timeline in
+        the same `pre` or `post` block would fire at the same time point. The
+        encoder forbids that by constraint, which made such a tasknet silently
+        unsatisfiable with an empty unsat core; it is reported here instead.
+        Duplicates can also arise from merging an instance with its taskdef.
+        """
+        for t in self.tn.tasks:
+            if t.impacts is None or t.kind == TaskKind.DEFINITION:
+                continue
+            seen = set()
+            for imp in t.impacts:
+                if not isinstance(imp.how, (ImpactAssign, ImpactRateAssignment)):
+                    continue
+                key = (imp.id, imp.when, type(imp.how))
+                if key in seen:
+                    op = "=~" if isinstance(imp.how, ImpactRateAssignment) else "="
+                    self._error(
+                        "Impact Timing",
+                        f"Task '{t.id}' has more than one '{op}' assignment to timeline "
+                        f"'{imp.id}' in '{imp.when}'. A task may assign a timeline at most "
+                        "once at each boundary."
+                    )
+                seen.add(key)
 
     def _check_impact_timeline_compatibility(self, task_id: str, imp: Impact, tl: Timeline):
         """Check that an impact is compatible with its timeline type."""
