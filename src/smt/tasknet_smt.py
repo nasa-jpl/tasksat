@@ -105,10 +105,12 @@ class TaskNetSMT:
         # The portfolio needs exactly that form to clone into the twin's context.
         self.portfolio = portfolio
         # In portfolio mode the main solver is the TRACKED one (built directly,
-        # with assert_and_track); the untracked racer is a translated clone.
-        # Translating into a fresh context costs ~2x on nonlinear problems, and
-        # the tracked side is the fast one on the sequential-chain benchmarks,
-        # so it must not be the copy (2026-10-11).
+        # with assert_and_track). Both racers are clones in contexts of their
+        # own (`_check_portfolio`): racing the main solver itself meant
+        # interrupting a running check in the main context, which damaged later
+        # solves there (2026-10-13). The price is the translation: on
+        # unsat_10_temporal the tracked clone takes ~123 s against ~100 s for
+        # the main solver; satisfiable benchmarks were unaffected.
         self.track = track or portfolio
         # Per-solver Z3 timeout for the Phase-1 validity solve (ms). When set and
         # the solve exceeds it, `check()` returns `unknown` and `solve()` raises
@@ -2329,6 +2331,28 @@ class TaskNetSMT:
             twin.add(c.translate(ctx))
         return ctx, twin
 
+    def _build_tracked_twin(self):
+        """Clone this tracked solver into its own Z3 context, keeping the labels.
+
+        `self.solver.assertions()` holds a tracked assertion as
+        `Implies(tracker, c)`; the clone asserts the same implications and the
+        trackers are passed to `check()` as assumptions, so its unsat core is the
+        set of failed trackers, whose names are the labels. (`Solver.translate`
+        drops the tracking.) Racing this clone instead of `self.solver` keeps the
+        main context out of the race: interrupting a check that is running in
+        the main context leaves it damaged, and later solves in it (the property
+        checks) can return incomplete models. Returns `(ctx, solver, assumptions)`.
+        """
+        ctx = Context()
+        twin = Solver(ctx=ctx)
+        twin.set(unsat_core=True)
+        if self.timeout_ms is not None:
+            twin.set("timeout", int(self.timeout_ms))
+        for assertion in self.solver.assertions():
+            twin.add(assertion.translate(ctx))
+        assumptions = [b.translate(ctx) for b in getattr(self, '_tracker_bools', [])]
+        return ctx, twin, assumptions
+
     def _check_portfolio(self):
         """Race the untracked encoding against a tracked twin, on two cores.
 
@@ -2338,13 +2362,16 @@ class TaskNetSMT:
         wins is not predictable from the spec, so both run and the first usable
         answer is taken.
 
-        The loser is stopped via its context's interrupt flag and NOT waited for:
+        Both racers run in contexts of their own, so the main context is never
+        interrupted (interrupting a running check there damaged later solves in
+        it, 2026-10-13). The loser is stopped via its context's interrupt flag and
+        NOT waited for:
         Z3 polls that flag only at certain points of its search, and in nonlinear
         arithmetic the losing `check()` can run on for minutes before returning.
         The abandoned thread is a daemon and dies with the process.
 
         Both outcomes are raced. The schedule comes from whichever solver finds one
-        first; a model found by the twin is translated back into the main context.
+        first; its model is translated back into the main context.
         (Until 2026-10-11 a model found by the twin was discarded and the untracked
         solver awaited, on the assumption that untracked is faster at finding
         models. On the paper's sequential-chain benchmarks the opposite holds by
@@ -2357,19 +2384,19 @@ class TaskNetSMT:
         and `twin` is None unless it holds a completed UNSAT (i.e. has a core).
         """
         plain_ctx, plain = self._build_untracked_twin()
-        tracked = self.solver          # main context, labelled
+        tracked_ctx, tracked, assumptions = self._build_tracked_twin()
 
         state = {}
         cond = threading.Condition()
 
-        def run(key, solver):
+        def run(key, solver, assumptions=()):
             # A racer must ALWAYS record a result, or the main thread waits
             # forever. Fetching the model can fail if this side finished just as
             # the other side's win interrupted our context ("no current model");
             # that is reported as `unknown`, i.e. this side lost.
             result, model = unknown, None
             try:
-                result = solver.check()
+                result = solver.check(*assumptions)
                 if result == sat:
                     try:
                         model = solver.model()
@@ -2385,7 +2412,7 @@ class TaskNetSMT:
                     cond.notify_all()
 
         threading.Thread(target=run, args=('untracked', plain), daemon=True).start()
-        threading.Thread(target=run, args=('tracked', tracked), daemon=True).start()
+        threading.Thread(target=run, args=('tracked', tracked, assumptions), daemon=True).start()
 
         # Wait for the first USABLE answer: a model from either side, UNSAT from
         # the tracked side (it holds the core), UNSAT from the plain side once
@@ -2404,24 +2431,20 @@ class TaskNetSMT:
             tracked_model = state.get('tracked_model')
 
         if tracked_result == sat:
-            # The main solver won: its model needs no translation. The plain
-            # clone, if still running, is interrupted and abandoned (daemon).
+            # The tracked clone won. The plain clone, if still running, is
+            # interrupted and abandoned (daemon).
             if 'untracked' not in state:
                 plain_ctx.interrupt()
-            return sat, tracked_model, None
+            return sat, tracked_model.translate(main_ctx()), None
         if tracked_result == unsat:
             if 'untracked' not in state:
                 plain_ctx.interrupt()
             return unsat, None, tracked
         if untracked_result == sat:
-            # The clone won. Its model must be translated into the main context,
-            # which is only safe once the tracked solver has stopped using it:
-            # interrupt it and wait (Z3 notices the interrupt at its next poll).
+            # The plain clone won. The tracked clone, if still running, is
+            # interrupted and abandoned (daemon); its context is its own.
             if 'tracked' not in state:
-                main_ctx().interrupt()
-                with cond:
-                    while 'tracked' not in state:
-                        cond.wait()
+                tracked_ctx.interrupt()
             return sat, untracked_model.translate(main_ctx()), None
         if untracked_result == unsat:
             return unsat, None, None
@@ -2544,7 +2567,7 @@ class TaskNetSMT:
         if self.portfolio and isinstance(self.solver, Solver):
             res, portfolio_model, twin = self._check_portfolio()
             if twin is not None:
-                core_solver = twin  # the tracked main solver
+                core_solver = twin  # the tracked clone, which holds the core
         else:
             res = self.solver.check()
 
