@@ -1,0 +1,42 @@
+# Machine
+cpu:    Apple M4 Max, 14 cores
+memory: 36 GB
+os:     macOS 26.6.2
+python: Python 3.14.0
+z3:     4.15.4
+tool:   f692d2a
+timeout: 300s, mode: satisfy
+
+benchmark      config   validity     safety      total  result
+seq_5          race        0.70s      0.03s      0.76s  SAT 1 hold, 0 violated, 0 unknown
+seq_5          plain      27.31s      0.03s     27.36s  SAT 1 hold, 0 violated, 0 unknown
+seq_10         race      101.50s      0.11s    101.70s  SAT 1 hold, 0 violated, 0 unknown
+seq_10         plain       >300s          -          -  TIMEOUT
+seq_15         race        >300s          -          -  TIMEOUT
+seq_15         plain       >300s          -          -  TIMEOUT
+seq_20         race        >300s          -          -  TIMEOUT
+seq_20         plain       >300s          -          -  TIMEOUT
+seqforce_5     race        0.27s      0.03s      0.33s  SAT 1 hold, 0 violated, 0 unknown
+seqforce_5     plain      46.25s      0.03s     46.31s  SAT 1 hold, 0 violated, 0 unknown
+seqforce_10    race        2.46s      0.12s      2.66s  SAT 1 hold, 0 violated, 0 unknown
+seqforce_10    plain      20.01s      0.12s     20.22s  SAT 1 hold, 0 violated, 0 unknown
+seqforce_15    race       17.31s     10.18s     27.67s  SAT 0 hold, 0 violated, 1 unknown
+seqforce_15    plain     156.55s     10.18s    166.91s  SAT 0 hold, 0 violated, 1 unknown
+seqforce_20    race      110.37s      0.62s    111.29s  SAT 1 hold, 0 violated, 0 unknown
+seqforce_20    plain       >300s          -          -  TIMEOUT
+par_5_2        race        0.02s      0.00s      0.05s  SAT 
+par_5_2        plain       0.02s      0.00s      0.04s  SAT 
+par_10_3       race        0.25s      0.00s      0.33s  SAT 
+par_10_3       plain       0.52s      0.00s      0.60s  SAT 
+par_20_5       race      132.64s      0.00s    132.91s  SAT 
+par_20_5       plain      78.82s      0.00s     79.10s  SAT 
+par_30_10      race        >300s          -          -  TIMEOUT
+par_30_10      plain       >300s          -          -  TIMEOUT
+prop_5_10      race        0.06s     40.43s     40.52s  SAT 6 hold, 0 violated, 4 unknown
+prop_5_10      plain       0.03s     40.39s     40.45s  SAT 6 hold, 0 violated, 4 unknown
+prop_10_20     race        0.38s     86.01s     86.49s  SAT 12 hold, 0 violated, 8 unknown
+prop_10_20     plain       0.13s     85.63s     85.87s  SAT 12 hold, 0 violated, 8 unknown
+prop_10_50     race        0.36s    219.52s    219.99s  SAT 30 hold, 0 violated, 20 unknown
+prop_10_50     plain       0.15s    226.38s    226.64s  SAT 30 hold, 0 violated, 20 unknown
+prop_15_100    race       52.80s    580.54s    633.57s  SAT 53 hold, 0 violated, 47 unknown
+prop_15_100    plain      33.49s    569.36s    603.09s  SAT 55 hold, 0 violated, 45 unknown
