@@ -1,0 +1,20 @@
+\frametitle{Reading a counterexample trail} \small
+
+\begin{lstlisting}[style=shell]
+$ spin -t -p lockless.pml                              (abridged)
+
+  4: proc 1 (Producer:1) lockless.pml:68 (state 16) [avail = (avail+1)]
+  5: proc 3 (Consumer:1) lockless.pml:76 (state 1)  [((avail>0))]
+  6: proc 2 (Consumer:1) lockless.pml:76 (state 1)  [((avail>0))]
+  7: proc 3 (Consumer:1) lockless.pml:79 (state 3)  [slot[0] = 3]
+  7: proc 3 (Consumer:1) lockless.pml:79 (state 5)  [avail = (avail-1)]
+ 10: proc 1 (Producer:1) lockless.pml:66 (state 13) [slot[1] = 2]
+ 11: proc 2 (Consumer:1) lockless.pml:80 (state 9)  [avail = (avail-1)]
+spin: lockless.pml:84, Error: assertion violated
+spin: text of failed assertion: assert((avail>=0))
+ 12: proc 3 (Consumer:1) lockless.pml:84 (state 15) [assert((avail>=0))]
+spin: trail ends after 12 steps
+#processes: 4
+        avail = -1
+\end{lstlisting}
+

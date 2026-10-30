@@ -1,0 +1,171 @@
+%----------------------------------------
+\begin{frame}
+  \frametitle{Part 3}
+
+{\Large\bf Stating properties}
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}
+  \frametitle{Two kinds of property} \small
+
+\begin{block}{Safety --- ``nothing bad ever happens''}\small
+Violated by a {\bf finite} execution prefix.\\
+{\em Both instruments powered simultaneously. An assertion fails. A deadlock.}
+\end{block}
+
+\pause
+
+\begin{block}{Liveness --- ``something good eventually happens''}\small
+Violated only by an {\bf infinite} execution.\\
+{\em A request is never granted. The system loops forever without progressing.}
+\end{block}
+
+\pause
+\vspace{0.4cm}
+
+\spin{} handles both, but by different machinery:
+safety by ordinary reachability, liveness by cycle detection.
+Liveness checking is roughly twice the cost.
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}[fragile]
+  \frametitle{Level 1: assertions} \small
+
+\begin{lstlisting}[language=promela]
+assert(powered <= 1);
+assert(len(cmd_queue) < QUEUE_MAX);
+assert(mode != SAFE_MODE || thrusters_off);
+\end{lstlisting}
+
+\pause
+\vspace{0.3cm}
+
+\begin{block}{Global invariants}\small
+Put the invariant in its own monitor process; \spin{} will interleave it everywhere:
+\begin{lstlisting}[language=promela]
+active proctype Monitor() {
+  assert(powered <= 1)      /* checked at all interleaving points */
+}
+\end{lstlisting}
+\end{block}
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}[fragile]
+  \frametitle{Level 2: end states, progress, acceptance} \small
+
+\begin{block}{Valid end states --- \ipromela{end} labels}\small
+By default a process must terminate to end validly. Label a legitimate blocking
+point to say ``stopping here is fine'':
+\begin{lstlisting}[language=promela]
+end_wait: do :: cmd ? c -> handle(c) od
+\end{lstlisting}
+Without the \ipromela{end} prefix, an idle server looks like a deadlock.
+\end{block}
+
+\pause
+
+\begin{block}{Progress --- \ipromela{progress} labels}\small
+\begin{lstlisting}[language=promela]
+progress_grant: powered++;
+\end{lstlisting}
+With \tool{./pan -l}, \spin{} reports any infinite execution that does {\bf not}
+pass a \ipromela{progress} label infinitely often --- i.e.\ livelock / starvation.
+\end{block}
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}[fragile]
+  \frametitle{Level 3: Linear Temporal Logic} \small
+
+Over an infinite execution $\sigma = s_0 s_1 s_2 \ldots$
+
+\vspace{0.3cm}
+
+\begin{center}
+\begin{tabular}{l l p{5.0cm}}
+\toprule
+{\bf Operator} & {\bf \spin{} syntax} & {\bf Meaning}\\
+\midrule
+$\LTLsquare\, p$          & \verb|[] p|      & $p$ holds in every state\\
+$\LTLdiamond\, p$         & \verb|<> p|      & $p$ holds in some future state\\
+$\Next\, p$               & \verb|X p|       & $p$ holds in the next state\\
+$p \until q$              & \verb|p U q|     & $p$ holds until $q$ holds, and $q$ does\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\pause
+\vspace{0.4cm}
+
+\begin{block}{The three patterns that cover most real requirements}\small
+\begin{tabular}{l l}
+{\bf Invariance} & $\LTLsquare\, \neg bad$ \\[0.1cm]
+{\bf Response}   & $\LTLsquare\, (request \rightarrow \LTLdiamond\, grant)$ \\[0.1cm]
+{\bf Precedence} & $\neg action \until authorization$ \\
+\end{tabular}
+\end{block}
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}[fragile]
+  \frametitle{LTL in \promelaname{}} \small
+
+\begin{lstlisting}[language=promela]
+#define p0  (want[0])          /* instrument 0 requests */
+#define g0  (powered_by == 0)  /* instrument 0 has the bus */
+#define mutex (powered <= 1)
+
+ltl safety   { [] mutex }
+ltl response { [] (p0 -> <> g0) }
+ltl no_starve { []<> g0 }
+\end{lstlisting}
+
+\end{frame}
+
+% ===== HIDDEN 2026-09-09 at Klaus's request: Never claims and trace assertions =====
+%%----------------------------------------
+%\begin{frame}[fragile]
+%  \frametitle{Never claims and \tool{trace} assertions} \small
+%
+%\begin{block}{Never claim --- the automaton \spin{} actually runs}\small
+%An \ipromela{ltl} formula is compiled into a \ipromela{never} claim: a \buchi{}
+%automaton describing the {\bf violating} behaviors. You can also write one by hand.
+%\end{block}
+%
+%\pause
+%
+%\begin{lstlisting}[language=promela]
+%/* the violations of  ltl no_starve { []<> g0 },     */
+%/* which are the runs satisfying  <>[] !g0           */
+%never {
+%T0_init:
+%  do
+%  :: true                    /* not yet committed          */
+%  :: !g0 -> goto accept_S    /* guess: g0 never holds again */
+%  od;
+%accept_S:
+%  do :: !g0 od               /* and it never does           */
+%}
+%\end{lstlisting}
+%
+%\pause
+%\vspace{0.15cm}
+%
+%The \ipromela{accept_} label is what makes it liveness: a violation is an infinite
+%run through it. Make \ipromela{T0_init} accepting too and the claim matches
+%{\em every} run.
+%
+%\pause
+%
+%\ipromela{trace} / \ipromela{notrace} assertions instead constrain the {\bf order
+%of channel operations} across the whole system.
+%
+%\end{frame}

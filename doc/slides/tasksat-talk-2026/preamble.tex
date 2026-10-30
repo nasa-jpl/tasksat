@@ -1,0 +1,56 @@
+\usepackage[T1]{fontenc}   % so < > ~ in \ttfamily render correctly
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{tncolor}{rgb}{0.10,0.35,0.75}
+\definecolor{okcol}{rgb}{0.13,0.55,0.13}
+\definecolor{badcol}{rgb}{0.75,0.10,0.10}
+
+\newcommand{\tasksat}{\textsf{TaskSAT}}
+\newcommand{\mexec}{\textsf{MEXEC}}
+\newcommand{\zthree}{\textsf{Z3}}
+\newcommand{\holds}{{\color{okcol}\bf HOLDS}}
+\newcommand{\violated}{{\color{badcol}\bf VIOLATED}}
+
+\lstdefinelanguage{tasknetdsl}{
+    keywords={tasknet, end, timelines, atomic, state, cumulative, bounds, rate,
+              taskdef, task, optional, request, pre, inv, maint, post, in, impacts,
+              duration, duration_range, start_range, end_range, after, containedin,
+              constraints, properties, prop, not, and, or, implies, always,
+              eventually, until, since, active, initial, final, within, invariant,
+              compositional, mutex, param},
+    morecomment=[l]{//},
+    morecomment=[l]{\#},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{tncolor}\bfseries,
+    basicstyle=\ttfamily\scriptsize,
+    backgroundcolor=\color{gray!6},
+    frame=single,
+    rulecolor=\color{black!30},
+    keepspaces=true,
+    showstringspaces=false,
+    tabsize=2,
+    aboveskip=4pt,
+    belowskip=4pt,
+}
+
+\lstdefinestyle{shell}{
+    language={},
+    basicstyle=\ttfamily\scriptsize,
+    backgroundcolor=\color{black!4},
+    frame=single,
+    rulecolor=\color{black!30},
+    keepspaces=true,
+    showstringspaces=false,
+    aboveskip=4pt,
+    belowskip=4pt,
+}
+
+\lstset{language=tasknetdsl}
+\newcommand{\itn}{\lstinline[language=tasknetdsl,basicstyle=\ttfamily\small,backgroundcolor={},frame=none]}

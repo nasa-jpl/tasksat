@@ -1,0 +1,42 @@
+%----------------------------------------
+\begin{frame}
+  \frametitle{Conclusion} \small
+
+\begin{enumerate}\small
+
+      \item LEAN proofs went through automatically, which is a game changer - so far.
+
+      \pause
+
+      \item But writing the specification is still hard:
+      \begin{itemize}\small
+      \item which properties to write; One has to know what the ``knobs'' are and how to turn them.
+      \item getting a single property right. The {\tt RESET\_STATISTICS} bug hid behind a
+            proved but too weak property.
+      \end{itemize}
+
+      \pause
+
+      \item Properties are associated with natural language explanations.
+
+      \pause
+
+      \item Is the model the code? The FAULT $\to$ ON bug hid behind a proved but too weak
+      model. Tricky problems include memory safety, aliasing, and concurrency.
+
+      \pause
+
+      \item One can also use the LLM to find problems in the code and generate a model, 
+            e.g. in Promela (Spin) to demonstrate it.
+      
+      \pause
+
+      \item An LLM can perform static analysis, checking against coding standards.
+
+      \pause
+
+      \item One can of write the spec first, then the code, and then prove the code against the spec.
+
+\end{enumerate}
+
+\end{frame}

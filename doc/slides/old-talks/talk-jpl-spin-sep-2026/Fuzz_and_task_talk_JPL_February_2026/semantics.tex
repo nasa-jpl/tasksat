@@ -1,0 +1,169 @@
+
+%----------------------------------------
+\begin{frame}
+  \frametitle{Semantics} \small
+
+\begin{definition}[Assignments]
+
+An assignment is a mapping from command field names to values:
+
+\[
+\gamma \in \Gamma = X \stackrel{m}{\rightarrow} V
+\]
+
+\begin{itemize}
+    \item $\epsilon$ denotes the empty assignment
+    \item $[ x_1 \mapsto v_1,...,x_n \mapsto v_n ]$ denotes the assignment that maps each variable $x_i$ to the value $v_i$
+    \item $\gamma [ x \mapsto v ]$ denotes the assignment that differs from $\gamma$ only by associating the value $x$ to $v$
+    \item $\gamma_1 \dagger \gamma_2$ denotes the assignment $\gamma_1$ overridden by the assignment $\gamma_2$
+\end{itemize}
+
+\end{definition}
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}
+  \frametitle{Some basic functions} \small
+
+\[
+\mathsf{Op}: \otimes \rightarrow V \times V \rightarrow V
+\]
+\[
+\mathsf{Rel}: \diamond \rightarrow V \times V \rightarrow \bool
+\]
+\[
+\mathsf{Reg}: r \rightarrow V \rightarrow \bool
+\]
+\[
+\mathsf{Eval}: e \rightarrow \Gamma \rightarrow V
+\]
+
+\begin{align*}
+\eval{x}{\gamma} &= \gamma(x) \\
+\eval{c}{\gamma} &= c\\
+\eval{id.id}{\gamma} &= id.id\\
+\eval{e_1 \otimes e_2}{\gamma} &= \oper{\otimes}{\eval{e_1}{\gamma}}{\eval{e_2}{\gamma}}
+\end{align*}
+
+\end{frame}
+
+
+%----------------------------------------
+\begin{frame}
+  \frametitle{The Match function} \small
+
+\[
+\mathsf{Match}: m \rightarrow \Gamma \rightarrow C \rightarrow \Gamma_{\bot}
+\]
+\begin{align*}
+\match{\epsilon}{\gamma}{\chi} &= [] \\
+\match{m_1 \; m_2}{\gamma}{\chi} &= \match{m_1}{\gamma}{\chi} \dagger \match{m_2}{\gamma}{\chi}\\
+\match{id = p}{\gamma}{\chi} &= \pat{p}{\gamma}{\chi.id}
+\end{align*}
+
+\pause
+
+\[
+\mathsf{Pat}: p \rightarrow \Gamma \rightarrow V \rightarrow \Gamma_{\bot}
+\]
+\begin{align*}
+\pat{x?}{\gamma}{v} &= [x \mapsto v] \\
+\pat{x}{\gamma}{v} &= {\bf if} \; v = \gamma(x) \; {\bf then} \; [] \; {\bf else} \; \bot\\
+\pat{c}{\gamma}{v} &= {\bf if} \; v = c \; {\bf then} \; [] \; {\bf else} \; \bot\\
+\pat{id_1.id_2}{\gamma}{v} &= {\bf if} \; v = id_1.id_2 \; {\bf then} \; [] \; {\bf else} \; \bot
+\end{align*}
+
+\end{frame}
+
+
+%----------------------------------------
+\begin{frame}
+  \frametitle{Trace (test) acceptance} \small
+
+\begin{definition}[Trace acceptance by position]
+
+\[
+\models \;\subseteq\; (\Gamma \times T \times \nat) \times \varphi
+\]
+
+\end{definition}
+
+$( \gamma,\sigma,i) \models \varphi$ denotes that $\varphi$ holds at position $i$ of $\sigma$ with the assignment $\gamma$.
+
+\pause
+
+\begin{definition}[Trace acceptance]
+
+We say that a trace $\sigma$ satisfies a formula $\varphi$, written
+$\sigma \models \varphi$, if and only if $(\epsilon, \sigma, 0) \models \varphi$.
+
+\end{definition}
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}
+  \frametitle{Trace (test) acceptance} \small
+
+\begin{itemize}
+
+\item $(\gamma,\sigma,i) \models \true$.
+
+\item $(\gamma,\sigma,i) \models \neg \varphi$ \tabto{\tabconst} \iff{} 
+{\bf not}  $(\gamma,\sigma,i) \models \varphi$.
+
+\item $(\gamma,\sigma,i) \models \varphi_1 \lor \varphi_2$ \tabto{\tabconst} \iff{} $(\gamma,\sigma,i) \models \varphi_1$ {\bf or} $(\gamma,\sigma,i) \models \varphi_2$.
+
+\pause
+\item $(\gamma,\sigma,i) \models \langle id(m) \rangle \varphi$ \tabto{\tabconst} \iff{}
+($name(\sigma(i)) = id$ {\bf or} id = {\bf any}) {\bf and}\\
+\tabto{\tabconste} {\bf let} $\gamma' = \match{m}{\gamma}{\sigma(i)}$ {\bf in}\\
+\tabto{\tabconste}  $\gamma' \neq \bot$ 
+{\bf and} $(\gamma',\sigma,i) \models \varphi$.
+
+\pause
+\item $(\gamma,\sigma,i) \models e_1 \; \diamond \; e_2$ \tabto{\tabconst} \iff{} 
+$\rel{\diamond}{\eval{e_1}{\gamma}}{\eval{e_2}{\gamma}}$.
+
+\item $(\gamma,\sigma,i) \models e \vdash r$ \tabto{\tabconst} \iff{}
+$\reg{r}{\eval{e}{\gamma}}$.
+
+
+\pause
+\item $(\gamma,\sigma,i) \models \Next \varphi$ \tabto{\tabconst} \iff{} 
+$i < |\sigma|-1$ {\bf and} $(\gamma,\sigma,i+1) \models \varphi$.
+
+\item $(\gamma,\sigma,i) \models \varphi_1 \until \varphi_2$ \tabto{\tabconst} \iff{} 
+$(\gamma,\sigma,j) \models \varphi_2$ {\bf for some} $i \leq j < |\sigma|$\\
+\tabto{\tabconste} {\bf and for all} $i \le k < j$ $(\gamma,\sigma,k) \models \varphi_1$.
+
+\item $(\gamma,\sigma,i) \models \prev \varphi$ \tabto{\tabconst} \iff{} 
+$i>0$ {\bf and} $(\gamma,\sigma,i-1) \models \varphi$.
+
+\item $(\gamma,\sigma,i) \models \varphi_1 \since \varphi_2$
+\tabto{\tabconst} \iff{} $(\gamma,\sigma,j) \models \varphi_2$ {\bf for some} $0 \leq j \leq i$\\
+\tabto{\tabconste} {\bf and for all} $j < k \leq i$ $(\gamma,\sigma,k) \models \varphi_1$.
+
+\end{itemize}
+
+\end{frame}
+
+
+%----------------------------------------
+\begin{frame}
+  \frametitle{Trace (test) acceptance} \small
+
+\begin{itemize}
+
+\item $(\gamma,\sigma,i) \models \Sigma^{+}_{[a,b]} \varphi$ \tabto{\tabconst} \iff{} 
+{\bf let} $s = \{ j \in [ i..|\sigma|-1 ] \;|\; (\gamma,\sigma,j) \models \varphi \}$ {\bf in}\\
+\tabto{\tabconste}  $a \leq |s| \leq b$.
+
+\item $(\gamma,\sigma,i) \models \Sigma^{-}_{[a,b]} \varphi$ \tabto{\tabconst} \iff{} 
+{\bf let} $s = \{ j \in [ 0..i ] \;|\; (\gamma,\sigma,j) \models \varphi \}$ {\bf in}\\
+\tabto{\tabconste}  $a \leq |s| \leq b$.
+
+\end{itemize}
+
+\end{frame}

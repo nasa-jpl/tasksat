@@ -1,0 +1,167 @@
+diff --git a/Os/Generic/LocklessPriorityQueue.cpp b/Os/Generic/LocklessPriorityQueue.cpp
+index 21e600d..30bcf69 100644
+--- a/Os/Generic/LocklessPriorityQueue.cpp
++++ b/Os/Generic/LocklessPriorityQueue.cpp
+@@ -6,6 +6,12 @@
+ #include <atomic>
+ #include <cstring>
+ #include <limits>
++// >>> TEMPORARY REVIEW INSTRUMENTATION (not for merge) <<<
++// Headers for an env-gated seam used to widen a naturally-occurring preemption
++// window in send() so a transient m_available underflow can be observed.
++#include <chrono>
++#include <cstdlib>
++#include <thread>
+ #include "Fw/LanguageHelpers.hpp"
+ #include "Fw/Time/TimeInterval.hpp"
+ #include "Fw/Types/Assert.hpp"
+@@ -237,12 +243,21 @@ QueueInterface::Status LocklessPriorityQueue::send(const U8* buffer,
+                 // this increment, so m_count cannot transiently underflow.
+                 const U32 nextCount = this->m_handle.m_count.fetch_add(1, std::memory_order_acq_rel) + 1;
+ 
+-                slot.m_stateTag.store(packStateTag(LOCKLESS_SLOT_READY, tagOf(desired) + 1), std::memory_order_release);
+-
+-                // Increment the receivable count only after READY is published, so a nonzero
+-                // getMessagesAvailable() implies at least one message has been made receivable.
++                // >>> ONE-LINE FIX: credit m_available *before* publishing READY. A consumer can only
++                // claim (and decrement) a slot it has observed as READY, which now strictly follows
++                // this increment, so m_available can never underflow. getMessagesAvailable() becomes a
++                // benign upper bound (may briefly exceed the currently-READY slot count, capped at depth).
+                 static_cast<void>(this->m_handle.m_available.fetch_add(1, std::memory_order_acq_rel));
+ 
++                // >>> TEMPORARY REVIEW INSTRUMENTATION (not for merge) <<<
++                // The same naturally-occurring preemption window, now sitting between the credit and
++                // the READY publish. With the fix in place this window is benign: no underflow.
++                if (const char* seam = std::getenv("LOCKLESS_SEAM_US")) {
++                    std::this_thread::sleep_for(std::chrono::microseconds(atoi(seam)));
++                }
++
++                slot.m_stateTag.store(packStateTag(LOCKLESS_SLOT_READY, tagOf(desired) + 1), std::memory_order_release);
++
+                 // Raise the high-water mark after publication so the message is never invisible
+                 // while the producer runs this loop. Each strong-CAS failure strictly raises
+                 // prevMark (mark only increases, capped at depth), so at most depth iterations run.
+diff --git a/Os/Generic/test/ut/LocklessPriorityQueueTsanTests.cpp b/Os/Generic/test/ut/LocklessPriorityQueueTsanTests.cpp
+index a150206..d10571b 100644
+--- a/Os/Generic/test/ut/LocklessPriorityQueueTsanTests.cpp
++++ b/Os/Generic/test/ut/LocklessPriorityQueueTsanTests.cpp
+@@ -12,6 +12,7 @@
+ #include <gtest/gtest.h>
+ #include <algorithm>
+ #include <atomic>
++#include <cstdio>
+ #include <cstring>
+ #include <limits>
+ #include <thread>
+@@ -605,6 +606,111 @@ TEST(Adversarial, BatchedPriorityDrain) {
+     queue.teardown();
+ }
+ 
++// =======================================================================
++// Review-added: m_available underflow detection
++//
++// Reproduces the send()-ordering defect: m_available.fetch_add happens AFTER
++// store(READY, release), so with >=2 concurrent consumers, two consumers can
++// both pass the receive() gate on a single counted credit while two slots are
++// READY, both claim distinct slots, and both fetch_sub -> the unsigned counter
++// wraps 1 -> 0 -> 0xFFFFFFFF. A monitor thread samples getMessagesAvailable()
++// and the invariant is that it must never exceed the queue depth.
++//
++// Run with LOCKLESS_SEAM_US=50 to widen the window (bug appears);
++// unset / fix applied -> invariant holds.
++// =======================================================================
++TEST(AvailableUnderflow, MonitorNeverExceedsDepth) {
++    constexpr FwSizeType DEPTH = 8;
++    constexpr U32 PRODUCERS = 2;
++    constexpr U32 CONSUMERS = 4;
++    constexpr U32 MESSAGES_PER_PRODUCER = 4000;
++    const U32 total = PRODUCERS * MESSAGES_PER_PRODUCER;
++
++    ConcurrentState state(total, nullptr);
++    Fw::String name("available-underflow");
++    ASSERT_EQ(state.queue.create(0, name, DEPTH, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++
++    std::atomic<bool> monitorStop(false);
++    // Record the maximum receivable count ever observed, as a raw 64-bit value so an
++    // unsigned wrap to 0xFFFFFFFF (4294967295) is captured verbatim rather than clamped.
++    std::atomic<unsigned long long> maxObserved(0);
++
++    auto record = [&](unsigned long long v) {
++        unsigned long long prev = maxObserved.load(std::memory_order_relaxed);
++        while (v > prev && !maxObserved.compare_exchange_weak(prev, v, std::memory_order_relaxed)) {
++        }
++    };
++
++    std::thread monitor([&]() {
++        while (!monitorStop.load(std::memory_order_acquire)) {
++            record(static_cast<unsigned long long>(state.queue.getMessagesAvailable()));
++        }
++    });
++
++    static constexpr U32 MAX_THREADS = 16;
++    std::thread producers[MAX_THREADS];
++    std::thread consumers[MAX_THREADS];
++    for (U32 i = 0; i < CONSUMERS; i++) {
++        consumers[i] = std::thread([&]() {
++            U8 buffer[sizeof(U32)] = {0};
++            FwSizeType actualSize = 0;
++            FwQueuePriorityType priority = 0;
++            U32 emptyPolls = 0;
++            while (state.consumed.load(std::memory_order_acquire) < total) {
++                Os::QueueInterface::Status status = state.queue.receive(
++                    buffer, sizeof(U32), Os::QueueInterface::BlockingType::NONBLOCKING, actualSize, priority);
++                // Sample right after each receive to catch a fresh underflow.
++                record(static_cast<unsigned long long>(state.queue.getMessagesAvailable()));
++                if (status == Os::QueueInterface::Status::OP_OK) {
++                    emptyPolls = 0;
++                    const U32 value = unpack_u32(buffer);
++                    ASSERT_LT(value, total);
++                    const U32 prior = state.received[value].fetch_add(1, std::memory_order_acq_rel);
++                    ASSERT_EQ(prior, 0u) << "duplicate delivery of value " << value;
++                    state.consumed.fetch_add(1, std::memory_order_acq_rel);
++                } else if (status == Os::QueueInterface::Status::EMPTY) {
++                    if (state.producersDone.load(std::memory_order_acquire) && (++emptyPolls > 200000)) {
++                        break;
++                    }
++                    std::this_thread::yield();
++                } else {
++                    FAIL() << "unexpected status " << static_cast<int>(status);
++                }
++            }
++        });
++    }
++    for (U32 i = 0; i < PRODUCERS; i++) {
++        producers[i] = std::thread(concurrent_producer, &state, i, MESSAGES_PER_PRODUCER);
++    }
++
++    for (U32 i = 0; i < PRODUCERS; i++) {
++        producers[i].join();
++    }
++    state.producersDone.store(true, std::memory_order_release);
++    for (U32 i = 0; i < CONSUMERS; i++) {
++        consumers[i].join();
++    }
++    monitorStop.store(true, std::memory_order_release);
++    monitor.join();
++
++    const unsigned long long observed = maxObserved.load(std::memory_order_relaxed);
++    std::printf("[available-underflow] max getMessagesAvailable() observed = %llu (depth = %d)\n",
++                observed, static_cast<int>(DEPTH));
++
++    // Delivery correctness must hold regardless of the counter bug: no lost, no duplicated.
++    EXPECT_EQ(state.consumed.load(std::memory_order_acquire), total) << "message lost or count wrong";
++    for (U32 i = 0; i < total; i++) {
++        EXPECT_EQ(state.received[i].load(std::memory_order_relaxed), 1u) << "value " << i;
++    }
++
++    // The invariant under test: getMessagesAvailable() is a receivable count and must never
++    // exceed the queue depth. An underflow surfaces as ~4.29e9 here.
++    EXPECT_LE(observed, static_cast<unsigned long long>(DEPTH))
++        << "m_available underflowed: getMessagesAvailable() reported " << observed;
++
++    state.queue.teardown();
++}
++
+ }  // namespace
+ 
+ int main(int argc, char** argv) {

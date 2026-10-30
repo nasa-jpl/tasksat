@@ -1,0 +1,2354 @@
+diff --git a/Os/Generic/CMakeLists.txt b/Os/Generic/CMakeLists.txt
+index c3aa541f06d..57937a7f9d2 100644
+--- a/Os/Generic/CMakeLists.txt
++++ b/Os/Generic/CMakeLists.txt
+@@ -79,3 +79,64 @@ if (TARGET PriorityQueueTest)
+     target_compile_options(PriorityQueueTest PRIVATE -Wno-conversion)
+     target_include_directories(PriorityQueueTest PRIVATE "${CMAKE_CURRENT_LIST_DIR}/test/ut")
+ endif()
++
++#### Os/Generic/LocklessQueue Section ####
++register_fprime_module(
++    Os_Generic_LocklessPriorityQueue_Implementation
++  SOURCES
++    "${CMAKE_CURRENT_LIST_DIR}/LocklessPriorityQueue.cpp"
++  HEADERS
++    "${CMAKE_CURRENT_LIST_DIR}/LocklessPriorityQueue.hpp"
++  DEPENDS
++    Fw_Types
++    Fw_Time
++    Os
++)
++register_fprime_implementation(
++    Os_Generic_LocklessPriorityQueue
++  SOURCES
++    "${CMAKE_CURRENT_LIST_DIR}/DefaultLocklessPriorityQueue.cpp"
++  IMPLEMENTS
++    Os_Queue
++  DEPENDS
++    Fw_Types
++    Os_Generic_LocklessPriorityQueue_Implementation
++)
++
++register_fprime_ut(
++    LocklessPriorityQueueTest
++  SOURCES
++    "${CMAKE_CURRENT_LIST_DIR}/test/ut/LocklessPriorityQueueTests.cpp"
++    "${CMAKE_CURRENT_LIST_DIR}/../test/ut/queue/CommonTests.cpp"
++    "${CMAKE_CURRENT_LIST_DIR}/../test/ut/queue/QueueRules.cpp"
++  DEPENDS
++    Fw_Types
++    Fw_Time
++    Os
++    STest
++  CHOOSES_IMPLEMENTATIONS
++    Os_Generic_LocklessPriorityQueue
++)
++if (TARGET LocklessPriorityQueueTest)
++    target_compile_options(LocklessPriorityQueueTest PRIVATE -Wno-conversion)
++    target_include_directories(LocklessPriorityQueueTest PRIVATE "${CMAKE_CURRENT_LIST_DIR}/test/ut")
++endif()
++
++register_fprime_ut(
++    LocklessPriorityQueueTsanTest
++  SOURCES
++    "${CMAKE_CURRENT_LIST_DIR}/test/ut/LocklessPriorityQueueTsanTests.cpp"
++  DEPENDS
++    Fw_Types
++    Fw_Time
++    Os
++  CHOOSES_IMPLEMENTATIONS
++    Os_Generic_LocklessPriorityQueue
++)
++if (TARGET LocklessPriorityQueueTsanTest)
++    target_compile_options(LocklessPriorityQueueTsanTest PRIVATE -Wno-conversion)
++    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
++        target_compile_options(LocklessPriorityQueueTsanTest PRIVATE -Wno-unused-lambda-capture)
++    endif()
++    target_include_directories(LocklessPriorityQueueTsanTest PRIVATE "${CMAKE_CURRENT_LIST_DIR}/test/ut")
++endif()
+diff --git a/Os/Generic/DefaultLocklessPriorityQueue.cpp b/Os/Generic/DefaultLocklessPriorityQueue.cpp
+new file mode 100644
+index 00000000000..c9ff3418c74
+--- /dev/null
++++ b/Os/Generic/DefaultLocklessPriorityQueue.cpp
+@@ -0,0 +1,14 @@
++// ======================================================================
++// \title Os/Generic/DefaultLocklessPriorityQueue.cpp
++// \brief sets default Os::Queue to the lockless priority queue implementation via linker
++// ======================================================================
++#include "Os/Delegate.hpp"
++#include "Os/Generic/LocklessPriorityQueue.hpp"
++#include "Os/Queue.hpp"
++
++namespace Os {
++QueueInterface* QueueInterface::getDelegate(QueueHandleStorage& aligned_new_memory) {
++    return Os::Delegate::makeDelegate<QueueInterface, Os::Generic::LocklessPriorityQueue, QueueHandleStorage>(
++        aligned_new_memory);
++}
++}  // namespace Os
+diff --git a/Os/Generic/LocklessPriorityQueue.cpp b/Os/Generic/LocklessPriorityQueue.cpp
+new file mode 100644
+index 00000000000..21e600df647
+--- /dev/null
++++ b/Os/Generic/LocklessPriorityQueue.cpp
+@@ -0,0 +1,369 @@
++// ======================================================================
++// \title Os/Generic/LocklessPriorityQueue.cpp
++// \brief lockless ISR-safe priority queue implementation for Os::Queue
++// ======================================================================
++#include "Os/Generic/LocklessPriorityQueue.hpp"
++#include <atomic>
++#include <cstring>
++#include <limits>
++#include "Fw/LanguageHelpers.hpp"
++#include "Fw/Time/TimeInterval.hpp"
++#include "Fw/Types/Assert.hpp"
++#include "Fw/Types/ByteArray.hpp"
++#include "Fw/Types/MemAllocator.hpp"
++#include "Os/Task.hpp"
++#include "config/MemoryAllocatorTypeEnumAc.hpp"
++
++namespace Os {
++namespace Generic {
++
++namespace {
++
++//! Extract the state portion of a packed state-tag word.
++constexpr LocklessStateTagType stateOf(LocklessStateTagType packed) {
++    return packed & LocklessSlot::STATE_MASK;
++}
++
++//! Extract the tag portion of a packed state-tag word.
++constexpr LocklessStateTagType tagOf(LocklessStateTagType packed) {
++    return packed >> LocklessSlot::STATE_BITS;
++}
++
++//! Pack a (state, tag) pair into a single word.
++constexpr LocklessStateTagType packStateTag(LocklessStateTagType state, LocklessStateTagType tag) {
++    return (tag << LocklessSlot::STATE_BITS) | (state & LocklessSlot::STATE_MASK);
++}
++
++}  // namespace
++
++bool LocklessPriorityQueue::isCandidatePreferred(FwQueuePriorityType candidatePriority,
++                                                 U32 candidateSequence,
++                                                 FwQueuePriorityType bestPriority,
++                                                 U32 bestSequence) {
++    bool preferred = false;
++    if (candidatePriority > bestPriority) {
++        preferred = true;
++    } else if (candidatePriority == bestPriority) {
++        // Modular subtraction: if (candidate - best) interpreted unsigned has its top bit set,
++        // candidate is "older" (smaller in the wrap-aware ordering) than best.
++        const U32 difference = candidateSequence - bestSequence;
++        const U32 topBit = static_cast<U32>(1) << (std::numeric_limits<U32>::digits - 1);
++        preferred = (difference & topBit) != 0;
++    }
++    return preferred;
++}
++
++LocklessSlot::LocklessSlot()
++    : m_stateTag(packStateTag(LOCKLESS_SLOT_FREE, 0)), m_sequence(0), m_size(0), m_priority(0) {}
++
++LocklessPriorityQueueHandle::LocklessPriorityQueueHandle()
++    : QueueHandle(),
++      m_slots(nullptr),
++      m_slotsAllocation(nullptr),
++      m_data(nullptr),
++      m_depth(0),
++      m_messageSize(0),
++      m_sequence(0),
++      m_count(0),
++      m_available(0),
++      m_highMark(0),
++      m_id(0) {}
++
++LocklessPriorityQueue::~LocklessPriorityQueue() {
++    // Intentionally empty: cleanup is the responsibility of an explicit `teardown()` call.
++    // Freeing here would call the `Fw::MemAllocatorRegistry` singleton, whose destruction
++    // order relative to global queue objects is unspecified (matches
++    // `Os::Generic::PriorityQueue::~PriorityQueue()`).
++}
++
++QueueInterface::Status LocklessPriorityQueue::create(FwEnumStoreType id,
++                                                     const Fw::ConstStringBase& name,
++                                                     FwSizeType depth,
++                                                     FwSizeType messageSize) {
++    static_cast<void>(name);
++
++    // Ensure that the queue has not already been created. A double create would leak memory and
++    // is a programming error.
++    FW_ASSERT(this->m_handle.m_slots == nullptr);
++    FW_ASSERT(this->m_handle.m_data == nullptr);
++
++    // The state-tag word relies on the underlying atomic being lock-free for ISR safety. The
++    // static_assert in the header covers platforms with a compile-time guarantee; this runtime
++    // check is the authoritative gate (`is_always_lock_free` is C++17 and this code targets
++    // C++14).
++    std::atomic<LocklessStateTagType> probe(0);
++    FW_ASSERT(probe.is_lock_free());
++    std::atomic<FwQueuePriorityType> priorityProbe(0);
++    FW_ASSERT(priorityProbe.is_lock_free());
++    std::atomic<U32> counterProbe(0);
++    FW_ASSERT(counterProbe.is_lock_free());
++    FW_ASSERT(depth > 0);
++    FW_ASSERT(messageSize > 0);
++
++    // Guard the multiplications used to compute allocation sizes against overflow.
++    const FwSizeType maxSize = std::numeric_limits<FwSizeType>::max();
++    FW_ASSERT(depth <= (maxSize / sizeof(LocklessSlot)));
++    FW_ASSERT(depth <= (maxSize / messageSize));
++
++    // The modular comparison in isCandidatePreferred is exact only while queued equal-priority
++    // messages span less than half the U32 sequence domain (SDD section 7); depth bounds message
++    // count, not sequence spread.
++    FW_ASSERT(depth < (std::numeric_limits<U32>::max() / 2));
++
++    Fw::MemAllocator& allocator = Fw::MemAllocatorRegistry::getInstance().getAnAllocator(
++        Fw::MemoryAllocation::MemoryAllocatorType::OS_GENERIC_PRIORITY_QUEUE);
++
++    LocklessSlot* slots = nullptr;
++    void* slotsAllocation = nullptr;
++    U8* data = nullptr;
++    QueueInterface::Status status = QueueInterface::Status::OP_OK;
++
++    // Allocate the slot array. Request padding for manual alignment: allocators are not required
++    // to honor the alignment argument (e.g. Fw::MallocAllocator ignores it).
++    FW_ASSERT(depth * sizeof(LocklessSlot) <= (maxSize - alignof(LocklessSlot)));
++    FwSizeType slotBytesRequested = (depth * sizeof(LocklessSlot)) + alignof(LocklessSlot);
++    FwSizeType slotBytesAllocated = slotBytesRequested;
++    slotsAllocation = allocator.allocate(id, slotBytesAllocated, alignof(LocklessSlot));
++    if (slotsAllocation == nullptr) {
++        status = QueueInterface::Status::ALLOCATION_FAILED;
++    } else if (slotBytesAllocated < slotBytesRequested) {
++        allocator.deallocate(id, slotsAllocation);
++        status = QueueInterface::Status::ALLOCATION_FAILED;
++    } else {
++        const PlatformPointerCastType base = reinterpret_cast<PlatformPointerCastType>(slotsAllocation);
++        const PlatformPointerCastType aligned =
++            (base + (alignof(LocklessSlot) - 1)) & ~static_cast<PlatformPointerCastType>(alignof(LocklessSlot) - 1);
++        const FwSizeType offset = static_cast<FwSizeType>(aligned - base);
++        slots = Fw::arrayPlacementNew<LocklessSlot>(
++            Fw::ByteArray(static_cast<U8*>(slotsAllocation) + offset, slotBytesAllocated - offset), depth);
++    }
++
++    // Allocate the message-data region.
++    if (status == QueueInterface::Status::OP_OK) {
++        FwSizeType dataBytesRequested = depth * messageSize;
++        FwSizeType dataBytesAllocated = dataBytesRequested;
++        void* dataAllocation = allocator.allocate(id, dataBytesAllocated, alignof(U8));
++        if (dataAllocation == nullptr) {
++            Fw::arrayPlacementDestruct<LocklessSlot>(slots, depth);
++            allocator.deallocate(id, slotsAllocation);
++            status = QueueInterface::Status::ALLOCATION_FAILED;
++        } else if (dataBytesAllocated < dataBytesRequested) {
++            Fw::arrayPlacementDestruct<LocklessSlot>(slots, depth);
++            allocator.deallocate(id, slotsAllocation);
++            allocator.deallocate(id, dataAllocation);
++            status = QueueInterface::Status::ALLOCATION_FAILED;
++        } else {
++            data = static_cast<U8*>(dataAllocation);
++        }
++    }
++
++    // Publish the configured handle once both allocations succeeded.
++    if (status == QueueInterface::Status::OP_OK) {
++        this->m_handle.m_id = id;
++        this->m_handle.m_messageSize = messageSize;
++        this->m_handle.m_depth = depth;
++        this->m_handle.m_slots = slots;
++        this->m_handle.m_slotsAllocation = slotsAllocation;
++        this->m_handle.m_data = data;
++        this->m_handle.m_sequence.store(0, std::memory_order_relaxed);
++        this->m_handle.m_count.store(0, std::memory_order_relaxed);
++        this->m_handle.m_available.store(0, std::memory_order_relaxed);
++        this->m_handle.m_highMark.store(0, std::memory_order_relaxed);
++    }
++    return status;
++}
++
++void LocklessPriorityQueue::teardown() {
++    if (this->m_handle.m_slots != nullptr) {
++        Fw::MemAllocator& allocator = Fw::MemAllocatorRegistry::getInstance().getAnAllocator(
++            Fw::MemoryAllocation::MemoryAllocatorType::OS_GENERIC_PRIORITY_QUEUE);
++        Fw::arrayPlacementDestruct<LocklessSlot>(this->m_handle.m_slots, this->m_handle.m_depth);
++        allocator.deallocate(this->m_handle.m_id, this->m_handle.m_slotsAllocation);
++        if (this->m_handle.m_data != nullptr) {
++            allocator.deallocate(this->m_handle.m_id, this->m_handle.m_data);
++        }
++        this->m_handle.m_slots = nullptr;
++        this->m_handle.m_slotsAllocation = nullptr;
++        this->m_handle.m_data = nullptr;
++        this->m_handle.m_depth = 0;
++        this->m_handle.m_messageSize = 0;
++        this->m_handle.m_count.store(0, std::memory_order_relaxed);
++        this->m_handle.m_available.store(0, std::memory_order_relaxed);
++        this->m_handle.m_highMark.store(0, std::memory_order_relaxed);
++        this->m_handle.m_sequence.store(0, std::memory_order_relaxed);
++    }
++}
++
++QueueInterface::Status LocklessPriorityQueue::send(const U8* buffer,
++                                                   FwSizeType size,
++                                                   FwQueuePriorityType priority,
++                                                   QueueInterface::BlockingType blockType) {
++    // Programming-error checks: queue must be created and inputs must be well-formed. These are
++    // preconditions, not untrusted-input checks.
++    FW_ASSERT(this->m_handle.m_slots != nullptr);
++    FW_ASSERT(this->m_handle.m_data != nullptr);
++    FW_ASSERT(buffer != nullptr);
++
++    // Reject oversized messages without touching the queue.
++    if (size > this->m_handle.m_messageSize) {
++        return QueueInterface::Status::SIZE_MISMATCH;
++    }
++
++    const FwSizeType depth = this->m_handle.m_depth;
++    const bool blocking = (blockType == QueueInterface::BlockingType::BLOCKING);
++
++    // Bounded for non-blocking, unbounded for blocking (explicit user contract).
++    for (FwSizeType pass = 0; blocking || (pass < MAX_RETRY_PASSES); pass++) {
++        for (FwSizeType i = 0; i < depth; i++) {
++            LocklessSlot& slot = this->m_handle.m_slots[i];
++            LocklessStateTagType packed = slot.m_stateTag.load(std::memory_order_acquire);
++            if (stateOf(packed) != LOCKLESS_SLOT_FREE) {
++                continue;
++            }
++            const LocklessStateTagType desired = packStateTag(LOCKLESS_SLOT_WRITING, tagOf(packed) + 1);
++            if (slot.m_stateTag.compare_exchange_strong(packed, desired, std::memory_order_acq_rel,
++                                                        std::memory_order_relaxed)) {
++                if (size > 0) {
++                    const FwSizeType offset = i * this->m_handle.m_messageSize;
++                    static_cast<void>(::memcpy(this->m_handle.m_data + offset, buffer, static_cast<size_t>(size)));
++                }
++                slot.m_size = size;
++                slot.m_priority.store(priority, std::memory_order_relaxed);
++                slot.m_sequence.store(this->m_handle.m_sequence.fetch_add(1, std::memory_order_relaxed),
++                                      std::memory_order_relaxed);
++
++                // Increment the occupancy count *before* publishing READY. This guarantees a
++                // consumer's decrement (which can only follow a READY observation) never precedes
++                // this increment, so m_count cannot transiently underflow.
++                const U32 nextCount = this->m_handle.m_count.fetch_add(1, std::memory_order_acq_rel) + 1;
++
++                slot.m_stateTag.store(packStateTag(LOCKLESS_SLOT_READY, tagOf(desired) + 1), std::memory_order_release);
++
++                // Increment the receivable count only after READY is published, so a nonzero
++                // getMessagesAvailable() implies at least one message has been made receivable.
++                static_cast<void>(this->m_handle.m_available.fetch_add(1, std::memory_order_acq_rel));
++
++                // Raise the high-water mark after publication so the message is never invisible
++                // while the producer runs this loop. Each strong-CAS failure strictly raises
++                // prevMark (mark only increases, capped at depth), so at most depth iterations run.
++                U32 prevMark = this->m_handle.m_highMark.load(std::memory_order_relaxed);
++                for (FwSizeType markPass = 0; (markPass < depth) && (nextCount > prevMark); markPass++) {
++                    if (this->m_handle.m_highMark.compare_exchange_strong(
++                            prevMark, nextCount, std::memory_order_relaxed, std::memory_order_relaxed)) {
++                        break;
++                    }
++                }
++                return QueueInterface::Status::OP_OK;
++            }
++        }
++        // No free slot found this pass. Blocking callers back off; non-blocking callers retry.
++        if (blocking) {
++            static_cast<void>(Os::Task::delay(Fw::TimeInterval(0, LOCKLESS_QUEUE_BLOCKING_BACKOFF_US)));
++        }
++    }
++    return QueueInterface::Status::FULL;
++}
++
++QueueInterface::Status LocklessPriorityQueue::receive(U8* destination,
++                                                      FwSizeType capacity,
++                                                      QueueInterface::BlockingType blockType,
++                                                      FwSizeType& actualSize,
++                                                      FwQueuePriorityType& priority) {
++    // Programming-error checks. These mirror the assertions in send().
++    FW_ASSERT(this->m_handle.m_slots != nullptr);
++    FW_ASSERT(this->m_handle.m_data != nullptr);
++    FW_ASSERT(destination != nullptr);
++
++    const FwSizeType depth = this->m_handle.m_depth;
++    const bool blocking = (blockType == QueueInterface::BlockingType::BLOCKING);
++
++    // Bounded for non-blocking, unbounded for blocking (explicit user contract).
++    for (FwSizeType pass = 0; blocking || (pass < MAX_RETRY_PASSES); pass++) {
++        // Fast path: skip the O(depth) scan while no message is receivable.
++        if (this->m_handle.m_available.load(std::memory_order_acquire) == 0) {
++            if (blocking) {
++                static_cast<void>(Os::Task::delay(Fw::TimeInterval(0, LOCKLESS_QUEUE_BLOCKING_BACKOFF_US)));
++            }
++            continue;
++        }
++        FwSizeType bestIndex = depth;
++        FwQueuePriorityType bestPriority = FwQueuePriorityType();
++        U32 bestSequence = 0;
++        LocklessStateTagType bestPacked = 0;
++
++        for (FwSizeType i = 0; i < depth; i++) {
++            LocklessSlot& slot = this->m_handle.m_slots[i];
++            LocklessStateTagType packed = slot.m_stateTag.load(std::memory_order_acquire);
++            if (stateOf(packed) != LOCKLESS_SLOT_READY) {
++                continue;
++            }
++            const FwQueuePriorityType candidatePriority = slot.m_priority.load(std::memory_order_relaxed);
++            const U32 candidateSequence = slot.m_sequence.load(std::memory_order_relaxed);
++            // Recheck: if the state-tag changed, the relaxed priority/sequence reads above may
++            // belong to a recycled slot; discard the candidate and keep scanning.
++            const LocklessStateTagType packedRecheck = slot.m_stateTag.load(std::memory_order_acquire);
++            if (packed != packedRecheck) {
++                continue;
++            }
++            if ((bestIndex == depth) ||
++                isCandidatePreferred(candidatePriority, candidateSequence, bestPriority, bestSequence)) {
++                bestIndex = i;
++                bestPriority = candidatePriority;
++                bestSequence = candidateSequence;
++                bestPacked = packed;
++            }
++        }
++
++        if (bestIndex == depth) {
++            if (blocking) {
++                static_cast<void>(Os::Task::delay(Fw::TimeInterval(0, LOCKLESS_QUEUE_BLOCKING_BACKOFF_US)));
++            }
++            continue;
++        }
++
++        const LocklessStateTagType desired = packStateTag(LOCKLESS_SLOT_READING, tagOf(bestPacked) + 1);
++        if (this->m_handle.m_slots[bestIndex].m_stateTag.compare_exchange_strong(
++                bestPacked, desired, std::memory_order_acq_rel, std::memory_order_relaxed)) {
++            // Decrement the receivable count at the successful READY->READING claim: this
++            // message can no longer complete another receive.
++            static_cast<void>(this->m_handle.m_available.fetch_sub(1, std::memory_order_acq_rel));
++            LocklessSlot& slot = this->m_handle.m_slots[bestIndex];
++            const FwSizeType storedSize = slot.m_size;
++            FW_ASSERT(storedSize <= capacity);
++            if (storedSize > 0) {
++                const FwSizeType offset = bestIndex * this->m_handle.m_messageSize;
++                static_cast<void>(
++                    ::memcpy(destination, this->m_handle.m_data + offset, static_cast<size_t>(storedSize)));
++            }
++            actualSize = storedSize;
++            priority = slot.m_priority.load(std::memory_order_relaxed);
++            // Decrement the occupancy count *before* releasing the slot to FREE. This keeps
++            // m_count (and therefore the high-water mark) at or below the queue depth: a producer
++            // can only re-claim and re-count this slot after observing FREE, which follows the
++            // decrement.
++            static_cast<void>(this->m_handle.m_count.fetch_sub(1, std::memory_order_acq_rel));
++            slot.m_stateTag.store(packStateTag(LOCKLESS_SLOT_FREE, tagOf(desired) + 1), std::memory_order_release);
++            return QueueInterface::Status::OP_OK;
++        }
++        // CAS failed — another consumer claimed this slot; yield and rescan.
++        if (blocking) {
++            static_cast<void>(Os::Task::delay(Fw::TimeInterval(0, 0)));
++        }
++    }
++    return QueueInterface::Status::EMPTY;
++}
++
++FwSizeType LocklessPriorityQueue::getMessagesAvailable() const {
++    return static_cast<FwSizeType>(this->m_handle.m_available.load(std::memory_order_acquire));
++}
++
++FwSizeType LocklessPriorityQueue::getMessageHighWaterMark() const {
++    return static_cast<FwSizeType>(this->m_handle.m_highMark.load(std::memory_order_acquire));
++}
++
++QueueHandle* LocklessPriorityQueue::getHandle() {
++    return &this->m_handle;
++}
++
++}  // namespace Generic
++}  // namespace Os
+diff --git a/Os/Generic/LocklessPriorityQueue.hpp b/Os/Generic/LocklessPriorityQueue.hpp
+new file mode 100644
+index 00000000000..0a3f7659002
+--- /dev/null
++++ b/Os/Generic/LocklessPriorityQueue.hpp
+@@ -0,0 +1,311 @@
++// ======================================================================
++// \title Os/Generic/LocklessPriorityQueue.hpp
++// \brief lockless ISR-safe priority queue implementation for Os::Queue
++// ======================================================================
++#ifndef OS_GENERIC_LOCKLESSPRIORITYQUEUE_HPP
++#define OS_GENERIC_LOCKLESSPRIORITYQUEUE_HPP
++
++#include <atomic>
++#include <limits>
++#include <type_traits>
++#include "Fw/FPrimeBasicTypes.hpp"
++#include "Os/Queue.hpp"
++#include "config/LocklessQueueCfg.hpp"
++
++namespace Os {
++namespace Generic {
++
++static_assert(std::is_integral<LocklessStateTagType>::value && std::is_unsigned<LocklessStateTagType>::value,
++              "LocklessStateTagType must be an unsigned integral type");
++
++//! \brief compile-time lock-free possibility for an atomic of unsigned integral width WIDTH
++//!
++//! C++14 lacks `std::atomic<T>::is_always_lock_free` (C++17), so this is derived from the
++//! standard `ATOMIC_*_LOCK_FREE` macros (0 = never, 1 = sometimes, 2 = always lock-free),
++//! selected by matching the width of the corresponding builtin type so no particular ABI
++//! (e.g. `sizeof(int) == 4`) is assumed. Rejects only never-lock-free (value 0) widths at
++//! compile time; on sometimes-lock-free (value 1) platforms the runtime `is_lock_free()`
++//! FW_ASSERT in create() is the authoritative gate.
++template <FwSizeType WIDTH>
++struct LocklessAtomicLockFree {
++    static constexpr bool value = ((sizeof(unsigned char) == WIDTH) && (ATOMIC_CHAR_LOCK_FREE != 0)) ||
++                                  ((sizeof(unsigned short) == WIDTH) && (ATOMIC_SHORT_LOCK_FREE != 0)) ||
++                                  ((sizeof(unsigned int) == WIDTH) && (ATOMIC_INT_LOCK_FREE != 0)) ||
++                                  ((sizeof(unsigned long) == WIDTH) && (ATOMIC_LONG_LOCK_FREE != 0)) ||
++                                  ((sizeof(unsigned long long) == WIDTH) && (ATOMIC_LLONG_LOCK_FREE != 0));
++};
++
++static_assert(LocklessAtomicLockFree<sizeof(LocklessStateTagType)>::value,
++              "std::atomic<LocklessStateTagType> is never lock-free on this platform; "
++              "configure a narrower type in config/LocklessQueueCfg.hpp");
++static_assert(LocklessAtomicLockFree<sizeof(U32)>::value, "std::atomic<U32> is never lock-free on this platform");
++static_assert(LocklessAtomicLockFree<sizeof(FwQueuePriorityType)>::value,
++              "std::atomic<FwQueuePriorityType> is never lock-free on this platform");
++
++static_assert(LOCKLESS_QUEUE_MAX_RETRY_PASSES >= 1, "LOCKLESS_QUEUE_MAX_RETRY_PASSES must be at least 1");
++
++// A zero backoff could livelock a high-priority blocking caller against a lower-priority
++// thread on a strict-priority scheduler.
++static_assert(LOCKLESS_QUEUE_BLOCKING_BACKOFF_US > 0, "LOCKLESS_QUEUE_BLOCKING_BACKOFF_US must be greater than 0");
++
++static_assert((LOCKLESS_QUEUE_SLOT_ALIGNMENT & (LOCKLESS_QUEUE_SLOT_ALIGNMENT - 1)) == 0,
++              "LOCKLESS_QUEUE_SLOT_ALIGNMENT must be a power of two");
++
++//! \brief slot lifecycle states for the lockless priority queue
++//!
++//! Each slot in the queue moves through a four-state state machine. Producers transition slots
++//! `FREE -> WRITING -> READY`. Consumers transition slots `READY -> READING -> FREE`. State values
++//! occupy the low bits of a packed atomic; the remaining bits are used as an ABA tag.
++enum LocklessSlotState : LocklessStateTagType {
++    LOCKLESS_SLOT_FREE = 0,     //!< slot contains no data; available to a producer
++    LOCKLESS_SLOT_WRITING = 1,  //!< producer has reserved the slot and is filling it
++    LOCKLESS_SLOT_READY = 2,    //!< slot contains a published message available to a consumer
++    LOCKLESS_SLOT_READING = 3   //!< consumer has reserved the slot and is draining it
++};
++
++//! \brief per-slot data for the lockless priority queue
++//!
++//! Each slot carries an atomic state-and-tag word that is the only synchronizing element of the
++//! queue. Fields `m_priority` and `m_sequence` are atomic because they are read during the
++//! consumer's scan phase (while the slot is `READY`) without exclusive ownership. They use
++//! `relaxed` ordering; the happens-before relationship is established through the release/acquire
++//! on `m_stateTag`. The non-atomic `m_size` field is only accessed under exclusive ownership
++//! (`WRITING` by the producer, `READING` by the consumer).
++struct alignas(LOCKLESS_QUEUE_SLOT_ALIGNMENT) LocklessSlot {
++    //! Number of low bits used for the state value within `m_stateTag`.
++    static constexpr U32 STATE_BITS = 2;
++    //! Mask for the state portion of `m_stateTag`.
++    static constexpr LocklessStateTagType STATE_MASK =
++        (static_cast<LocklessStateTagType>(1) << STATE_BITS) - static_cast<LocklessStateTagType>(1);
++    //! Number of bits available for the ABA epoch tag (62 with the default U64 word).
++    static constexpr U32 TAG_BITS = static_cast<U32>(std::numeric_limits<LocklessStateTagType>::digits) - STATE_BITS;
++
++    //! Packed (tag << STATE_BITS) | state word. Updated only via atomic operations. The TAG_BITS
++    //! tag increments on every transition; a stale CAS is defeated unless a thread stalls
++    //! between its scan and CAS across an exact multiple of 2^TAG_BITS transitions of one slot.
++    //! In that case the consumer dequeues a valid message out of priority order — never
++    //! corrupted, lost, or duplicated (see SDD sections 4 and 15).
++    std::atomic<LocklessStateTagType> m_stateTag;
++    //! Sequence number assigned at publication time. Used as a FIFO tiebreaker when priorities
++    //! are equal. Atomic because consumers read it during the scan phase without ownership.
++    std::atomic<U32> m_sequence;
++    //! Stored message size, less than or equal to the queue's configured message size.
++    //! Only accessed under exclusive ownership (WRITING or READING).
++    FwSizeType m_size;
++    //! Stored message priority. Atomic because consumers read it during the scan phase.
++    std::atomic<FwQueuePriorityType> m_priority;
++
++    //! Construct a slot in the FREE state with a zero tag.
++    LocklessSlot();
++};
++
++//! \brief handle for the lockless priority queue
++//!
++//! All persistent state for the queue is contained in this handle. Memory pointed to by `m_slots`
++//! and `m_data` is allocated exactly once during `LocklessPriorityQueue::create` and freed during
++//! `LocklessPriorityQueue::teardown`.
++struct LocklessPriorityQueueHandle : public QueueHandle {
++    //! Pre-allocated array of `m_depth` slots, aligned within `m_slotsAllocation`.
++    LocklessSlot* m_slots;
++    //! Raw allocation backing `m_slots`; retained because allocators may ignore alignment.
++    void* m_slotsAllocation;
++    //! Pre-allocated array of `m_depth * m_messageSize` bytes for message payloads.
++    U8* m_data;
++    //! Configured queue depth in messages.
++    FwSizeType m_depth;
++    //! Configured maximum size of a single message.
++    FwSizeType m_messageSize;
++    //! Sequence assigned to messages on publication for FIFO tiebreak; may wrap (compared modularly).
++    std::atomic<U32> m_sequence;
++    //! Occupancy count (claimed-or-queued slots) used only for the high-water mark.
++    std::atomic<U32> m_count;
++    //! Receivable message count: incremented after a slot is published READY, decremented at
++    //! the successful READY->READING claim. Backs getMessagesAvailable().
++    std::atomic<U32> m_available;
++    //! Maximum value `m_count` has ever held. Updated by producers via a bounded CAS loop.
++    std::atomic<U32> m_highMark;
++    //! Identifier passed to the memory allocator at create() time and reused at teardown().
++    FwEnumStoreType m_id;
++
++    //! Default-construct a handle in the uncreated state.
++    LocklessPriorityQueueHandle();
++};
++
++//! \brief lockless ISR-safe priority queue implementation for Os::QueueInterface
++//!
++//! The lockless priority queue stores messages in a fixed pool of pre-allocated slots. Each slot
++//! is governed by an atomic state machine that uses an embedded ABA tag, allowing producers and
++//! consumers to manipulate the queue concurrently without taking any operating-system lock.
++//!
++//! \section flight_software_properties Flight-software properties
++//!
++//! - Memory: All memory is allocated through the configured `Fw::MemAllocator` exactly once
++//!   during `create`. No allocation occurs during `send`, `receive`, `getMessagesAvailable`, or
++//!   `getMessageHighWaterMark`.
++//! - Loops: All non-blocking control paths are bounded by the configured queue depth multiplied
++//!   by `MAX_RETRY_PASSES`. The high-water-mark CAS loop is bounded by depth because the mark
++//!   only increases and never exceeds depth. Blocking paths poll with a fixed `Os::Task::delay`
++//!   backoff until the requested condition is satisfied; unlike the condition-variable-based
++//!   `Os::Generic::PriorityQueue`, an idle blocking caller wakes periodically rather than
++//!   sleeping until signaled.
++//! - Determinism: All operations execute in time bounded by queue depth; no per-message dynamic
++//!   work scales with the number of producers or consumers.
++//!
++//! \section isr_safety ISR safety
++//!
++//! Non-blocking operations (`send` and `receive` with `BlockingType::NONBLOCKING`) are safe to
++//! invoke from interrupt context because they use only lock-free atomic operations and bounded
++//! `memcpy`. Blocking calls spin on the same atomic state and therefore must not be invoked from
++//! ISR context.
++//!
++//! \section ordering Priority ordering
++//!
++//! Consumers pop the slot with the highest priority. When multiple slots share the same priority,
++//! the one with the smallest sequence number (i.e. the earliest publication) is selected.
++//! Sequence numbers are assigned by an atomic counter at publication time. The U32 counter may
++//! wrap during a long mission; comparison uses unsigned modular subtraction so that wrap is
++//! still ordered correctly within the queue's active window (create() enforces `depth < 2^31`).
++//! FIFO tie-breaking assumes equal-priority messages do not remain queued across 2^31
++//! intervening sends; see the SDD (`docs/sdd-lockless-queue.md` section 7) for details.
++class LocklessPriorityQueue final : public Os::QueueInterface {
++  public:
++    //! Maximum number of retry passes through the slot array before a non-blocking operation
++    //! gives up (configurable in config/LocklessQueueCfg.hpp). Each pass scans up to the
++    //! configured queue depth; the worst-case work per non-blocking call is therefore
++    //! `depth * MAX_RETRY_PASSES`.
++    static constexpr FwSizeType MAX_RETRY_PASSES = LOCKLESS_QUEUE_MAX_RETRY_PASSES;
++
++    //! \brief decide whether a candidate (priority, sequence) is preferred over the current best
++    //!
++    //! Highest priority wins; on a tie, the smallest sequence in the wrap-aware modular ordering
++    //! wins. Exposed as a static member so unit tests exercise the shipped comparison.
++    //!
++    //! \param candidatePriority: priority of the candidate message
++    //! \param candidateSequence: sequence of the candidate message
++    //! \param bestPriority: priority of the current best message
++    //! \param bestSequence: sequence of the current best message
++    //! \return true if the candidate should be preferred over the current best
++    static bool isCandidatePreferred(FwQueuePriorityType candidatePriority,
++                                     U32 candidateSequence,
++                                     FwQueuePriorityType bestPriority,
++                                     U32 bestSequence);
++
++    //! \brief default constructor
++    LocklessPriorityQueue() = default;
++
++    //! \brief destructor
++    //!
++    //! The destructor does **not** free queue resources. Owners must call `teardown()`
++    //! explicitly before destroying the queue (or its hosting `Os::Queue`). This matches the
++    //! `Os::Generic::PriorityQueue` contract and avoids a static-destruction-order fault
++    //! where the underlying `Fw::MemAllocatorRegistry` may already have been destroyed by the
++    //! time the destructor runs, which would manifest as a `pure virtual method called` abort
++    //! when `MemAllocator::deallocate` is invoked through its v-table.
++    ~LocklessPriorityQueue() override;
++
++    //! \brief constructing from a base reference is forbidden
++    LocklessPriorityQueue(const QueueInterface& other) = delete;
++
++    //! \brief constructing from a pointer is forbidden
++    LocklessPriorityQueue(const QueueInterface* other) = delete;
++
++    //! \brief assignment operator is forbidden
++    LocklessPriorityQueue& operator=(const QueueInterface& other) override = delete;
++
++    //! \brief create queue storage
++    //!
++    //! Allocates the slot pool and message-data region through the registered memory allocator.
++    //!
++    //! \warning allocates memory exactly once through the memory allocator registry; subsequent
++    //! `send` and `receive` calls do not allocate.
++    //!
++    //! \param id: identifier for the queue, used for memory allocation
++    //! \param name: name of queue (unused by this implementation)
++    //! \param depth: depth of queue in number of messages
++    //! \param messageSize: maximum size of an individual message
++    //! \return: status of the creation
++    Status create(FwEnumStoreType id,
++                  const Fw::ConstStringBase& name,
++                  FwSizeType depth,
++                  FwSizeType messageSize) override;
++
++    //! \brief tear down the queue
++    //!
++    //! Returns memory acquired in `create` to the configured memory allocator. Safe to call
++    //! repeatedly; only the first call returns memory.
++    //!
++    //! \warning not thread-safe: the caller must guarantee no concurrent `send`, `receive`,
++    //! or `teardown` (including from ISR context) is in flight when this is invoked.
++    void teardown() override;
++
++    //! \brief send a message into the queue
++    //!
++    //! When `blockType` is `NONBLOCKING`, the operation completes in time bounded by
++    //! `depth * MAX_RETRY_PASSES` and returns `FULL` if no slot can be claimed. Because slots
++    //! held mid-operation by concurrent producers or consumers are not claimable, a
++    //! non-blocking send may return `FULL` under contention even though fewer than `depth`
++    //! messages are queued. When `blockType` is `BLOCKING`, the operation spins until a slot
++    //! becomes available.
++    //!
++    //! \warning `BLOCKING` calls must not be invoked from ISR context.
++    //!
++    //! \warning A spurious `FULL` triggers overflow handling on async ports (including
++    //! `assert`-on-overflow ports). Size queues with margin or select the mutex-based
++    //! `Os::Generic::PriorityQueue` where that is unacceptable.
++    //!
++    //! \param buffer: message data; must be non-null
++    //! \param size: size of message data; must be no greater than the configured message size
++    //! \param priority: priority of the message
++    //! \param blockType: BLOCKING to spin until space is available; NONBLOCKING to fail fast
++    //! \return: status of the send
++    Status send(const U8* buffer, FwSizeType size, FwQueuePriorityType priority, BlockingType blockType) override;
++
++    //! \brief receive a message from the queue
++    //!
++    //! Selects the highest-priority slot and, on a tie, the slot with the smallest sequence
++    //! number. When `blockType` is `NONBLOCKING`, the operation completes in time bounded by
++    //! `depth * MAX_RETRY_PASSES` and returns `EMPTY` if no slot is available. Because slots
++    //! held mid-operation by concurrent producers or consumers are not claimable, a
++    //! non-blocking receive may return `EMPTY` under contention even though messages are
++    //! queued. When `blockType` is `BLOCKING`, the operation spins until a slot is published.
++    //!
++    //! \warning `BLOCKING` calls must not be invoked from ISR context.
++    //!
++    //! \param destination: destination for message data; must be non-null
++    //! \param capacity: maximum size of message data the destination can hold; asserted to be
++    //! at least the size of the dequeued message. Supplying the configured message size is
++    //! always sufficient.
++    //! \param blockType: BLOCKING to spin for a message; NONBLOCKING to fail fast
++    //! \param actualSize: (output) actual size of the message read on success
++    //! \param priority: (output) priority of the message read on success
++    //! \return: status of the receive
++    Status receive(U8* destination,
++                   FwSizeType capacity,
++                   BlockingType blockType,
++                   FwSizeType& actualSize,
++                   FwQueuePriorityType& priority) override;
++
++    //! \brief get number of messages currently receivable
++    //!
++    //! A message counts only from its READY publication until a consumer claims it, so a
++    //! nonzero return means a receive of at least one message can complete.
++    //!
++    //! \return number of receivable messages currently in the queue
++    FwSizeType getMessagesAvailable() const override;
++
++    //! \brief get the maximum number of messages that have been queued at once
++    //!
++    //! \return high-water mark of message count
++    FwSizeType getMessageHighWaterMark() const override;
++
++    //! \brief return the underlying queue handle
++    QueueHandle* getHandle() override;
++
++    //! Persistent queue state.
++    LocklessPriorityQueueHandle m_handle;
++};
++
++}  // namespace Generic
++}  // namespace Os
++
++#endif  // OS_GENERIC_LOCKLESSPRIORITYQUEUE_HPP
+diff --git a/Os/Generic/docs/sdd-lockless-queue.md b/Os/Generic/docs/sdd-lockless-queue.md
+new file mode 100644
+index 00000000000..e34d75c22fa
+--- /dev/null
++++ b/Os/Generic/docs/sdd-lockless-queue.md
+@@ -0,0 +1,511 @@
++# Os::Generic::LocklessPriorityQueue — Software Design Document
++
++## 1. Purpose
++
++`Os::Generic::LocklessPriorityQueue` is an implementation of `Os::QueueInterface`
++that provides ISR-safe, lockless message passing with strict-priority delivery.
++It is intended for flight-software contexts where a producer or consumer may run
++in interrupt context and therefore cannot block on an OS-level mutex or
++condition variable, but where the existing priority semantics of
++`Os::Generic::PriorityQueue` must still be preserved. Unlike the existing
++ISR-safe `Os::Generic::PriorityMemQueue`, this implementation supports the
++full `FwQueuePriorityType` priority domain with no per-priority configuration
++and uses no OS primitive (semaphore) on any nonblocking path.
++
++## 2. Requirements
++
++| ID | Description | Verification |
++|----|-------------|--------------|
++| OS-LOCKLESSQUEUE-001 | All memory is allocated exactly once during `create` through the registered `Fw::MemAllocator`. No allocation occurs during `send`, `receive`, `getMessagesAvailable`, or `getMessageHighWaterMark`. | Unit Test |
++| OS-LOCKLESSQUEUE-002 | All non-blocking control paths terminate in bounded time proportional to the configured queue depth. | Unit Test, Inspection |
++| OS-LOCKLESSQUEUE-003 | The non-blocking variants of `send` and `receive` are safe to call from interrupt context. They use only lock-free atomic operations and bounded `memcpy`. They do not invoke any OS service. | Inspection |
++| OS-LOCKLESSQUEUE-004 | Consumers receive the highest-priority message. Equal-priority messages are delivered in FIFO order, matching the ordering contract of `Os::Generic::PriorityQueue`. | Unit Test |
++| OS-LOCKLESSQUEUE-005 | A successful `send` followed by any number of `receive` calls delivers each message exactly once. No message is dropped, duplicated, or corrupted under concurrent producers and consumers. | Unit Test (TSan stress) |
++| OS-LOCKLESSQUEUE-006 | The public surface conforms to `Os::QueueInterface` and is selectable as the default `Os::Queue` implementation through `register_fprime_implementation` in CMake. | Unit Test |
++
++> [!CAUTION]
++> This implementation is **not** a general-purpose lock-free O(log n)
++> priority queue. Linear scans are accepted because flight queues are small
++> (tens of slots) and because the predictable, depth-bounded scan time is
++> exactly the property flight software wants.
++
++## 3. Design Overview
++
++The queue is a fixed pool of slots. Each slot owns its own atomic state machine
++and the data backing it. Producers and consumers coordinate through per-slot
++compare-and-swap (CAS) operations.
++
++The absence of mutexes and condition variables is a deliberate design choice:
++OS-level synchronization primitives cannot be used from interrupt context. By
++relying exclusively on lock-free atomics, the non-blocking send/receive paths
++satisfy the ISR-safety constraint without restricting the calling context.
++
++```
+++---------------------+         +-------------------------+
++| LocklessSlot[0]     |  --->   | data[0 .. messageSize-1]|
++|  m_stateTag (atomic)|         +-------------------------+
++|  m_priority         |         | data[messageSize .. ]   |
++|  m_size             |         |       ...               |
++|  m_sequence         |         +-------------------------+
+++---------------------+
++| LocklessSlot[1]     |
+++---------------------+
++| ...                 |
+++---------------------+
++| LocklessSlot[depth] |
+++---------------------+
++```
++
++Two separate allocations are made at `create` time:
++
++1. `LocklessSlot[depth]` — one slot per message capacity.
++2. `U8[depth * messageSize]` — the message-payload region.
++
++Both allocations are released to the same `Fw::MemAllocator` at `teardown`.
++After `create` succeeds, no further allocation occurs.
++
++Each slot is aligned to `LOCKLESS_QUEUE_SLOT_ALIGNMENT` (default 64 bytes,
++configurable in `config/LocklessQueueCfg.hpp`) so adjacent slots do not share
++a cache line, avoiding false sharing between producers and consumers
++contending on neighboring slots. Constrained targets may configure a smaller
++power-of-two alignment to reduce memory use. Because `Fw::MemAllocator`
++implementations are not required to honor the requested alignment (e.g.
++`Fw::MallocAllocator` ignores it), the slot allocation is padded by one
++alignment unit and the slot array is placed at the first aligned address
++within it.
++
++## 4. Slot State Machine
++
++Each slot has a four-state lifecycle:
++
++```
++   FREE  --(producer CAS)-->  WRITING  --(producer release)-->  READY
++    ^                                                              |
++    |                                                              v
++    +-----(consumer release)------  READING  <--(consumer CAS)-----+
++```
++
++State values are stored in the low `STATE_BITS` of an atomic word named
++`m_stateTag`, whose unsigned integral type `LocklessStateTagType` is
++configurable in `config/LocklessQueueCfg.hpp` (default `U64`). The remaining
++high bits hold a per-slot epoch tag that is
++incremented on **every** transition. The epoch tag prevents ABA hazards: a
++consumer that observes `(READY, tag=T)`, performs a non-atomic read of the
++slot's priority and sequence, and then attempts to CAS to
++`(READING, tag=T+1)` is guaranteed to fail if any other thread completed even
++one round-trip on this slot in the meantime.
++
++The tag occupies `TAG_BITS = bits(LocklessStateTagType) - STATE_BITS` bits
++(62 with the default `U64` word) and wraps after `2^TAG_BITS` transitions of
++a single slot. A stale CAS could therefore succeed only if a thread stalls
++between its scan and its CAS while other threads drive that same slot through
++an exact multiple of `2^TAG_BITS` transitions and the slot returns to the
++same state. With the default 62-bit tag this requires a thread to remain
++preempted across ~10^18 queue operations on one slot; with a `U32` word
++(30-bit tag) the bound drops to hundreds of millions of operations.
++
++> [!WARNING]
++> Narrow `LocklessStateTagType` configurations shrink the ABA tag
++> dramatically: `U16` gives a 14-bit tag (~16K transitions, ~4K message
++> cycles of one slot) and `U8` gives only a 6-bit tag (64 transitions, 16
++> message cycles). On such platforms a consumer preempted mid-scan for a
++> handful of cycles of one slot can dequeue out of priority order. The
++> consequence remains bounded to ordering (no corruption, loss, or
++> duplication), but projects that select this queue *for* its ordering
++> guarantee should configure the widest lock-free type the platform
++> supports in `config/LocklessQueueCfg.hpp`.
++
++**Consequence of a wrapped-tag stale CAS.** If this coincidence occurs, the
++consequence is bounded: the stale CAS can only succeed against a slot that is
++once again `READY`, so the consumer claims a *valid, complete* message — just
++not necessarily the one it selected during its scan. The claimed message is
++delivered intact and exactly once; no memory corruption, message loss, or
++duplication is possible. The observable effect is a single dequeue that may
++violate the strict priority/FIFO selection order (a one-time priority
++inversion). Lock-freedom of `std::atomic<LocklessStateTagType>` is a
++prerequisite for the ISR-safety guarantee: widths that are never lock-free
++are rejected at compile time via the `ATOMIC_*_LOCK_FREE` macros, and the
++authoritative `is_lock_free()` check is runtime-asserted in `create()`. Platforms without lock-free 64-bit atomics
++(some 32-bit targets) must configure a narrower type in
++`config/LocklessQueueCfg.hpp` (`U32`, `U16`, or `U8`, with 30-, 14-, or 6-bit
++tags respectively). This residual window is documented in §15.
++
++The slot's `m_size` field is written by the producer while the slot is in `WRITING` and read
++by the consumer while the slot is in `READING`; it is only ever accessed under exclusive
++ownership and is therefore non-atomic. The `m_priority` and `m_sequence` fields are
++`std::atomic` with `relaxed` ordering because consumers read them during the scan phase
++(while the slot is `READY`) without exclusive ownership — see §9. All three fields are written
++by the producer during `WRITING` and become visible to consumers through the `release` store
++that publishes `READY`. Consumers acquire those fields through a matching `acquire` load of
++`m_stateTag`.
++
++## 5. Send Algorithm
++
++```
++send(buffer, size, priority, blockType):
++  if size > m_messageSize:
++      return SIZE_MISMATCH
++  for pass = 0 .. (NONBLOCKING ? MAX_RETRY_PASSES - 1 : infinity):
++      for i = 0 .. depth - 1:
++          packed = m_slots[i].m_stateTag.load(acquire)
++          if state(packed) != FREE:
++              continue
++          desired = pack(WRITING, tag(packed) + 1)
++          if CAS(m_slots[i].m_stateTag, packed -> desired):
++              memcpy(data + i * messageSize, buffer, size)
++              m_slots[i].m_size     = size
++              m_slots[i].m_priority = priority
++              m_slots[i].m_sequence = m_sequence.fetch_add(1, relaxed)
++              count = m_count.fetch_add(1, acq_rel) + 1
++              m_slots[i].m_stateTag.store(pack(READY, tag(desired) + 1), release)
++              m_available.fetch_add(1, acq_rel)   // message is now receivable
++              raise_high_mark_to(count)  // CAS until mark >= count; bounded by depth
++              return OP_OK
++  return FULL
++```
++
++Two counters are maintained. The occupancy count `m_count` is incremented
++*before* the `release` store that publishes `READY`: a consumer can only
++decrement after observing `READY`, so the decrement is ordered after the
++increment, `m_count` never transiently underflows, and the high-water mark
++derived from it never exceeds `depth`. The receivable count `m_available`,
++which backs `getMessagesAvailable`, is incremented only *after* `READY` is
++published, so it never counts a message that a receive cannot yet complete
++(see §8). The high-water CAS loop runs after publication so the message is
++never invisible to consumers (including ISRs) while the producer updates the
++mark.
++
++The outer loop is bounded for non-blocking callers and unbounded for blocking
++callers. The blocking spin is the explicit contract of `BlockingType::BLOCKING`
++and is not safe to call from ISR context.
++
++> [!WARNING]
++> **Spurious `FULL` under contention.** A slot held mid-operation by a
++> concurrent producer (`WRITING`) or consumer (`READING`) is not claimable. A
++> non-blocking send that exhausts its pass budget
++> (`LOCKLESS_QUEUE_MAX_RETRY_PASSES` in `config/LocklessQueueCfg.hpp`,
++> default 4) while every unclaimed slot is transiently held returns `FULL`
++> even though fewer than `depth` messages are logically queued. This differs
++> from the mutex-based `Os::Generic::PriorityQueue`, which reports fullness
++> exactly under its lock; it is the price of bounded, lock-free progress. In
++> F´, `FULL` on an async port configured with `assert`-on-overflow semantics
++> triggers `FW_ASSERT`: under this queue that assertion is heuristic, not
++> exact. Callers for which a spurious `FULL` is unacceptable should size the
++> queue depth with margin for the number of concurrent producers/consumers,
++> raise `LOCKLESS_QUEUE_MAX_RETRY_PASSES`, or select the mutex-based
++> implementation.
++
++## 6. Receive Algorithm
++
++```
++receive(destination, capacity, blockType, &actualSize, &priority):
++  for pass = 0 .. (NONBLOCKING ? MAX_RETRY_PASSES - 1 : infinity):
++      if m_available.load(acquire) == 0:
++          continue  // skip the O(depth) scan; blocking callers back off first
++      best = none
++      for i = 0 .. depth - 1:
++          packed = m_slots[i].m_stateTag.load(acquire)
++          if state(packed) != READY:
++              continue
++          candidate_priority = m_slots[i].m_priority
++          candidate_sequence = m_slots[i].m_sequence
++          packed_recheck = m_slots[i].m_stateTag.load(acquire)
++          if packed != packed_recheck:
++              continue
++          if best is none or
++             candidate_priority > best.priority or
++             (candidate_priority == best.priority and
++              modular_less(candidate_sequence, best.sequence)):
++              best = {i, candidate_priority, candidate_sequence, packed}
++      if best is none:
++          continue  // returns EMPTY when the NONBLOCKING pass budget is exhausted
++      desired = pack(READING, tag(best.packed) + 1)
++      if CAS(m_slots[best.i].m_stateTag, best.packed -> desired):
++          m_available.fetch_sub(1, acq_rel)  // message claimed; no longer receivable
++          stored_size = m_slots[best.i].m_size
++          assert stored_size <= capacity
++          memcpy(destination, data + best.i * messageSize, stored_size)
++          actualSize = stored_size
++          priority   = m_slots[best.i].m_priority
++          m_count.fetch_sub(1, acq_rel)
++          m_slots[best.i].m_stateTag.store(
++              pack(FREE, tag(desired) + 1), release)
++          return OP_OK
++      // CAS failed; loop and retry
++```
++
++The selection scan is bounded by `depth`. The recheck of `m_stateTag`
++immediately after reading the `relaxed`-atomic priority/sequence fields catches the
++case where a concurrent consumer has already begun draining the slot; in that
++case the slot is skipped for this pass.
++
++The CAS at the end of each pass uses the captured `packed` (state + tag) value
++as the expected operand. Any concurrent transition on the slot — even one that
++returned the slot to `READY` with a different message — increments the tag,
++causing the CAS to fail and the pass to retry.
++
++The receivable count `m_available` is decremented at the successful
++`READY -> READING` claim, since the claimed message can no longer complete
++another receive. The occupancy count `m_count` is decremented *before* the
++`release` store that frees the slot. A producer can only re-claim (and
++re-count) the slot after observing `FREE`, so `m_count` — and therefore the
++high-water mark — never exceeds `depth`.
++
++Each pass begins with a check of `m_available`: while no message is
++receivable, the O(`depth`) selection scan is skipped entirely, so an idle
++blocking receiver performs one atomic load per wakeup rather than a full
++array scan.
++
++**Priority ordering is inherent, not global.** Strict priority holds only
++against messages that are published (`READY`) before the consumer's scan
++observes their slots. A producer preempted mid-`WRITING` with a
++high-priority message is invisible to consumers until it publishes, so
++lower-priority messages published in the interim are delivered first. This
++is the same window a mutex-based queue has for a sender preempted *before*
++acquiring the lock; the lockless design merely widens it to the duration of
++the `WRITING` state.
++
++**Spurious `EMPTY` under contention.** Symmetrically to send, a non-blocking
++receive can return `EMPTY` while messages are transiently held in `WRITING`
++or `READING` by concurrent threads.
++
++## 7. Sequence-Number Ordering and Wrap
++
++`m_sequence` is a `std::atomic<U32>` global counter, incremented once per
++successful publication. Per-message sequences are compared with unsigned modular
++subtraction, so two values `a` and `b` with `(a - b)` having its top bit set are
++ordered as `a < b` regardless of wrap.
++
++The comparison is exact only while the sequence values of queued
++equal-priority messages span less than half the `U32` domain. `create()`
++enforces `depth < 2^31`, which bounds the number of queued messages but not
++the *spread* of their sequences: a message that remains queued while `2^31`
++or more intervening sends occur (≈ 2.5 days of continuous 10 kHz traffic
++through one queue) would compare as newest rather than oldest, perturbing
++FIFO order among equal-priority messages until it drains. Priority ordering
++is unaffected. A `U64` counter would remove the window but `std::atomic<U64>`
++is not lock-free on all supported 32-bit flight targets, so the `U32`
++counter is retained and the window is documented as a limitation (§15).
++
++## 8. Counters and the High-Water Mark
++
++Two atomic counters are maintained:
++
++- `m_available` is the **receivable** count returned by
++  `getMessagesAvailable`. It is incremented after a slot is published `READY`
++  and decremented at the successful `READY -> READING` claim. A nonzero value
++  therefore means a receive of at least one message can complete; a zero
++  value never counts a message a receive could not obtain. This matches the
++  contract framework control flow depends on (e.g.
++  `ActiveComponentBase::dispatch` uses it as a blocking-receive guard for
++  cooperative tasks, and `QueuedComponentBase::dispatchAvailableMessages`
++  uses it as an iteration bound). Because the increment follows publication,
++  the counter may briefly *under*-report a just-published message; it never
++  over-reports.
++- `m_count` is the **occupancy** count (claimed-or-queued slots), maintained
++  solely to compute the high-water mark. It is incremented before `READY`
++  and decremented before `FREE`, bounding it by `depth`.
++
++`m_highMark` is raised to the post-increment count by producers using a
++compare-exchange loop that runs until the mark reflects the observed count.
++The mark only increases and never exceeds `depth` (the count is incremented
++before `READY` and decremented before `FREE`), so every strong-CAS failure
++strictly raises the observed mark and the loop is bounded by `depth`
++iterations. The high-water mark is therefore exact: it equals the maximum
++number of messages the queue has held, and never exceeds `depth`.
++
++## 9. Memory Ordering
++
++The queue uses standard `std::atomic` operations with explicit memory orders:
++
++- The transition `WRITING -> READY` uses `release` so that the payload
++  (`memcpy`), `m_size` (non-atomic), `m_priority` (relaxed atomic), and
++  `m_sequence` (relaxed atomic) become visible to any consumer that
++  observes `READY` via an `acquire` load of `m_stateTag`.
++- The transition `READING -> FREE` uses `release` so that subsequent producers
++  observing `FREE` see the consumed slot as fully released.
++- All scan loads use `acquire`. All CAS operations use `acq_rel` on success and
++  `relaxed` on failure.
++- `m_sequence`, `m_count`, `m_available`, and `m_highMark` use `relaxed` or
++  `acq_rel` as appropriate; their values are not used to publish data, only
++  to track counters and break priority ties.
++
++## 10. ISR Safety
++
++Non-blocking `send` and `receive` use only:
++
++- Lock-free atomic loads, stores, fetch-add, fetch-sub, and CAS on
++  `std::atomic<LocklessStateTagType>` (the per-slot state-tag word, default
++  `U64`; see `config/LocklessQueueCfg.hpp`), `std::atomic<U32>` (sequence,
++  count, high-water mark), and `std::atomic<FwQueuePriorityType>` (per-slot
++  priority).
++- `memcpy` over a region of size `m_messageSize`.
++
++Runtime assertions in `create` reject platforms where
++`std::atomic<LocklessStateTagType>`, `std::atomic<U32>`, or
++`std::atomic<FwQueuePriorityType>` is not lock-free. (The check is runtime rather than `static_assert` because the
++`is_always_lock_free` constexpr is C++17 and the project targets C++14;
++`static_assert`s derived from the width-matched `ATOMIC_*_LOCK_FREE` macros
++reject never-lock-free widths for all three types at compile time, leaving
++the runtime check authoritative on sometimes-lock-free platforms. On every
++supported flight target the atomics are in fact lock-free.)
++
++There are no system calls, no OS-level synchronization primitives, and no
++allocations on these paths. Both calls therefore satisfy the ISR-safety
++contract for the platforms F Prime currently supports.
++
++The blocking variants poll the same atomics but call `Os::Task::delay`
++between bounded scans when no progress is possible (queue empty for a
++consumer, queue full for a producer). The delay is
++a scheduling hint, not a synchronization primitive: it does not acquire any lock
++and does not change the memory ordering of any subsequent atomic operation. It
++is **only** reached on the BLOCKING path, so ISR callers — which must use
++`BlockingType::NONBLOCKING` — never execute it.
++
++The blocking spin must not be invoked from ISR context because ISR contexts
++cannot make forward progress while preempting the threads they are waiting on.
++
++## 11. Bounded Loops
++
++| Operation        | Mode        | Bound                              |
++| ---------------- | ----------- | ---------------------------------- |
++| `send`           | NONBLOCKING | `depth * MAX_RETRY_PASSES`         |
++| `send`           | BLOCKING    | unbounded by user contract         |
++| `receive`        | NONBLOCKING | `depth * MAX_RETRY_PASSES`         |
++| `receive`        | BLOCKING    | unbounded by user contract         |
++| `create`         | n/a         | `depth` (initialization scan)      |
++| `teardown`       | n/a         | `depth` (slot destruction scan)    |
++| high-water-mark  | n/a         | `depth` (mark increases monotonically) |
++
++The unbounded blocking loop terminates only when the caller's condition is
++satisfied, which is the explicit `BlockingType::BLOCKING` contract; unlike
++`Os::Generic::PriorityQueue` it polls with a configurable backoff
++(`LOCKLESS_QUEUE_BLOCKING_BACKOFF_US` in `config/LocklessQueueCfg.hpp`) rather
++than blocking on a condition variable (see §15). This is a deliberate
++deviation from the JPL fixed-loop-bound rule: the blocking contract has no
++static bound, and the poll-with-backoff design is the price of keeping the
++implementation free of OS synchronization primitives.
++
++> [!WARNING]
++> Every idle `BLOCKING` caller wakes once per backoff period — at the
++> default `LOCKLESS_QUEUE_BLOCKING_BACKOFF_US = 100` that is 10,000 wakeups
++> per second per blocked thread, versus zero idle cost for the
++> condition-variable-based `Os::Generic::PriorityQueue`. Each wakeup costs
++> one atomic load when the queue is empty (the `m_available == 0` fast path
++> skips the O(`depth`) scan), and each message may see up to one backoff
++> period of added latency. Deployments adopting this queue broadly for
++> active components trade idle CPU/power for ISR safety; tune the backoff
++> accordingly. A zero backoff is rejected at compile time because it could
++> livelock a high-priority blocking caller against a lower-priority thread
++> on a strict-priority scheduler.
++
++`MAX_RETRY_PASSES` is likewise configurable as
++`LOCKLESS_QUEUE_MAX_RETRY_PASSES` in `config/LocklessQueueCfg.hpp` (default 4).
++
++## 12. Memory Allocation
++
++The queue uses the existing `OS_GENERIC_PRIORITY_QUEUE` enumerator from
++`Fw::MemoryAllocation::MemoryAllocatorType`. No new allocator type is
++introduced; system designers can configure either the existing
++`Os::Generic::PriorityQueue` or this implementation against the same allocator.
++
++### 12.1 Resource-Management Contract (`teardown()` vs destructor)
++
++`create()` is the only allocating call in the queue's lifetime. Resource
++release happens in `teardown()`, which is idempotent: only the first call
++returns memory; subsequent calls are no-ops.
++
++The destructor `~LocklessPriorityQueue()` is **intentionally empty**. Owners
++must call `teardown()` explicitly before the queue (or its hosting
++`Os::Queue`) is destroyed. Two reasons:
++
++1. **Static destruction order.** A `LocklessPriorityQueue` may live inside a
++   global / topology-scoped component that is destroyed at process exit.
++   `teardown()` calls
++   `Fw::MemAllocatorRegistry::getInstance().getAnAllocator(...)` and then
++   invokes the virtual `MemAllocator::deallocate`. The registry is itself a
++   function-local static and its destruction order with respect to other
++   globals is unspecified. If the destructor runs after the registry has
++   already been destroyed, the virtual call dispatches through a v-table whose
++   most-derived type is gone, and the program aborts with
++   `pure virtual method called` (observed in upstream CI's
++   `FppTest_topology_special_ports_ut_exe`, see PR nasa/fprime#5076).
++2. **Consistency.** `Os::Generic::PriorityQueue::~PriorityQueue()` is also
++   empty for the same reason. The lockless queue follows the same contract so
++   it can be a drop-in replacement for the existing implementation.
++
++Owners that fail to call `teardown()` leak the slot pool and message-data
++region exactly as they would with the existing `Os::Generic::PriorityQueue`.
++
++## 13. Selection at Build Time
++
++The new module is registered through CMake as
++`Os_Generic_LocklessPriorityQueue_Implementation`, with a corresponding
++`register_fprime_implementation(Os_Generic_LocklessPriorityQueue ...)` block
++that supplies a delegate file `DefaultLocklessPriorityQueue.cpp`. A test target
++`LocklessPriorityQueueTest` chooses this implementation through
++`CHOOSES_IMPLEMENTATIONS`. The implementation is **opt-in**: platform default
++queues are unchanged (unix remains on `Os_Generic_PriorityQueue`), and any
++deployment or platform that needs ISR-safe queueing can select
++`Os_Generic_LocklessPriorityQueue` through the same CMake mechanism the
++existing `Os_Generic_PriorityQueue` uses.
++
++## 14. Verification
++
++The implementation is covered by the same shared queue tests used by
++`Os::Generic::PriorityQueue`:
++
++- `Os/test/ut/queue/CommonTests.cpp`: interface uninitialized, interface
++  invalid, basic create/send/recv/overflow/underflow, and blocking
++  send/receive (which uses real OS threads through `AggregatedConcurrentRule`).
++- `Os/test/ut/queue/QueueRules.cpp`: a 10,000-step random rules scenario that
++  interleaves all queue operations and validates against a reference shadow
++  queue.
++
++In addition, `Os/Generic/test/ut/LocklessPriorityQueueTests.cpp` adds
++lockless-specific tests, including:
++
++- `LocklessConcurrent.MultiProducerMultiConsumer`: four producer threads and
++  four consumer threads exchange 4,000 messages through a 64-slot queue. Every
++  value must be received exactly once.
++- `LocklessConcurrent.PriorityOrderSingleProducer`: 200 batches of 16
++  increasing-priority messages are sent and drained; the receive order must
++  be strictly non-increasing in priority.
++- `LocklessLifetime` tests covering destruct-without-create,
++  create/teardown/destruct ordering, teardown idempotency, oversized-send
++  rejection (wrapper and delegate level), and zero-size message round-trip.
++
++All tests are compiled with AddressSanitizer, UndefinedBehaviorSanitizer, and
++LeakSanitizer enabled, and pass under those sanitizers. ThreadSanitizer stress
++tests provide additional coverage (see `LocklessPriorityQueueTsanTests.cpp`),
++run in CI by the framework ThreadSanitizer unit-test job.
++
++## 15. Limitations
++
++- `receive` is O(`depth`) because it scans the slot array. For the
++  flight-typical depths of tens of slots this is preferable to the dynamic
++  bookkeeping required by an O(log n) lock-free priority queue.
++- The blocking variants poll with a configurable backoff rather than blocking
++  on an OS primitive: an idle blocking receiver wakes every
++  `LOCKLESS_QUEUE_BLOCKING_BACKOFF_US` (default 100 µs, see
++  `config/LocklessQueueCfg.hpp`) instead of sleeping until a message
++  arrives, and each message may see up to one backoff period of added
++  latency. Deployments whose components idle on blocking receives should
++  prefer the condition-variable-based `Os::Generic::PriorityQueue` unless
++  they need ISR-safe non-blocking operations from the same queue.
++- The blocking variants spin and are therefore not appropriate for ISR
++  callers. ISR callers must use `BlockingType::NONBLOCKING`.
++- Non-blocking `send`/`receive` may return spurious `FULL`/`EMPTY` under
++  contention (§5, §6).
++- Strict priority ordering applies only to messages published before the
++  consumer's scan; a producer preempted mid-`WRITING` with a high-priority
++  message lets lower-priority messages pass it (§6).
++- The ABA epoch tag is `TAG_BITS` wide (62 by default; 30 when
++  `LocklessStateTagType` is configured to `U32`, 14 for `U16`, 6 for `U8` —
++  see the WARNING in §4); a stale CAS is defeated
++  unless a thread stalls between scan and CAS across an exact multiple of
++  `2^TAG_BITS` transitions of one slot. Should that coincidence occur, the
++  effect is a single out-of-priority-order dequeue of a valid message —
++  never corruption, loss, or duplication (§4).
++- FIFO tie-breaking among equal-priority messages assumes no message remains
++  queued across `2^31` intervening sends (§7).
+diff --git a/Os/Generic/docs/sdd.md b/Os/Generic/docs/sdd.md
+index 14f559119d6..f4771e0fd19 100644
+--- a/Os/Generic/docs/sdd.md
++++ b/Os/Generic/docs/sdd.md
+@@ -5,7 +5,8 @@ This package provides generic implementations of various OSAL modules. These are
+ Available implementations:
+ 
+ 1. [Os::PriorityQueue](#ospriorityqueue) - Heap-based priority queue implementation using Os::Mutex for thread safety
+-2. [Os::PriorityMemQueue](#osprioritymemqueue) - ISR-safe, heap-based priority queue with per-priority memory pools and configuration
++2. [Os::LocklessPriorityQueue](#oslocklesspriorityqueue) - ISR-safe, lockless priority queue with at-initialization memory allocation
++3. [Os::PriorityMemQueue](#osprioritymemqueue) - ISR-safe, heap-based priority queue with per-priority memory pools and configuration
+ 
+ 
+ ## Os::PriorityQueue
+@@ -65,6 +66,23 @@ When an index is pulled from this structure, the root is removed as it is the hi
+ 
+ `heapify` starts at the newly ill-ordered root. It iteratively swaps this node with the highest-priority child until this node is the largest of the three (parent, left child, and right child) or until this node is swapped into a leaf position without children. The max-heap invariant is now restored.
+ 
++## Os::LocklessPriorityQueue
++
++Os::LocklessPriorityQueue is an ISR-safe, lockless implementation of Os::Queue that provides strict-priority delivery without requiring any operating-system lock. It is intended for flight-software contexts where a producer or consumer may run in interrupt context and therefore cannot block on an OS-level mutex or condition variable.
++
++All memory is allocated exactly once during `create` through the registered `Fw::MemAllocator`. No allocation occurs during `send`, `receive`, `getMessagesAvailable`, or `getMessageHighWaterMark`. The non-blocking variants of `send` and `receive` use only lock-free atomic operations and bounded `memcpy`, making them safe to invoke from ISR context.
++
++> [!NOTE]
++> The blocking variants (`BlockingType::BLOCKING`) spin-wait and must not be invoked from ISR context.
++
++### Os::LocklessPriorityQueue Key Algorithms
++
++The queue stores messages in a fixed pool of pre-allocated slots. Each slot is governed by a four-state atomic state machine (`FREE -> WRITING -> READY -> READING -> FREE`) with an embedded ABA tag that prevents the ABA problem across concurrent producers and consumers.
++
++Producers scan the slot array for a `FREE` slot, claim it via compare-exchange, populate the message data, and publish with a `release` store transitioning to `READY`. Consumers scan for the highest-priority `READY` slot (with FIFO tiebreak by sequence number), claim it via compare-exchange, copy the message out, and release back to `FREE`.
++
++All non-blocking control paths are bounded by `depth * MAX_RETRY_PASSES`. The detailed algorithm, memory-ordering rationale, and requirements traceability are documented in [sdd-lockless-queue.md](sdd-lockless-queue.md).
++
+ 
+ ## Os::PriorityMemQueue
+ 
+diff --git a/Os/Generic/test/ut/LocklessPriorityQueueTests.cpp b/Os/Generic/test/ut/LocklessPriorityQueueTests.cpp
+new file mode 100644
+index 00000000000..6d094560e80
+--- /dev/null
++++ b/Os/Generic/test/ut/LocklessPriorityQueueTests.cpp
+@@ -0,0 +1,292 @@
++// ======================================================================
++// \title Os/Generic/test/ut/LocklessPriorityQueueTests.cpp
++// \brief tests using lockless priority queue implementation for Os::Queue interface testing
++// ======================================================================
++#include <gtest/gtest.h>
++#include <atomic>
++#include <thread>
++#include "Fw/FPrimeBasicTypes.hpp"
++#include "Fw/Types/String.hpp"
++#include "Os/Generic/LocklessPriorityQueue.hpp"
++#include "Os/Queue.hpp"
++#include "STest/Random/Random.hpp"
++
++namespace {
++
++constexpr FwSizeType CONCURRENT_DEPTH = 64;
++constexpr FwSizeType CONCURRENT_MESSAGE_SIZE = sizeof(U32);
++constexpr U32 CONCURRENT_PRODUCERS = 4;
++constexpr U32 CONCURRENT_CONSUMERS = 4;
++constexpr U32 CONCURRENT_MESSAGES_PER_PRODUCER = 1000;
++constexpr U32 CONCURRENT_TOTAL_MESSAGES = CONCURRENT_PRODUCERS * CONCURRENT_MESSAGES_PER_PRODUCER;
++
++//! Shared state for the multi-producer / multi-consumer concurrency test.
++struct ConcurrentTestState {
++    Os::Queue queue;
++    std::atomic<U32> received[CONCURRENT_TOTAL_MESSAGES];
++    std::atomic<U32> consumed;
++    std::atomic<bool> producers_done;
++
++    ConcurrentTestState() : received(), consumed(0), producers_done(false) {
++        for (U32 index = 0; index < CONCURRENT_TOTAL_MESSAGES; index++) {
++            received[index].store(0, std::memory_order_relaxed);
++        }
++    }
++};
++
++//! Pack a U32 value into a little-endian byte buffer of exactly `CONCURRENT_MESSAGE_SIZE` bytes.
++void pack_value(U32 value, U8* buffer) {
++    for (FwSizeType b = 0; b < CONCURRENT_MESSAGE_SIZE; b++) {
++        buffer[b] = static_cast<U8>((value >> (8 * b)) & 0xFFu);
++    }
++}
++
++//! Unpack a U32 value from a little-endian byte buffer of exactly `CONCURRENT_MESSAGE_SIZE` bytes.
++U32 unpack_value(const U8* buffer) {
++    U32 value = 0;
++    for (FwSizeType b = 0; b < CONCURRENT_MESSAGE_SIZE; b++) {
++        value |= static_cast<U32>(buffer[b]) << (8 * b);
++    }
++    return value;
++}
++
++//! Producer worker: send `CONCURRENT_MESSAGES_PER_PRODUCER` distinct values into the queue.
++void producer_worker(ConcurrentTestState* state, U32 producerIndex) {
++    for (U32 messageIndex = 0; messageIndex < CONCURRENT_MESSAGES_PER_PRODUCER; messageIndex++) {
++        const U32 value = (producerIndex * CONCURRENT_MESSAGES_PER_PRODUCER) + messageIndex;
++        U8 buffer[CONCURRENT_MESSAGE_SIZE] = {0};
++        pack_value(value, buffer);
++        const FwQueuePriorityType priority = static_cast<FwQueuePriorityType>(value & 0x7u);
++        Os::QueueInterface::Status status = Os::QueueInterface::Status::FULL;
++        while (status == Os::QueueInterface::Status::FULL) {
++            status = state->queue.send(buffer, CONCURRENT_MESSAGE_SIZE, priority,
++                                       Os::QueueInterface::BlockingType::NONBLOCKING);
++            if (status == Os::QueueInterface::Status::FULL) {
++                std::this_thread::yield();
++            }
++        }
++    }
++}
++
++//! Consumer worker: receive messages until the producers are done and the consumed count
++//! reaches the total. Asserts each value is delivered exactly once. Exits after a bounded
++//! number of consecutive empty polls once producers finish so a lost message reports as a
++//! count shortfall instead of a hang.
++void consumer_worker(ConcurrentTestState* state) {
++    constexpr U32 EMPTY_POLL_LIMIT = 100000;
++    U8 buffer[CONCURRENT_MESSAGE_SIZE] = {0};
++    FwSizeType actualSize = 0;
++    FwQueuePriorityType priority = 0;
++    U32 emptyPolls = 0;
++    while (state->consumed.load(std::memory_order_acquire) < CONCURRENT_TOTAL_MESSAGES) {
++        Os::QueueInterface::Status status = state->queue.receive(
++            buffer, CONCURRENT_MESSAGE_SIZE, Os::QueueInterface::BlockingType::NONBLOCKING, actualSize, priority);
++        if (status == Os::QueueInterface::Status::OP_OK) {
++            emptyPolls = 0;
++            ASSERT_EQ(actualSize, CONCURRENT_MESSAGE_SIZE);
++            const U32 value = unpack_value(buffer);
++            ASSERT_LT(value, CONCURRENT_TOTAL_MESSAGES);
++            const U32 priorCount = state->received[value].fetch_add(1, std::memory_order_acq_rel);
++            ASSERT_EQ(priorCount, 0u) << "duplicate delivery of value " << value;
++            state->consumed.fetch_add(1, std::memory_order_acq_rel);
++        } else if (status == Os::QueueInterface::Status::EMPTY) {
++            if (state->producers_done.load(std::memory_order_acquire) && (++emptyPolls > EMPTY_POLL_LIMIT)) {
++                break;  // main thread reports the shortfall with diagnostics
++            }
++            std::this_thread::yield();
++        } else {
++            FAIL() << "unexpected status " << static_cast<int>(status);
++        }
++    }
++}
++
++//! Validate that high-load concurrent producers and consumers do not lose, duplicate, or
++//! reorder messages in a way that violates priority ordering. This test relies on real OS
++//! threads to exercise the lockless state machine.
++TEST(LocklessConcurrent, MultiProducerMultiConsumer) {
++    ConcurrentTestState state;
++    Fw::String name("concurrent-test");
++    ASSERT_EQ(state.queue.create(0, name, CONCURRENT_DEPTH, CONCURRENT_MESSAGE_SIZE),
++              Os::QueueInterface::Status::OP_OK);
++
++    std::thread producer_threads[CONCURRENT_PRODUCERS];
++    for (U32 producerIndex = 0; producerIndex < CONCURRENT_PRODUCERS; producerIndex++) {
++        producer_threads[producerIndex] = std::thread(producer_worker, &state, producerIndex);
++    }
++
++    std::thread consumer_threads[CONCURRENT_CONSUMERS];
++    for (U32 consumerIndex = 0; consumerIndex < CONCURRENT_CONSUMERS; consumerIndex++) {
++        consumer_threads[consumerIndex] = std::thread(consumer_worker, &state);
++    }
++
++    for (U32 i = 0; i < CONCURRENT_PRODUCERS; i++) {
++        producer_threads[i].join();
++    }
++    state.producers_done.store(true, std::memory_order_release);
++    for (U32 i = 0; i < CONCURRENT_CONSUMERS; i++) {
++        consumer_threads[i].join();
++    }
++
++    EXPECT_EQ(state.consumed.load(std::memory_order_acquire), CONCURRENT_TOTAL_MESSAGES);
++    for (U32 index = 0; index < CONCURRENT_TOTAL_MESSAGES; index++) {
++        EXPECT_EQ(state.received[index].load(std::memory_order_relaxed), 1u)
++            << "value " << index << " not received exactly once";
++    }
++    state.queue.teardown();
++}
++
++//! Validate single-threaded strict priority ordering: batches of distinct-priority messages
++//! must drain in non-increasing priority order. (Concurrent-drain and FIFO-tiebreak coverage
++//! live in the TSan adversarial suite.)
++TEST(LocklessConcurrent, PriorityOrderSingleProducer) {
++    constexpr FwSizeType DEPTH = 32;
++    constexpr FwSizeType MESSAGE_SIZE = sizeof(U32);
++    constexpr U32 BATCHES = 200;
++    constexpr U32 BATCH_DEPTH = 16;
++
++    Os::Queue queue;
++    Fw::String name("priority-order-test");
++    ASSERT_EQ(queue.create(0, name, DEPTH, MESSAGE_SIZE), Os::QueueInterface::Status::OP_OK);
++
++    for (U32 batch = 0; batch < BATCHES; batch++) {
++        for (U32 i = 0; i < BATCH_DEPTH; i++) {
++            U8 buffer[MESSAGE_SIZE] = {0};
++            const U32 value = (batch * BATCH_DEPTH) + i;
++            for (FwSizeType b = 0; b < MESSAGE_SIZE; b++) {
++                buffer[b] = static_cast<U8>((value >> (8 * b)) & 0xFFu);
++            }
++            ASSERT_EQ(queue.send(buffer, MESSAGE_SIZE, static_cast<FwQueuePriorityType>(i),
++                                 Os::QueueInterface::BlockingType::NONBLOCKING),
++                      Os::QueueInterface::Status::OP_OK);
++        }
++        FwQueuePriorityType lastPriority = std::numeric_limits<FwQueuePriorityType>::max();
++        for (U32 i = 0; i < BATCH_DEPTH; i++) {
++            U8 buffer[MESSAGE_SIZE] = {0};
++            FwSizeType actualSize = 0;
++            FwQueuePriorityType priority = 0;
++            ASSERT_EQ(queue.receive(buffer, MESSAGE_SIZE, Os::QueueInterface::BlockingType::NONBLOCKING, actualSize,
++                                    priority),
++                      Os::QueueInterface::Status::OP_OK);
++            ASSERT_LE(priority, lastPriority);
++            lastPriority = priority;
++        }
++    }
++    queue.teardown();
++}
++
++//! Validate that destroying a never-created queue is safe (the destructor must not free or
++//! touch any memory). This guards against the static-destruction-order fault described in
++//! the SDD §12.1.
++TEST(LocklessLifetime, DestructWithoutCreate) {
++    {
++        Os::Queue queue;
++        // No create(), no teardown(): the queue object simply leaves scope. The destructor
++        // must be a no-op and must not perform any virtual dispatch into the memory
++        // allocator registry.
++        EXPECT_EQ(queue.getMessagesAvailable(), 0u);
++    }
++    // If the destructor were unsafe, ASan/UBSan would abort before reaching here.
++}
++
++//! Validate that destroying a created queue *after* an explicit teardown is safe and that
++//! the destructor performs no further work. Tests run under ASan/UBSan/LSan; if the
++//! destructor were to free resources it would double-free the slot pool.
++TEST(LocklessLifetime, CreateTeardownDestruct) {
++    {
++        Os::Queue queue;
++        Fw::String name("lifetime-test");
++        ASSERT_EQ(queue.create(0, name, 4, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++        queue.teardown();
++        EXPECT_EQ(queue.getMessagesAvailable(), 0u);
++        // queue leaves scope here; destructor must be a no-op.
++    }
++}
++
++//! Validate that `teardown()` is idempotent: calling it twice on the same queue must not
++//! double-free or otherwise misbehave.
++TEST(LocklessLifetime, TeardownIsIdempotent) {
++    Os::Queue queue;
++    Fw::String name("idempotent-test");
++    ASSERT_EQ(queue.create(0, name, 4, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++    queue.teardown();
++    queue.teardown();
++    queue.teardown();
++    EXPECT_EQ(queue.getMessagesAvailable(), 0u);
++}
++
++//! Validate that an oversized send is rejected with SIZE_MISMATCH and leaves the queue empty.
++TEST(LocklessLifetime, OversizedSendRejected) {
++    Os::Queue queue;
++    Fw::String name("oversize-test");
++    ASSERT_EQ(queue.create(0, name, 4, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++    U8 buffer[sizeof(U32) + 1] = {0};
++    ASSERT_EQ(queue.send(buffer, sizeof buffer, 0, Os::QueueInterface::BlockingType::NONBLOCKING),
++              Os::QueueInterface::Status::SIZE_MISMATCH);
++    EXPECT_EQ(queue.getMessagesAvailable(), 0u);
++    queue.teardown();
++}
++
++//! Validate the delegate-level oversized-send check directly (the Os::Queue wrapper performs
++//! its own size check before delegating, so this path is otherwise unreachable).
++TEST(LocklessLifetime, OversizedSendRejectedAtDelegate) {
++    Os::Generic::LocklessPriorityQueue queue;
++    Fw::String name("oversize-delegate-test");
++    ASSERT_EQ(queue.create(0, name, 4, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++    U8 buffer[sizeof(U32) + 1] = {0};
++    ASSERT_EQ(queue.send(buffer, sizeof buffer, 0, Os::QueueInterface::BlockingType::NONBLOCKING),
++              Os::QueueInterface::Status::SIZE_MISMATCH);
++    EXPECT_EQ(queue.getMessagesAvailable(), 0u);
++    queue.teardown();
++}
++
++//! Validate that a zero-size message round-trips: no payload copy, size 0 and priority intact.
++TEST(LocklessLifetime, ZeroSizeMessage) {
++    Os::Generic::LocklessPriorityQueue queue;
++    Fw::String name("zero-size-test");
++    ASSERT_EQ(queue.create(0, name, 4, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++    U8 dummy = 0;
++    ASSERT_EQ(queue.send(&dummy, 0, 1, Os::QueueInterface::BlockingType::NONBLOCKING),
++              Os::QueueInterface::Status::OP_OK);
++    U8 out[sizeof(U32)] = {0};
++    FwSizeType actualSize = 99;
++    FwQueuePriorityType priority = 0;
++    ASSERT_EQ(queue.receive(out, sizeof out, Os::QueueInterface::BlockingType::NONBLOCKING, actualSize, priority),
++              Os::QueueInterface::Status::OP_OK);
++    ASSERT_EQ(actualSize, 0u);
++    ASSERT_EQ(priority, 1);
++    queue.teardown();
++}
++
++//! Validate the getMessagesAvailable() receivable-count contract: counts track
++//! sends/receives exactly, and the high-water mark reflects peak occupancy.
++TEST(LocklessLifetime, MessagesAvailableTracksReceivableCount) {
++    Os::Generic::LocklessPriorityQueue queue;
++    Fw::String name("available-count-test");
++    ASSERT_EQ(queue.create(0, name, 4, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++    EXPECT_EQ(queue.getMessagesAvailable(), 0u);
++    U8 buffer[sizeof(U32)] = {0};
++    for (FwSizeType i = 0; i < 3; i++) {
++        ASSERT_EQ(queue.send(buffer, sizeof buffer, 0, Os::QueueInterface::BlockingType::NONBLOCKING),
++                  Os::QueueInterface::Status::OP_OK);
++        EXPECT_EQ(queue.getMessagesAvailable(), i + 1);
++    }
++    EXPECT_EQ(queue.getMessageHighWaterMark(), 3u);
++    FwSizeType actualSize = 0;
++    FwQueuePriorityType priority = 0;
++    for (FwSizeType i = 0; i < 3; i++) {
++        ASSERT_EQ(
++            queue.receive(buffer, sizeof buffer, Os::QueueInterface::BlockingType::NONBLOCKING, actualSize, priority),
++            Os::QueueInterface::Status::OP_OK);
++        EXPECT_EQ(queue.getMessagesAvailable(), 2u - i);
++    }
++    EXPECT_EQ(queue.getMessageHighWaterMark(), 3u);
++    queue.teardown();
++}
++
++}  // namespace
++
++int main(int argc, char** argv) {
++    ::testing::InitGoogleTest(&argc, argv);
++    STest::Random::seed();
++    return RUN_ALL_TESTS();
++}
+diff --git a/Os/Generic/test/ut/LocklessPriorityQueueTsanTests.cpp b/Os/Generic/test/ut/LocklessPriorityQueueTsanTests.cpp
+new file mode 100644
+index 00000000000..a150206a069
+--- /dev/null
++++ b/Os/Generic/test/ut/LocklessPriorityQueueTsanTests.cpp
+@@ -0,0 +1,613 @@
++// ======================================================================
++// \title Os/Generic/test/ut/LocklessPriorityQueueTsanTests.cpp
++// \brief TSan stress tests and adversarial scenarios for the lockless priority queue
++//
++// These tests are designed to be compiled with -fsanitize=thread and exercise
++// the lock-free state machine under high contention. They complement the
++// existing CommonTests (queue rules) and LocklessPriorityQueueTests by
++// amplifying thread counts, shrinking queue depth, and targeting corner cases
++// that are most likely to expose data races or ABA issues.
++// ======================================================================
++
++#include <gtest/gtest.h>
++#include <algorithm>
++#include <atomic>
++#include <cstring>
++#include <limits>
++#include <thread>
++#include "Fw/FPrimeBasicTypes.hpp"
++#include "Fw/Types/String.hpp"
++#include "Os/Generic/LocklessPriorityQueue.hpp"
++#include "Os/Queue.hpp"
++
++namespace {
++
++// -----------------------------------------------------------------------
++// Helpers
++// -----------------------------------------------------------------------
++
++void pack_u32(U32 value, U8* buffer) {
++    for (FwSizeType b = 0; b < sizeof(U32); b++) {
++        buffer[b] = static_cast<U8>((value >> (8 * b)) & 0xFFu);
++    }
++}
++
++U32 unpack_u32(const U8* buffer) {
++    U32 value = 0;
++    for (FwSizeType b = 0; b < sizeof(U32); b++) {
++        value |= static_cast<U32>(buffer[b]) << (8 * b);
++    }
++    return value;
++}
++
++// -----------------------------------------------------------------------
++// Generic multi-producer multi-consumer harness
++// -----------------------------------------------------------------------
++
++//! Maximum distinct priority values tracked by the harness.
++constexpr U32 MAX_PRIORITIES = 8;
++
++//! Per-message priority function: maps a message value to its send priority.
++using PriorityFn = FwQueuePriorityType (*)(U32 value);
++
++FwQueuePriorityType priority_mod8(U32 value) {
++    return static_cast<FwQueuePriorityType>(value % MAX_PRIORITIES);
++}
++
++struct ConcurrentConfig {
++    FwSizeType depth = 0;
++    U32 producers = 0;
++    U32 consumers = 0;
++    U32 messagesPerProducer = 0;
++    //! Messages sent to the queue before any thread starts (values total..total+prefill-1).
++    U32 prefill = 0;
++    //! Priority assigned to each message; nullptr sends everything at priority 0.
++    PriorityFn priorityOf = nullptr;
++    //! When true, expect the high-water mark to equal depth exactly (requires prefill == depth).
++    bool expectHighMarkEqualsDepth = false;
++};
++
++struct ConcurrentState {
++    Os::Queue queue;
++    std::atomic<U32>* received;  // array of size expectedTotal
++    std::atomic<U32> receivedByPriority[MAX_PRIORITIES];
++    std::atomic<U32> consumed;
++    std::atomic<bool> producersDone;
++    U32 expectedTotal;
++    PriorityFn priorityOf;
++
++    ConcurrentState(U32 total, PriorityFn priorityFn)
++        : received(new std::atomic<U32>[total]),
++          consumed(0),
++          producersDone(false),
++          expectedTotal(total),
++          priorityOf(priorityFn) {
++        for (U32 i = 0; i < total; i++) {
++            received[i].store(0, std::memory_order_relaxed);
++        }
++        for (U32 i = 0; i < MAX_PRIORITIES; i++) {
++            receivedByPriority[i].store(0, std::memory_order_relaxed);
++        }
++    }
++    ~ConcurrentState() { delete[] received; }
++
++    FwQueuePriorityType priorityFor(U32 value) const {
++        return (this->priorityOf != nullptr) ? this->priorityOf(value) : static_cast<FwQueuePriorityType>(0);
++    }
++};
++
++void send_until_ok(ConcurrentState* state, U32 value) {
++    U8 buffer[sizeof(U32)] = {0};
++    pack_u32(value, buffer);
++    const FwQueuePriorityType priority = state->priorityFor(value);
++    Os::QueueInterface::Status status = Os::QueueInterface::Status::FULL;
++    while (status == Os::QueueInterface::Status::FULL) {
++        status = state->queue.send(buffer, sizeof(U32), priority, Os::QueueInterface::BlockingType::NONBLOCKING);
++        if (status == Os::QueueInterface::Status::FULL) {
++            std::this_thread::yield();
++        }
++    }
++    ASSERT_EQ(status, Os::QueueInterface::Status::OP_OK);
++}
++
++void concurrent_producer(ConcurrentState* state, U32 producerIndex, U32 messagesPerProducer) {
++    for (U32 i = 0; i < messagesPerProducer; i++) {
++        send_until_ok(state, (producerIndex * messagesPerProducer) + i);
++    }
++}
++
++//! Consumer worker. Exits after a bounded number of consecutive empty polls once producers
++//! finish so a lost message reports as a count shortfall instead of a hang.
++void concurrent_consumer(ConcurrentState* state) {
++    constexpr U32 EMPTY_POLL_LIMIT = 100000;
++    U8 buffer[sizeof(U32)] = {0};
++    FwSizeType actualSize = 0;
++    FwQueuePriorityType priority = 0;
++    U32 emptyPolls = 0;
++    while (state->consumed.load(std::memory_order_acquire) < state->expectedTotal) {
++        Os::QueueInterface::Status status = state->queue.receive(
++            buffer, sizeof(U32), Os::QueueInterface::BlockingType::NONBLOCKING, actualSize, priority);
++        if (status == Os::QueueInterface::Status::OP_OK) {
++            emptyPolls = 0;
++            ASSERT_EQ(actualSize, sizeof(U32));
++            const U32 value = unpack_u32(buffer);
++            ASSERT_LT(value, state->expectedTotal);
++            ASSERT_LT(static_cast<U32>(priority), MAX_PRIORITIES);
++            const U32 prior = state->received[value].fetch_add(1, std::memory_order_acq_rel);
++            ASSERT_EQ(prior, 0u) << "duplicate delivery of value " << value;
++            state->receivedByPriority[priority].fetch_add(1, std::memory_order_acq_rel);
++            state->consumed.fetch_add(1, std::memory_order_acq_rel);
++        } else if (status == Os::QueueInterface::Status::EMPTY) {
++            if (state->producersDone.load(std::memory_order_acquire) && (++emptyPolls > EMPTY_POLL_LIMIT)) {
++                break;  // main thread reports the shortfall with diagnostics
++            }
++            std::this_thread::yield();
++        } else {
++            FAIL() << "unexpected status " << static_cast<int>(status);
++        }
++    }
++}
++
++void run_concurrent(const ConcurrentConfig& cfg) {
++    const U32 produced = cfg.producers * cfg.messagesPerProducer;
++    const U32 total = produced + cfg.prefill;
++    ConcurrentState state(total, cfg.priorityOf);
++    Fw::String name("tsan-concurrent");
++    ASSERT_EQ(state.queue.create(0, name, cfg.depth, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++
++    // Pre-fill before any thread starts (values produced..total-1). When prefill == depth this
++    // deterministically drives the count -- and thus the high-water mark -- to exactly depth.
++    ASSERT_LE(static_cast<FwSizeType>(cfg.prefill), cfg.depth);
++    for (U32 i = 0; i < cfg.prefill; i++) {
++        send_until_ok(&state, produced + i);
++    }
++    if (cfg.prefill > 0) {
++        ASSERT_EQ(state.queue.getMessagesAvailable(), static_cast<FwSizeType>(cfg.prefill));
++    }
++
++    // Fixed-size arrays -- sized to the maximum we use in any test (16)
++    static constexpr U32 MAX_THREADS = 16;
++    ASSERT_LE(cfg.producers, MAX_THREADS);
++    ASSERT_LE(cfg.consumers, MAX_THREADS);
++    std::thread producers[MAX_THREADS];
++    std::thread consumers[MAX_THREADS];
++
++    for (U32 i = 0; i < cfg.consumers; i++) {
++        consumers[i] = std::thread(concurrent_consumer, &state);
++    }
++    for (U32 i = 0; i < cfg.producers; i++) {
++        producers[i] = std::thread(concurrent_producer, &state, i, cfg.messagesPerProducer);
++    }
++
++    for (U32 i = 0; i < cfg.producers; i++) {
++        producers[i].join();
++    }
++    state.producersDone.store(true, std::memory_order_release);
++    for (U32 i = 0; i < cfg.consumers; i++) {
++        consumers[i].join();
++    }
++
++    EXPECT_EQ(state.consumed.load(std::memory_order_acquire), total);
++    for (U32 i = 0; i < total; i++) {
++        EXPECT_EQ(state.received[i].load(std::memory_order_relaxed), 1u) << "value " << i;
++    }
++    if (cfg.priorityOf != nullptr) {
++        // Verify the received per-priority distribution matches what was sent.
++        U32 expectedByPriority[MAX_PRIORITIES] = {0};
++        for (U32 i = 0; i < total; i++) {
++            expectedByPriority[cfg.priorityOf(i)]++;
++        }
++        for (U32 p = 0; p < MAX_PRIORITIES; p++) {
++            EXPECT_EQ(state.receivedByPriority[p].load(std::memory_order_relaxed), expectedByPriority[p])
++                << "priority=" << p;
++        }
++    }
++    if (cfg.expectHighMarkEqualsDepth) {
++        EXPECT_EQ(state.queue.getMessageHighWaterMark(), cfg.depth);
++    }
++    // The high-water mark must never exceed depth (count invariant, SDD section 8).
++    EXPECT_LE(state.queue.getMessageHighWaterMark(), cfg.depth);
++    EXPECT_EQ(state.queue.getMessagesAvailable(), 0u);
++    state.queue.teardown();
++}
++
++// =======================================================================
++// TSan Stress Tests
++// =======================================================================
++
++// High-thread-count stress: 8 producers, 8 consumers, 40k messages through a 32-slot queue.
++// Repeated multiple iterations to exercise different scheduling orders.
++TEST(TsanStress, HighThreadConcurrent) {
++    constexpr U32 ITERATIONS = 20;
++    const ConcurrentConfig cfg{32, 8, 8, 5000, 0, priority_mod8, false};
++    for (U32 iter = 0; iter < ITERATIONS; iter++) {
++        run_concurrent(cfg);
++    }
++}
++
++// Extreme contention: many threads fighting over a tiny queue.
++TEST(TsanStress, TinyQueueHighContention) {
++    constexpr U32 ITERATIONS = 50;
++    const ConcurrentConfig cfg{4, 8, 8, 500, 0, priority_mod8, false};
++    for (U32 iter = 0; iter < ITERATIONS; iter++) {
++        run_concurrent(cfg);
++    }
++}
++
++// Asymmetric: many producers, few consumers -- queue spends time near FULL.
++TEST(TsanStress, ManyProducersFewConsumers) {
++    constexpr U32 ITERATIONS = 20;
++    const ConcurrentConfig cfg{16, 12, 2, 1000, 0, priority_mod8, false};
++    for (U32 iter = 0; iter < ITERATIONS; iter++) {
++        run_concurrent(cfg);
++    }
++}
++
++// Asymmetric: few producers, many consumers -- queue spends time near EMPTY.
++TEST(TsanStress, FewProducersManyConsumers) {
++    constexpr U32 ITERATIONS = 20;
++    const ConcurrentConfig cfg{16, 2, 12, 5000, 0, priority_mod8, false};
++    for (U32 iter = 0; iter < ITERATIONS; iter++) {
++        run_concurrent(cfg);
++    }
++}
++
++// =======================================================================
++// Adversarial Scenarios
++// =======================================================================
++
++// Depth-1 queue: maximum contention per slot. Every send/receive pair must
++// race for the single slot, exercising the CAS retry logic at its tightest.
++TEST(Adversarial, DepthOnePingPong) {
++    constexpr U32 ITERATIONS = 50;
++    const ConcurrentConfig cfg{1, 4, 4, 500, 0, priority_mod8, false};
++    for (U32 iter = 0; iter < ITERATIONS; iter++) {
++        run_concurrent(cfg);
++    }
++}
++
++// Full-queue storm: pre-fill the queue, then unleash many producers (all get FULL)
++// while consumers drain. Verifies no message is lost during the transition.
++TEST(Adversarial, FullQueueStorm) {
++    const ConcurrentConfig cfg{16, 8, 8, 2000, 16, nullptr, false};
++    run_concurrent(cfg);
++}
++
++// Single-slot ping-pong: one producer, one consumer, depth=1. The tightest
++// possible producer-consumer handoff through the atomic state machine.
++TEST(Adversarial, SingleSlotPingPong) {
++    constexpr FwSizeType DEPTH = 1;
++    constexpr U32 MESSAGES = 50000;
++
++    Os::Queue queue;
++    Fw::String name("ping-pong");
++    ASSERT_EQ(queue.create(0, name, DEPTH, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++
++    std::thread producer([&queue, MESSAGES]() {
++        for (U32 i = 0; i < MESSAGES; i++) {
++            U8 buffer[sizeof(U32)] = {0};
++            pack_u32(i, buffer);
++            Os::QueueInterface::Status status = Os::QueueInterface::Status::FULL;
++            while (status == Os::QueueInterface::Status::FULL) {
++                status = queue.send(buffer, sizeof(U32), 0, Os::QueueInterface::BlockingType::NONBLOCKING);
++                if (status == Os::QueueInterface::Status::FULL) {
++                    std::this_thread::yield();
++                }
++            }
++        }
++    });
++
++    std::thread consumer([&queue, MESSAGES]() {
++        U32 expected = 0;
++        while (expected < MESSAGES) {
++            U8 buffer[sizeof(U32)] = {0};
++            FwSizeType actualSize = 0;
++            FwQueuePriorityType priority = 0;
++            Os::QueueInterface::Status status =
++                queue.receive(buffer, sizeof(U32), Os::QueueInterface::BlockingType::NONBLOCKING, actualSize, priority);
++            if (status == Os::QueueInterface::Status::OP_OK) {
++                ASSERT_EQ(actualSize, sizeof(U32));
++                // With 1P/1C/depth=1, messages must arrive in FIFO order
++                ASSERT_EQ(unpack_u32(buffer), expected) << "out-of-order at expected=" << expected;
++                expected++;
++            } else {
++                std::this_thread::yield();
++            }
++        }
++    });
++
++    producer.join();
++    consumer.join();
++    queue.teardown();
++}
++
++// Verify that high-water mark is exact under contention. The queue is pre-filled to DEPTH
++// before any consumer starts, so the mark must equal DEPTH; the count invariant (increment
++// before READY, decrement before FREE) guarantees it can never exceed DEPTH.
++TEST(Adversarial, HighWaterMarkAccuracy) {
++    const ConcurrentConfig cfg{16, 8, 1, 2000, 16, nullptr, true};
++    run_concurrent(cfg);
++}
++
++// Deterministic high-water mark: send 3, drain, send 1 -- the mark must be exactly 3.
++TEST(Adversarial, HighWaterMarkIntermediate) {
++    Os::Queue queue;
++    Fw::String name("high-mark-intermediate");
++    ASSERT_EQ(queue.create(0, name, 8, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++    U8 buffer[sizeof(U32)] = {0};
++    for (U32 i = 0; i < 3; i++) {
++        pack_u32(i, buffer);
++        ASSERT_EQ(queue.send(buffer, sizeof(U32), 0, Os::QueueInterface::BlockingType::NONBLOCKING),
++                  Os::QueueInterface::Status::OP_OK);
++    }
++    FwSizeType actualSize = 0;
++    FwQueuePriorityType priority = 0;
++    for (U32 i = 0; i < 3; i++) {
++        ASSERT_EQ(
++            queue.receive(buffer, sizeof(U32), Os::QueueInterface::BlockingType::NONBLOCKING, actualSize, priority),
++            Os::QueueInterface::Status::OP_OK);
++    }
++    pack_u32(0, buffer);
++    ASSERT_EQ(queue.send(buffer, sizeof(U32), 0, Os::QueueInterface::BlockingType::NONBLOCKING),
++              Os::QueueInterface::Status::OP_OK);
++    EXPECT_EQ(queue.getMessageHighWaterMark(), 3u);
++    queue.teardown();
++}
++
++// Blocking-path stress: producers use BLOCKING sends into a small queue while consumers use
++// BLOCKING receives, exercising the backoff/delay control flow under TSan.
++TEST(Adversarial, BlockingPathStress) {
++    static constexpr FwSizeType DEPTH = 4;
++    static constexpr U32 THREADS = 4;
++    static constexpr U32 MESSAGES_PER_PRODUCER = 1000;
++    static constexpr U32 TOTAL = THREADS * MESSAGES_PER_PRODUCER;
++
++    Os::Queue queue;
++    Fw::String name("blocking-stress");
++    ASSERT_EQ(queue.create(0, name, DEPTH, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++
++    std::atomic<U32> received[TOTAL];
++    for (U32 i = 0; i < TOTAL; i++) {
++        received[i].store(0, std::memory_order_relaxed);
++    }
++
++    std::thread producers[THREADS];
++    for (U32 t = 0; t < THREADS; t++) {
++        producers[t] = std::thread([&queue, t]() {
++            for (U32 i = 0; i < MESSAGES_PER_PRODUCER; i++) {
++                U8 buffer[sizeof(U32)] = {0};
++                pack_u32((t * MESSAGES_PER_PRODUCER) + i, buffer);
++                ASSERT_EQ(queue.send(buffer, sizeof(U32), 0, Os::QueueInterface::BlockingType::BLOCKING),
++                          Os::QueueInterface::Status::OP_OK);
++            }
++        });
++    }
++
++    std::thread consumers[THREADS];
++    for (U32 t = 0; t < THREADS; t++) {
++        consumers[t] = std::thread([&queue, &received]() {
++            for (U32 i = 0; i < MESSAGES_PER_PRODUCER; i++) {
++                U8 buffer[sizeof(U32)] = {0};
++                FwSizeType actualSize = 0;
++                FwQueuePriorityType priority = 0;
++                ASSERT_EQ(queue.receive(buffer, sizeof(U32), Os::QueueInterface::BlockingType::BLOCKING, actualSize,
++                                        priority),
++                          Os::QueueInterface::Status::OP_OK);
++                const U32 value = unpack_u32(buffer);
++                ASSERT_LT(value, TOTAL);
++                received[value].fetch_add(1, std::memory_order_acq_rel);
++            }
++        });
++    }
++
++    for (U32 t = 0; t < THREADS; t++) {
++        producers[t].join();
++    }
++    for (U32 t = 0; t < THREADS; t++) {
++        consumers[t].join();
++    }
++    for (U32 i = 0; i < TOTAL; i++) {
++        EXPECT_EQ(received[i].load(std::memory_order_relaxed), 1u) << "value " << i;
++    }
++    EXPECT_EQ(queue.getMessagesAvailable(), 0u);
++    queue.teardown();
++}
++
++// Create-teardown-recreate: verify the queue is fully functional after
++// a teardown + create cycle. Tests internal state cleanup. Each
++// run_concurrent invocation performs a full create/use/teardown cycle.
++TEST(Adversarial, CreateTeardownRecreate) {
++    constexpr U32 CYCLES = 5;
++    const ConcurrentConfig cfg{8, 4, 4, 250, 0, nullptr, false};
++    for (U32 cycle = 0; cycle < CYCLES; cycle++) {
++        run_concurrent(cfg);
++    }
++}
++
++// Sequence-wrap logic test: directly verify that the production comparison,
++// LocklessPriorityQueue::isCandidatePreferred, handles wrap-around of the
++// sequence counter correctly for equal-priority messages.
++TEST(Adversarial, SequenceWrapComparison) {
++    // At equal priority, the candidate is preferred exactly when it is "older"
++    // (smaller in the wrap-aware modular ordering) than the current best.
++    const U32 topBit = static_cast<U32>(1) << (std::numeric_limits<U32>::digits - 1);
++    auto isOlder = [](U32 candidate, U32 best) -> bool {
++        return Os::Generic::LocklessPriorityQueue::isCandidatePreferred(0, candidate, 0, best);
++    };
++
++    // Normal case: candidate < best  =>  candidate is older
++    EXPECT_TRUE(isOlder(5, 10));
++    EXPECT_FALSE(isOlder(10, 5));
++    EXPECT_FALSE(isOlder(5, 5));  // equal => not older
++
++    // Wrap case: candidate near U32_MAX, best near 0  =>  candidate is older
++    EXPECT_TRUE(isOlder(std::numeric_limits<U32>::max() - 5, 3));
++    // Reverse wrap: candidate near 0, best near U32_MAX  =>  candidate is newer
++    EXPECT_FALSE(isOlder(3, std::numeric_limits<U32>::max() - 5));
++
++    // Edge: exactly at the half-way boundary — both directions return true
++    // because (0 - 0x80000000) == (0x80000000 - 0) == 0x80000000 in unsigned
++    // arithmetic. This ambiguity is harmless in production: queue depth is
++    // always far smaller than 2^31, so two active slots can never be exactly
++    // half the U32 domain apart in sequence number.
++    EXPECT_TRUE(isOlder(0, topBit));
++    EXPECT_TRUE(isOlder(topBit, 0));
++
++    // Slightly off the boundary — these ARE well-defined
++    EXPECT_FALSE(isOlder(0, topBit + 1));  // 0 is newer than topBit+1
++    EXPECT_TRUE(isOlder(topBit + 1, 0));   // topBit+1 is older than 0
++    EXPECT_TRUE(isOlder(0, topBit - 1));   // 0 is older than topBit-1
++    EXPECT_FALSE(isOlder(topBit - 1, 0));  // topBit-1 is newer than 0
++}
++
++// Mixed priority under contention: producers send messages with varying
++// priorities. The concurrent phase verifies exactly-once delivery and
++// per-priority distribution; the deterministic phase verifies strict
++// highest-priority-first selection with FIFO tie-breaking.
++TEST(Adversarial, MixedPriorityContention) {
++    constexpr FwSizeType DEPTH = 32;
++    constexpr U32 NUM_PRIORITIES = MAX_PRIORITIES;
++
++    // Concurrent phase: exactly-once delivery and per-priority distribution under contention.
++    const ConcurrentConfig cfg{DEPTH, 4, 4, 2000, 0, priority_mod8, false};
++    run_concurrent(cfg);
++
++    // Deterministic phase: with no concurrent senders, fill the queue with a shuffled mix of
++    // priorities and verify a single-threaded drain returns strictly highest-priority-first,
++    // FIFO within equal priorities.
++    Os::Queue queue;
++    Fw::String name("mixed-prio");
++    ASSERT_EQ(queue.create(0, name, DEPTH, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++    for (U32 i = 0; i < static_cast<U32>(DEPTH); i++) {
++        U8 buffer[sizeof(U32)] = {0};
++        pack_u32(i, buffer);
++        const FwQueuePriorityType priority = static_cast<FwQueuePriorityType>((i * 5) % NUM_PRIORITIES);
++        ASSERT_EQ(queue.send(buffer, sizeof(U32), priority, Os::QueueInterface::BlockingType::NONBLOCKING),
++                  Os::QueueInterface::Status::OP_OK);
++    }
++    FwQueuePriorityType lastPriority = static_cast<FwQueuePriorityType>(NUM_PRIORITIES - 1);
++    U32 lastValue = 0;
++    bool havePrevious = false;
++    for (U32 i = 0; i < static_cast<U32>(DEPTH); i++) {
++        U8 buffer[sizeof(U32)] = {0};
++        FwSizeType actualSize = 0;
++        FwQueuePriorityType priority = 0;
++        ASSERT_EQ(
++            queue.receive(buffer, sizeof(U32), Os::QueueInterface::BlockingType::NONBLOCKING, actualSize, priority),
++            Os::QueueInterface::Status::OP_OK);
++        const U32 value = unpack_u32(buffer);
++        if (havePrevious && (priority == lastPriority)) {
++            EXPECT_LT(lastValue, value) << "equal-priority FIFO violated at priority " << priority;
++        } else {
++            EXPECT_LE(priority, lastPriority) << "priority order violated";
++        }
++        lastPriority = priority;
++        lastValue = value;
++        havePrevious = true;
++    }
++    EXPECT_EQ(queue.getMessagesAvailable(), 0u);
++    queue.teardown();
++}
++
++// Rapid teardown after drain: multiple consumers race to drain the queue,
++// then teardown() is called immediately (by the harness, right after the
++// joins). Verifies no use-after-free.
++TEST(Adversarial, RapidDrainThenTeardown) {
++    const ConcurrentConfig cfg{64, 1, 8, 9936, 64, nullptr, false};
++    run_concurrent(cfg);
++}
++
++// Batched priority selection under contention: publish a full batch of mixed
++// priorities with no consumer running, release all consumers through a
++// barrier, and drain concurrently. Because the batch only shrinks during the
++// drain, the highest available priority is non-increasing over time, so each
++// consumer's own receive sequence must be non-increasing if every receive
++// selects the highest priority available at its claim instant. The combined
++// per-priority counts must also match the batch exactly.
++TEST(Adversarial, BatchedPriorityDrain) {
++    constexpr FwSizeType DEPTH = 32;
++    constexpr U32 CONSUMERS = 4;
++    constexpr U32 BATCHES = 200;
++    constexpr U32 NUM_PRIORITIES = MAX_PRIORITIES;
++
++    Os::Queue queue;
++    Fw::String name("batched-prio");
++    ASSERT_EQ(queue.create(0, name, DEPTH, sizeof(U32)), Os::QueueInterface::Status::OP_OK);
++
++    for (U32 batch = 0; batch < BATCHES; batch++) {
++        // Publish a full batch of shuffled priorities with no consumer running.
++        U32 sentByPriority[NUM_PRIORITIES] = {0};
++        for (U32 i = 0; i < static_cast<U32>(DEPTH); i++) {
++            U8 buffer[sizeof(U32)] = {0};
++            pack_u32(i, buffer);
++            const FwQueuePriorityType priority = static_cast<FwQueuePriorityType>(((i * 5) + batch) % NUM_PRIORITIES);
++            sentByPriority[priority]++;
++            ASSERT_EQ(queue.send(buffer, sizeof(U32), priority, Os::QueueInterface::BlockingType::NONBLOCKING),
++                      Os::QueueInterface::Status::OP_OK);
++        }
++
++        std::atomic<U32> claimed(0);
++        std::atomic<U32> receivedByPriority[NUM_PRIORITIES];
++        for (U32 i = 0; i < NUM_PRIORITIES; i++) {
++            receivedByPriority[i].store(0, std::memory_order_relaxed);
++        }
++        std::atomic<U32> readyCount(0);
++        std::atomic<bool> go(false);
++
++        std::thread consumers[CONSUMERS];
++        for (U32 t = 0; t < CONSUMERS; t++) {
++            consumers[t] = std::thread([&queue, &claimed, &receivedByPriority, &readyCount, &go, batch, DEPTH]() {
++                // Barrier: wait until every consumer is ready so the drain is contended.
++                readyCount.fetch_add(1, std::memory_order_acq_rel);
++                while (!go.load(std::memory_order_acquire)) {
++                    std::this_thread::yield();
++                }
++                U8 buffer[sizeof(U32)] = {0};
++                FwSizeType actualSize = 0;
++                FwQueuePriorityType priority = 0;
++                FwQueuePriorityType lastPriority = 0;
++                bool havePrevious = false;
++                while (claimed.load(std::memory_order_acquire) < static_cast<U32>(DEPTH)) {
++                    Os::QueueInterface::Status status = queue.receive(
++                        buffer, sizeof(U32), Os::QueueInterface::BlockingType::NONBLOCKING, actualSize, priority);
++                    if (status == Os::QueueInterface::Status::OP_OK) {
++                        // The drained set only shrinks, so this consumer's own receive
++                        // sequence must be non-increasing in priority.
++                        if (havePrevious) {
++                            ASSERT_LE(priority, lastPriority) << "batch=" << batch;
++                        }
++                        lastPriority = priority;
++                        havePrevious = true;
++                        receivedByPriority[priority].fetch_add(1, std::memory_order_acq_rel);
++                        claimed.fetch_add(1, std::memory_order_acq_rel);
++                    } else {
++                        std::this_thread::yield();
++                    }
++                }
++            });
++        }
++
++        while (readyCount.load(std::memory_order_acquire) < CONSUMERS) {
++            std::this_thread::yield();
++        }
++        go.store(true, std::memory_order_release);
++        for (U32 t = 0; t < CONSUMERS; t++) {
++            consumers[t].join();
++        }
++
++        ASSERT_EQ(claimed.load(std::memory_order_acquire), static_cast<U32>(DEPTH));
++        for (U32 p = 0; p < NUM_PRIORITIES; p++) {
++            EXPECT_EQ(receivedByPriority[p].load(std::memory_order_relaxed), sentByPriority[p])
++                << "batch=" << batch << " priority=" << p;
++        }
++        ASSERT_EQ(queue.getMessagesAvailable(), 0u);
++    }
++    queue.teardown();
++}
++
++}  // namespace
++
++int main(int argc, char** argv) {
++    ::testing::InitGoogleTest(&argc, argv);
++    return RUN_ALL_TESTS();
++}
+diff --git a/Os/docs/sdd.md b/Os/docs/sdd.md
+index 24c1027f6bc..4fde0897e0c 100644
+--- a/Os/docs/sdd.md
++++ b/Os/docs/sdd.md
+@@ -61,6 +61,7 @@ Generic services are implemented in the `Os::Generic` namespace and are not tied
+ | Service | Purpose |
+ |---|---|
+ | **PriorityQueue** | Heap-based priority queue implementation |
++| **LocklessPriorityQueue** | Lockless ISR-safe priority queue implementation |
+ | **FilePathUtils** | Textual path resolution (collapsing `.`/`..`/`//`) and directory-containment checking. No filesystem access; suitable for embedded targets. |
+ | **SandboxedFile** | Composition wrapper around `Os::File` that validates all paths on `open()` against a configured allowed directory, preventing path-traversal attacks. |
+ 
+diff --git a/default/config/CMakeLists.txt b/default/config/CMakeLists.txt
+index 4a97b2858a1..f136153df96 100644
+--- a/default/config/CMakeLists.txt
++++ b/default/config/CMakeLists.txt
+@@ -37,6 +37,7 @@ register_fprime_config(
+         "${CMAKE_CURRENT_LIST_DIR}/FpConfig.hpp"
+         "${CMAKE_CURRENT_LIST_DIR}/FPrimeNumericalConfig.h"
+         "${CMAKE_CURRENT_LIST_DIR}/IpCfg.hpp"
++        "${CMAKE_CURRENT_LIST_DIR}/LocklessQueueCfg.hpp"
+         "${CMAKE_CURRENT_LIST_DIR}/OsDelegateRawTime.hpp"
+         "${CMAKE_CURRENT_LIST_DIR}/PassiveTextLoggerCfg.hpp"
+         "${CMAKE_CURRENT_LIST_DIR}/PrmDbImplCfg.hpp"
+diff --git a/default/config/LocklessQueueCfg.hpp b/default/config/LocklessQueueCfg.hpp
+new file mode 100644
+index 00000000000..0eca0b6d0e9
+--- /dev/null
++++ b/default/config/LocklessQueueCfg.hpp
+@@ -0,0 +1,46 @@
++// ======================================================================
++// \title  LocklessQueueCfg.hpp
++// \brief  configuration for Os::Generic::LocklessPriorityQueue
++//
++// \copyright
++// Copyright 2009-2015, by the California Institute of Technology.
++// ALL RIGHTS RESERVED.  United States Government Sponsorship
++// acknowledged.
++//
++// ======================================================================
++#ifndef CONFIG_LOCKLESSQUEUECFG_HPP
++#define CONFIG_LOCKLESSQUEUECFG_HPP
++
++#include "Fw/FPrimeBasicTypes.hpp"
++
++namespace Os {
++namespace Generic {
++
++//! Unsigned integral type of the lockless queue slot state-tag word. The low STATE_BITS hold the
++//! slot state; the remaining bits hold the ABA epoch tag. `std::atomic` of this type must be
++//! lock-free on the target platform (never-lock-free widths are rejected at compile time; the
++//! authoritative check is runtime-asserted at create()). Platforms without lock-free 64-bit atomics may configure a
++//! narrower type (U32, U16, or U8), shrinking the ABA tag by the same amount (62, 30, 14, or 6
++//! tag bits respectively; see SDD sections 4 and 15 for the wrap consequence and a WARNING on
++//! the narrow-tag ordering risk).
++using LocklessStateTagType = U64;
++
++//! Backoff (microseconds) between bounded scans on the BLOCKING send/receive paths. Shorter
++//! values lower message latency; longer values lower idle CPU use of blocked threads. Must be
++//! greater than 0: a zero backoff could livelock on a strict-priority scheduler.
++constexpr U32 LOCKLESS_QUEUE_BLOCKING_BACKOFF_US = 100;
++
++//! Alignment (bytes) of each queue slot. Set to the target's cache-line size (typically 64) to
++//! avoid false sharing between adjacent slots under contention; smaller power-of-two values
++//! reduce memory use on constrained targets.
++constexpr FwSizeType LOCKLESS_QUEUE_SLOT_ALIGNMENT = 64;
++
++//! Retry passes through the slot array before a NONBLOCKING operation returns FULL/EMPTY.
++//! Larger values reduce spurious FULL/EMPTY under contention at the cost of a larger bound
++//! on non-blocking call time (`depth * passes`).
++constexpr FwSizeType LOCKLESS_QUEUE_MAX_RETRY_PASSES = 4;
++
++}  // namespace Generic
++}  // namespace Os
++
++#endif  // CONFIG_LOCKLESSQUEUECFG_HPP
+diff --git a/docs/how-to/integrate/implement-osal.md b/docs/how-to/integrate/implement-osal.md
+index d08a4aa21ed..5e6f9cf383d 100644
+--- a/docs/how-to/integrate/implement-osal.md
++++ b/docs/how-to/integrate/implement-osal.md
+@@ -330,7 +330,7 @@ The process described above for `Os::Mutex` is the same for every OSAL module. F
+ 4. Register with `register_os_implementation` in `CMakeLists.txt`.
+ 
+ > [!NOTE]
+-> F´ provides `Os_Generic_PriorityQueue`, a platform-independent queue implementation that most platforms use. You do not need to write an OS-specific queue unless the generic one is unsuitable for your target.
++> F´ provides two platform-independent queue implementations: `Os_Generic_PriorityQueue` (mutex-based — the default on most platforms) and `Os_Generic_LocklessPriorityQueue` (lockless, ISR-safe — opt-in for targets that send or receive from interrupt context). You do not need to write an OS-specific queue unless neither generic implementation is suitable for your target.
+ 
+ The full set of [OSAL modules](../../../Os/docs/sdd.md#2-core-services) that can be implemented is:
+ 
+diff --git a/docs/reference/system-functional/osal.md b/docs/reference/system-functional/osal.md
+index 03bb60fb122..b4d935f456a 100644
+--- a/docs/reference/system-functional/osal.md
++++ b/docs/reference/system-functional/osal.md
+@@ -45,6 +45,7 @@ The console service provides a mechanism for writing messages to the system cons
+ In addition to the platform-specific core services, the OSAL provides generic services that are implemented independently of the underlying OS:
+ 
+ - **Priority Queue** — A heap-based priority queue implementation used by the framework for priority-aware message dispatch.
++- **Lockless Priority Queue** — An opt-in, lockless, ISR-safe priority queue with at-initialization memory allocation, for targets that send or receive messages from interrupt context.
+ 
+ ### Implementation Architecture
+ 

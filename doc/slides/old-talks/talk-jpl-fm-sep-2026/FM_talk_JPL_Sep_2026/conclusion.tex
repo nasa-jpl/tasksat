@@ -1,0 +1,32 @@
+%----------------------------------------
+\begin{frame}
+  \frametitle{What thirty years suggests} \small
+
+\begin{itemize}
+\item {\bf Write the property down.} Most of the value arrives before any tool
+      runs. Every project above started with someone stating, precisely, what must
+      be true --- and the two DS1 properties were written by the programmers, not
+      by us.
+
+\pause
+\item {\bf Temporal logic is the common currency.} The same $\Box(p \rightarrow
+      \Diamond q)$ was checked over all executions of a model, over one telemetry
+      stream, and over a test that did not exist yet.
+
+\item {\bf Pick the method to fit the object you have.} A design and no code:
+      model checking. A running system and a log: runtime verification. Source and
+      nothing else: static analysis. A guarantee that must hold for unbounded runs:
+      proof. No object at all, and you need a test or a schedule: constraint solving.
+
+\pause
+\item {\bf The bottleneck was always the model, never the checker.} That is
+      exactly the bottleneck LLMs now attack --- with the sound tool still doing
+      the deciding.
+
+\pause
+\item {\bf Concurrency is where this pays.} Testing samples one interleaving.
+      Every defect in this talk lived in the gap between a check and the act that
+      depended on it.
+\end{itemize}
+
+\end{frame}

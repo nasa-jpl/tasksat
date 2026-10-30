@@ -1,0 +1,48 @@
+% Adversarial Development of Component Based Systems using AI
+% Klaus Havelund - AISoLA 2026, track: AI Assisted Programming - 20 minutes
+
+\documentclass{beamer}
+
+\title{Adversarial Development of\\Component Based Systems using AI}
+
+\author[Bocchino, Havelund, Rouquette]{Robert Bocchino, {\bf Klaus Havelund}, Nicolas Rouquette\\[0.35cm]
+\includegraphics[width=5.2cm]{figures/jpl-logo.png}}
+
+\date[]{AISoLA 2026 --- AI Assisted Programming}
+
+\mode<presentation>
+{
+\usetheme{Madrid}
+\setbeamercovered{transparent=5}
+\setbeamertemplate{navigation symbols}{}
+}
+
+\input{preamble}
+
+\setbeamertemplate{footline}{%
+  \leavevmode%
+  \hbox{%
+    \begin{beamercolorbox}[wd=\paperwidth,ht=1.6ex,dp=0.2ex,leftskip=0.6em,rightskip=0.6em]{author in head/foot}%
+      \usebeamerfont{author in head/foot}%
+      \fontsize{5}{5}\selectfont \copyright 2026.
+      All rights reserved. This document has been reviewed and the information being released does not contain export controlled technical data%
+      \hfill%
+      \fontsize{5}{5}\selectfont \insertframenumber/\inserttotalframenumber%
+    \end{beamercolorbox}%
+  }%
+}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\input{intro}        %  3 min   the setting, the idea, the tool
+\input{tour}         %  5 min   the tool, in screenshots
+\input{lean}         %  4 min   models, properties, proofs, the deployment
+\input{monitor}      %  4 min   instrumentation and DejaVuMT
+\input{lessons}      %  3 min   automation bias, challenges
+\input{questions}    %  --
+
+\end{document}

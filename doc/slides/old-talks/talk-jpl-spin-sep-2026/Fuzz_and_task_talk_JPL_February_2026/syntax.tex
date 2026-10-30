@@ -1,0 +1,284 @@
+
+%----------------------------------------
+\begin{frame}[fragile]
+  \frametitle{Commands and tests} \small
+
+\begin{definition}[Command]
+A command is a dictionary mapping command name and arguments:
+
+\begin{lstlisting}[language=python,frame=single]
+Command = Dict[str, Union[int, float, str]]
+\end{lstlisting}
+\end{definition}
+
+Example of command $goto(x=100,y=200)$:
+
+\[
+["name" : "goto", "x": 100, "y": 200]
+\]
+
+\pause
+\begin{definition}[Test]
+A test is a list of commands
+
+\begin{lstlisting}[language=python,frame=single]
+Test = list[Command]
+\end{lstlisting}
+\end{definition}
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}<0>{Hidden slide}
+  \frametitle{Matching Temporal Logic (MaTL) - the match construct} \small
+
+Consider the trace:
+
+\[ 
+[ 
+open(file=\texttt{"log"}, mode=\texttt{"r"}),
+read(file=\texttt{"log"}),
+close(file=\texttt{"log"})
+]
+\]
+
+\pause
+
+\begin{block}{We want a formula of the form}
+\begin{equation*}
+\begin{aligned}
+\varphi \;::=&\; ...  \;|\; \langle id(m) \rangle \varphi \;|\; ...
+\end{aligned}
+\end{equation*}
+\end{block}
+
+\pause
+
+\vspace{0.2cm}
+
+For example, at the first trace position the following formula is true,
+\underline{binding $f$ to $\texttt{"log"}$},
+if $\varphi$ thereafter is true in scope of this binding:
+
+\[
+\langle open(file=f?, mode="r") \rangle \varphi
+\]
+
+\pause
+
+\vspace{0.2cm}
+
+At the last position the following formula is true, \underline{assuming $f$ is in scope} and denotes $\texttt{"log"}$), if $\varphi$ is thereafter true:
+
+\[
+\langle close(file=f) \rangle \varphi
+\]
+
+\end{frame}
+
+%----------------------------------------
+
+\begin{frame}<0>
+  \frametitle{A test is a list of commands} \small
+
+\begin{block}{Property}\scriptsize
+If at some position in the test there is a MOVE command with a distance `$d$’, then later there must be a ROTATE command
+with an angle `$a$’ such that the predicate $P(d,a)$ holds.
+\end{block}
+
+\begin{figure}
+\includegraphics[width=1.0\textwidth]{figures/slide1.png}
+%\caption{Your caption}
+\end{figure}
+
+\begin{block}{}\scriptsize
+A test is a sequence of commands. A test
+can satisfy a temporal property or not.
+\end{block}
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}<0>
+  \frametitle{MaTL syntax} \small
+
+\begin{equation*}
+\begin{aligned}
+\varphi \;::=&\; \true 
+  \;|\; \neg \varphi 
+  \;|\; \varphi_1 \lor \varphi_2 \pause
+  \;|\; \langle id(m) \rangle \varphi \pause
+  \;|\; e_1 \; \diamond \; e_2 
+  \;|\; e \vdash r \\[0.5ex] \pause
+    & \Next \varphi 
+  \;|\; \varphi_1 \until \varphi_2 
+  \;|\; \prev \varphi 
+  \;|\; \varphi_1 \since \varphi_2 \pause
+  \;|\; \Sigma^{+}_{[a,b]} \varphi 
+  \;|\; \Sigma^{-}_{[a,b]} \varphi \\[0.5ex] \pause \\
+m \;::=&\; \epsilon \;|\; m_1 \; m_2 \;|\; id = p \\[0.5ex]
+p \;::=&\; x? \;|\; x \;|\; c \;|\; id_1.id_2 \\[0.5ex] \pause \\
+e \;::=&\; x \;|\; c \;|\; id_1.id_2 \;|\; e_1 \; \otimes \; e_2 \\[0.5ex]
+\diamond \;::=&\; < \;|\; \le \;|\; = \;|\; \neq \;|\; \ge \;|\; > \\[0.5ex]
+\otimes \;::=&\; + \;|\; - \;|\; \times \;|\; \div 
+\end{aligned}
+\end{equation*}
+
+\end{frame}
+
+
+%----------------------------------------
+\begin{frame}<0>
+  \frametitle{Example} \small
+
+\begin{block}{Requirement}
+Whenever a file f is opened, it is eventually closed.
+\end{block}
+
+What we can write using the core syntax:
+
+\[
+\neg (\true \until (\langle open(file=f?)\rangle \neg(\true \until close(file=f))))
+\]
+
+\pause
+
+We might instead want to to write:
+
+%\[
+%\Box ( [ open(file=f?) ] \Diamond close(file=f))
+%\]
+
+%\pause
+
+%Or even:
+
+\[
+\Box (open(file=f?) \Rightarrow \Diamond close(file=f))
+\]
+
+\vspace{0.2cm}
+
+% The latter two forms are derived syntax.
+
+The last form is {\bf derived} syntax.
+
+\end{frame}
+
+
+%----------------------------------------
+\begin{frame}<0>
+  \frametitle{Derived syntax} \small
+
+\[
+\begin{array}{rcl@{\hspace{2em}}ll}
+
+\false & = & \neg \true                     & \text{false} & (1)\\
+
+\varphi_1 \wedge \varphi_2 &=& \neg(\neg \varphi_1 \vee \neg \varphi_2) & \text{and} & (2)  \\
+
+\varphi_1 \rightarrow \varphi_2 &=& \neg \varphi_1 \vee \varphi_2       & \text{implication} & (3) \\
+
+%e_1 \diamond_1 e_2 \diamond_2 e_3 &=& e_1 \diamond_1 e_2 \wedge e_2 \diamond_2 e_3 & \text{ternary relation} & (4)\\ 
+
+\\
+
+%\pause
+
+[id(m)] \varphi &=& \neg \langle id(m) \rangle \neg \varphi & \text{universal modality} & (5)\\ 
+
+%\pause
+
+%id(m) \Rightarrow  \varphi &=& [id(m)] \varphi & \text{universal modality} & (6)\\
+
+%\pause
+
+%id(m) \bullet \varphi &=& \langle id(m) \rangle \varphi & \text{existential modality} & (7)\\
+
+%\pause
+
+id(m) &=& \langle id(m) \rangle \true      & \text{event occurrence} & (8)\\
+
+\\
+
+%\pause
+
+\Diamond \varphi &=& \true \until \varphi & \text{eventually in the future} & (9)\\
+
+\Box \varphi &=& \neg \Diamond \neg \varphi & \text{always in the future} & (10)\\
+
+\DDiamond \varphi &=& \true \since \varphi & \text{sometime in the past} & (11)\\
+
+\BBox \varphi &=& \neg \DDiamond \neg \varphi & \text{always in the past} & (12)\\ \\
+
+\varphi_1 \wuntil \varphi_2 &=& (\varphi_1 \until \varphi_2) \vee \Box \varphi_1 & \text{weak until} & (13)\\
+
+\varphi_1 \wsince \varphi_2 &=& (\varphi_1 \since \varphi_2) \vee \BBox \varphi_1 & \text{weak since} & (14)\\
+
+\wnext \varphi &=& \next \varphi \vee \neg \next \true & \text{weak next} & (15)\\
+
+\wprev \varphi &=& \prev \varphi \vee \neg \prev \true & \text{weak previous} & (16)\\
+
+\end{array}
+\]
+
+\end{frame}
+
+
+%----------------------------------------
+\begin{frame}<0>
+  \frametitle{Derived syntax} \small
+
+\[
+\begin{array}{rcl@{\hspace{2em}}ll}
+
+\Sigma^{+}_{a} \varphi  &=& \Sigma^{+}_{[a,a]} \varphi & \text{future exact count} & (17)\\
+
+\Sigma^{-}_{a} \varphi &=& \Sigma^{-}_{[a,a]} \varphi & \text{past exact count} & (18)\\
+
+%\pause
+
+\Next_a \varphi &=& \Next \Next ... \Next  \varphi  \quad (\text{a times}) & \text{a steps in future} & (19)\\
+
+\prev_a \varphi &=& \prev \prev ... \prev \varphi \quad (\text{a times}) & \text{a steps in past} & (20)\\
+
+\end{array}
+\]
+
+\end{frame}
+
+
+%----------------------------------------
+\begin{frame}<0>
+  \frametitle{A small file example} \small
+
+An example trace:
+
+\[ 
+[
+open(file=\texttt{"log"}, mode=\texttt{"r"}),
+read(file=\texttt{"log"}),
+close(file=\texttt{"log"})
+]
+\]
+
+\pause
+
+\begin{block}{Requirement}
+(1) Whenever a file $f$ is opened, it is eventually closed.\\
+(2) Whenever a file $f$ is read from, in the past it has been opened in read mode, and not closed since.\\
+(3) There should be one open event in read mode.
+\end{block}
+
+\pause
+
+\begin{equation*}
+\begin{aligned}
+(1) \;&\; \Box (open(file=f?) \Rightarrow \Diamond close(file=f)) \\[0.5ex]
+(2) \;&\; \Box (read(file=f?) \Rightarrow \neg close(file=f) \since open(file=f, mode=\texttt{"r"}) \\[0.5ex]
+(3) \;&\; \Sigma^{+}_1 open(mode=\texttt{"r"})
+\end{aligned}
+\end{equation*}
+
+\end{frame}
+

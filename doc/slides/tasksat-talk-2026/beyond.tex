@@ -1,0 +1,152 @@
+%----------------------------------------
+\begin{frame}[fragile]
+  \frametitle{Realizability: the vacuity trap} \small
+
+\begin{lstlisting}
+initial { battery in [0.0, 59.0]; }
+
+task work {
+  start_range [10, 10];  duration 20;
+  pre     { battery in [30.0, 100.0]; }
+  impacts { post { battery += 20.0; } }
+}
+\end{lstlisting}
+
+\begin{itemize}
+\item {\bf Validity} passes: \zthree{} picks a battery $\ge 30$.
+\item {\bf Properties} are vacuously true for battery $< 30$: there are no schedules to violate them.
+\end{itemize}
+
+\pause
+\vspace{0.1cm}
+$\forall i\, \exists s$ finds the problem:
+
+\begin{lstlisting}[style=shell]
+=== Phase 3: Realizability Check (AE) ===
+  [iter 1] trying initial state: battery = 0
+  -> VIOLATED!
+  Initial state with no valid schedule:
+    battery = 0
+\end{lstlisting}
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}
+  \frametitle{Realizability by CEGIS} \small
+
+$\forall\exists$ over nonlinear arithmetic is too hard to hand to \zthree{} directly. Instead:
+
+\vspace{0.2cm}
+{\centering
+\begin{tikzpicture}[font=\scriptsize, >=Stealth,
+  b/.style={draw, rounded corners=2pt, align=center, minimum height=0.9cm, text width=3.1cm, fill=blue!5},
+  r/.style={draw, rounded corners=2pt, align=center, minimum height=0.7cm, text width=1.8cm}]
+  \node[b] (pick) at (0,0) {pick an initial state $x^\star$\\not yet covered};
+  \node[b] (solve) at (5.2,0) {find a schedule\\from $x^\star$};
+  \node[b] (block) at (2.6,-2.0) {fix its times $\sigma$; block the\\{\bf whole region} $\sigma$ works for};
+  \node[r, fill=green!10] (h) at (0,1.6) {\holds{}};
+  \node[r, fill=red!8]    (v) at (5.2,1.6) {\violated{}($x^\star$)};
+  \draw[->] (pick) -- (solve);
+  \draw[->] (pick) -- node[left] {none left} (h);
+  \draw[->] (solve) -- node[right] {none} (v);
+  \draw[->] (solve) |- node[right, pos=0.25] {found} (block);
+  \draw[->] (block) -| (pick);
+\end{tikzpicture}\par}
+
+\vspace{0.3cm}
+\begin{itemize}
+\item With the times fixed, the region is a {\bf linear} formula in $x$: exact, not sampled.
+\item One schedule typically covers a large region, so few iterations are needed.
+\end{itemize}
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}[fragile]
+  \frametitle{Compositional: verify once, repeat for free} \small
+
+Missions repeat: drive, localize, downlink, \dots{} 200 times. The solve grows super-linearly with $N$.
+
+\begin{lstlisting}[basicstyle=\ttfamily\tiny]
+taskdef Cycle {                        // a session
+  task activate   : Activate;
+  task deactivate : Deactivate { after activate; }
+}
+invariant compositional { mode = idle; }   // P
+
+task cycle1  : Cycle;
+task cycle2  : Cycle { after cycle1; }   ...
+task cycle20 : Cycle { after cycle19; }
+\end{lstlisting}
+
+\pause
+Project to {\bf one} session $S$ and prove $\{P\}\,S\,\{P\}$ with {\bf two} checks:
+
+\begin{itemize}
+\item {\bf Safety} ($\forall\forall$): every schedule from $P$ ends in $P$.
+\item {\bf Realizability} ($\forall\exists$): from every state in $P$, {\em some} schedule ends in $P$.
+\end{itemize}
+
+Safety alone is the vacuity trap again. Both together give $\forall N.\ \{P\}\,S^N\{P\}$.
+
+\begin{lstlisting}[style=shell,basicstyle=\ttfamily\tiny]
+=== Compositional Proof: {P}S{P} => forall N {P}S^N{P} ===
+  -> HOLDS (safety=holds, realizability=holds)        -- 0.05 s, for any N
+\end{lstlisting}
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}
+  \frametitle{Compositional: the fine print} \small
+
+\begin{itemize}
+\item {\bf Uniformity is enforced.} All session instances must be interchangeable;
+      otherwise a $P$-preserving session followed by a $P$-breaking one would give a false \holds{}.
+      Heterogeneous networks are refused.
+\item {\bf No gap drift is assumed} between sessions (a battery draining while idle).
+\end{itemize}
+
+\pause
+\vspace{0.3cm}
+{\bf On a real \mexec{} network} (199 waypoints):
+
+\begin{itemize}
+\item The full solve does not finish. The cost is the single shared {\bf battery rate timeline},
+      not symmetry and not the number of zones.
+\item As flown, there is no repeating unit: driving and downlink run on independent clocks.
+\item A faithful re-model with one repeating mission cycle \holds{} in 34 seconds, independent of $N$.
+\end{itemize}
+
+\vspace{0.2cm}
+The method works once you {\bf supply} a repeating unit. Finding one is modelling, not solving.
+
+\end{frame}
+
+%----------------------------------------
+\begin{frame}
+  \frametitle{Lint: cheap explanations before the solve} \small
+
+Static checks that run on every verification, in time linear in the spec. They never
+block a run: the solver stays the authority.
+
+\vspace{0.3cm}
+{\centering
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{lp{7.3cm}}
+\toprule
+{\bf Rule} & {\bf Finds} \\
+\midrule
+{\tt unsatisfiable-initial}  & nothing writes $T$, and its initial value fails some condition on $T$ \\
+{\tt unsupported-transition} & a task's {\tt pre} and {\tt inv} on $T$ admit disjoint values, and it does not change $T$ \\
+{\tt unused-timeline}        & declared, never read or written \\
+{\tt no-op-impact}           & an impact of 0 \\
+\bottomrule
+\end{tabular}\par}
+
+\vspace{0.3cm}
+A 50-downlink \mexec{} network lints in 0.17 s; it does not solve in 240 s.
+The findings are {\em advisory}: a timeline nothing in the plan writes may be set from the ground.
+
+\end{frame}

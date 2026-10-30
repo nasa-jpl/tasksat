@@ -1,0 +1,49 @@
+% TaskSAT: Scheduling and Verifying Task Networks with SMT
+% Klaus Havelund - 2026 - 20 minutes
+
+\documentclass{beamer}
+
+\title{\tasksat{}\\[0.1cm]{\large Scheduling and Verifying Task Networks with SMT}}
+
+\author{{\bf Klaus Havelund}\\
+Jet Propulsion Laboratory\\
+California Institute of Technology\\[0.35cm]
+\includegraphics[width=4.2cm]{figures/jpl-logo.png}}
+
+\date[]{JPL --- 2026}
+
+\mode<presentation>
+{
+\usetheme{Madrid}
+\setbeamercovered{transparent=5}
+\setbeamertemplate{navigation symbols}{}
+}
+
+\input{preamble}
+
+\setbeamertemplate{footline}{%
+  \leavevmode%
+  \hbox{%
+    \begin{beamercolorbox}[wd=\paperwidth,ht=1.6ex,dp=0.2ex,leftskip=0.6em,rightskip=0.6em]{author in head/foot}%
+      \usebeamerfont{author in head/foot}%
+      \fontsize{5}{5}\selectfont \copyright 2026.
+      All rights reserved. This document has been reviewed and the information being released does not contain export controlled technical data%
+      \hfill%
+      \fontsize{5}{5}\selectfont \insertframenumber/\inserttotalframenumber%
+    \end{beamercolorbox}%
+  }%
+}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\input{intro}          %  3 min   MEXEC, the four questions, the pipeline
+\input{language}       %  6 min   the Rover example, schedule, UNSAT
+\input{encoding}       %  3 min   zones, the one nonlinear term, properties
+\input{beyond}         %  5 min   realizability, compositional, lint
+\input{conclusion}     %  2 min   the tool, lessons, questions
+
+\end{document}

@@ -1,0 +1,71 @@
+% ICTAC 25 Talk 
+
+%\documentclass[10pt,xcolor=dvipsnames,xcolor=table,handout]{beamer} 
+\documentclass{beamer} 
+
+\title{Testing and Verification of Autonomy\\ with Temporal Constraints}
+
+\author{{\bf Klaus Havelund}, Tracy Clark, Vivek Reddy, Alessandro Pinto\\
+Jet Propulsion Laboratory\\
+California Institute of Technology\\
+%\vspace{1cm}
+%{\scriptsize The research was carried out under a contract\\ with the National Aeronautics and Space Administration.}
+}
+
+\date[]{JPL - February 4, 2026}
+
+
+
+% If you wish to uncover everything in a step-wise fashion, uncomment
+% the following command: 
+%\beamerdefaultoverlayspecification{<+->}
+
+\mode<presentation>
+{ 
+\usetheme{Madrid}
+\setbeamercovered{transparent=5}
+\setbeamertemplate{navigation symbols}{} 
+}
+
+\input{preamble}
+
+% ===\
+
+%\ignore{
+\setbeamertemplate{footline}{%
+  \leavevmode%
+  \hbox{%
+    \begin{beamercolorbox}[wd=\paperwidth,ht=1.6ex,dp=0.2ex,leftskip=0.6em,rightskip=0.6em]{author in head/foot}%
+      \usebeamerfont{author in head/foot}%
+      \fontsize{5}{5}\selectfont \copyright 2026. 
+      All rights reserved. This document has been reviewed and the information being released does not contain export controlled technical data%
+      \hfill%
+      \fontsize{5}{5}\selectfont \insertframenumber/\inserttotalframenumber%
+    \end{beamercolorbox}%
+  }%
+}
+%}
+
+% ===/
+
+\newcommand{\conjarrow}{\mathrel{\&\!\!\!\!\rightarrow}}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\input{basics}
+\input{introduction}
+\input{syntax}
+%\input{semantics}
+\input{example}
+\input{smt}
+\input{refinement}
+%\input{evaluation}
+\input{tasknets}
+\input{conclusion}
+
+\end{document}
+
